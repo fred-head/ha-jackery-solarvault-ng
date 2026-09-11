@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Foreign-host MQTT traffic and invalid message envelopes no longer refresh the
+  configured SolarVault's heartbeat or suppress its silence-based reauthentication hint.
+- Child MQTT entities now expire independently after 60 seconds without reports;
+  cached fan-out cannot revive stale entities. Accepted child statistics and arrays
+  refresh only their reported devices, and valid reports restore availability.
+  Cumulative expansion-battery energy retains its existing no-expiry policy.
+- MQTT health checks no longer change SmartMeter HTTP availability. Invalid HTTP
+  measurements and a lost meter address now count toward the existing three-failure
+  threshold. Stopping during error backoff or switching to a different meter also
+  marks the previous HTTP source unavailable.
 - MQTT updates no longer fail when SmartMeter HTTP sensors are registered alongside
   MQTT entities. HTTP measurements and health remain controlled by HTTP polling.
   Listener removal during MQTT dispatch no longer interrupts remaining updates.

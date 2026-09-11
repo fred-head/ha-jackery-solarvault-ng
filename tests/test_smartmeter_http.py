@@ -195,3 +195,146 @@ async def test_http_poll_health_and_stop_survive_mqtt_updates(mixed_sensors, mon
     for entity in (battery, http, solar):
         await entity.async_will_remove_from_hass()
     assert coordinator._sensors == {}
+
+
+@pytest.fixture
+async def http_poll(mixed_sensors, monkeypatch):
+    """Run the production HTTP loop one completed attempt at a time."""
+    coordinator, _, http, _ = mixed_sensors
+    entry = SimpleNamespace(options={"smartmeter_poll_interval": 10})
+    coordinator.hass = SimpleNamespace(config_entries=SimpleNamespace(async_get_entry=Mock(return_value=entry)))
+    meter = {"deviceSn": "METER", "devType": 3, "subType": 5, "wip": "192.0.2.1"}
+    coordinator._data_cache["cts"] = [meter]
+    coordinator._http_sm_sensors_created = True
+    response = SimpleNamespace(status=200, json=AsyncMock(return_value={"freq": 50}))
+    request = AsyncMock()
+    request.__aenter__.return_value = response
+    session = SimpleNamespace(get=Mock(return_value=request))
+    monkeypatch.setattr(sensor_module, "async_get_clientsession", Mock(return_value=session))
+    paused, resume = asyncio.Queue(), asyncio.Queue()
+
+    async def sleep(delay):
+        await paused.put(delay)
+        await resume.get()
+
+    monkeypatch.setattr(sensor_module.asyncio, "sleep", sleep)
+    task = asyncio.create_task(coordinator._smartmeter_http_poll_loop())
+    coordinator._smartmeter_http_task = task
+    assert await paused.get() == 10
+    assert http.available and http.native_value == 50
+
+    async def poll():
+        await resume.put(None)
+        return await paused.get()
+
+    try:
+        yield SimpleNamespace(
+            coordinator=coordinator, http=http, meter=meter, response=response,
+            request=request, session=session, poll=poll, task=task,
+        )
+    finally:
+        await coordinator.async_stop()
+        assert task.done()
+
+
+@pytest.mark.parametrize("failure", ["status", "timeout", "json", "list", "empty", "nonnumeric"])
+async def test_http_invalid_polls_use_failure_threshold_and_recover(http_poll, failure):
+    p = http_poll
+    if failure == "status":
+        p.response.status = 503
+    elif failure == "timeout":
+        p.request.__aenter__.side_effect = TimeoutError()
+    elif failure == "json":
+        p.response.json.side_effect = ValueError("invalid JSON")
+    else:
+        p.response.json.return_value = {"list": [], "empty": {}, "nonnumeric": {"freq": "bad"}}[failure]
+    for attempt in range(1, 5):
+        assert await p.poll() == 10
+        assert p.http.available is (attempt < 3)
+        assert p.http.native_value == 50
+    p.response.status = 200
+    p.request.__aenter__.side_effect = None
+    p.response.json.side_effect = None
+    p.response.json.return_value = {"freq": 0}
+    await p.poll()
+    assert p.http.available and p.http.native_value == 0
+    assert p.session.get.call_args.kwargs["timeout"].total == 5
+
+
+async def test_http_success_resets_consecutive_failures(http_poll):
+    p = http_poll
+    for status in [503, 503, 200, 503, 503]:
+        p.response.status = status
+        await p.poll()
+        assert p.http.available
+    p.response.status = 503
+    await p.poll()
+    assert not p.http.available
+
+
+async def test_http_lost_address_expires_and_recovers_without_new_entities(http_poll):
+    p = http_poll
+    registered = dict(p.coordinator._sensors)
+    p.meter.pop("wip")
+    for attempt in range(1, 4):
+        assert await p.poll() == 30
+        assert p.http.available is (attempt < 3)
+    assert p.session.get.call_count == 1
+    p.meter["wip"] = "192.0.2.1"
+    assert await p.poll() == 10
+    assert p.http.available
+    assert p.coordinator._sensors == registered
+
+
+async def test_http_stop_while_request_pending_marks_unavailable(http_poll):
+    p = http_poll
+    entered = asyncio.Event()
+
+    async def pending_request():
+        entered.set()
+        await asyncio.Event().wait()
+
+    p.request.__aenter__.side_effect = pending_request
+    # poll() waits for a completed iteration, so run it separately for cancellation.
+    waiter = asyncio.create_task(p.poll())
+    try:
+        await entered.wait()
+        await p.coordinator.async_stop()
+        assert not p.http.available
+        assert p.http.native_value == 50
+    finally:
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+
+
+async def test_http_stop_during_unexpected_error_backoff_marks_unavailable(http_poll, monkeypatch):
+    p = http_poll
+    # Unexpected programming errors retain the existing outer error path;
+    # cancellation during that path must still execute health cleanup.
+    monkeypatch.setattr(p.coordinator, "_distribute_http_data", Mock(side_effect=RuntimeError("callback error")))
+    await p.poll()
+    await p.coordinator.async_stop()
+    assert not p.http.available
+
+
+async def test_partial_http_measurements_preserve_existing_field_policy(http_poll):
+    p = http_poll
+    # A valid partial response is successful source activity. There is no existing
+    # per-field timeout policy; omitting freq must not silently invent one.
+    p.response.json.return_value = {"volt1": 230}
+    for _ in range(4):
+        await p.poll()
+    assert p.http.available and p.http.native_value == 50
+
+
+async def test_http_meter_identity_change_retires_old_source_and_return_recovers(http_poll):
+    p = http_poll
+    p.meter["deviceSn"] = "REPLACEMENT"
+    await p.poll()
+    assert not p.http.available
+    assert p.http.native_value == 50
+    p.meter["deviceSn"] = "METER"
+    p.response.json.return_value = {"freq": 51}
+    await p.poll()
+    assert p.http.available and p.http.native_value == 51

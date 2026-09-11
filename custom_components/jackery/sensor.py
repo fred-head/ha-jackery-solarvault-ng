@@ -1420,7 +1420,6 @@ class JackeryDataCoordinator:
 
     def _handle_message(self, msg) -> None:
         """处理接收到的 MQTT 消息."""
-        self._last_update_time = time.time()
         try:
             topic = msg.topic
             payload = msg.payload
@@ -1428,23 +1427,19 @@ class JackeryDataCoordinator:
                 payload = payload.decode("utf-8")
 
             # Extract device SN from topic: {prefix}/device/{sn}/status OR .../event
-            match = re.search(rf"{self._topic_root}/device/([^/]+)/(status|event)", topic)
-            if match:
-                sn = match.group(1)
-                if not self._device_sn:
-                    self._device_sn = sn
-                    _LOGGER.info(f"Discovered device SN: {self._device_sn}")
-                elif self._device_sn != sn:
-                    # Ü1: ignore messages from other devices on the same broker
-                    _LOGGER.debug(f"Ignoring data from another device: {sn}")
-                    return
-
-            # A valid message for our device arrived → token is accepted, no re-auth needed
-            self._ever_received = True
+            match = re.fullmatch(rf"{re.escape(self._topic_root)}/device/([^/]+)/(status|event)", topic)
+            if not match:
+                return
+            sn = match.group(1)
+            if self._device_sn and self._device_sn != sn:
+                _LOGGER.debug(f"Ignoring data from another device: {sn}")
+                return
 
             # Parse Payload
             try:
                 raw_data = json.loads(payload)
+                if not isinstance(raw_data, dict):
+                    return
                 msg_code = raw_data.get("type")
                 body = raw_data.get("body")
 
@@ -1456,6 +1451,16 @@ class JackeryDataCoordinator:
                          return
                      flat_body = _extract_flat_body(raw_data)
                      body = flat_body if flat_body else {}
+
+                if not isinstance(body, dict):
+                    return
+                if not self._device_sn:
+                    self._device_sn = sn
+                    _LOGGER.info(f"Discovered device SN: {self._device_sn}")
+                # The topic identifies the host; payload SNs may identify its children.
+                # Invalid or foreign traffic must not postpone offline/reauth checks.
+                self._last_update_time = time.time()
+                self._ever_received = True
 
                 # Capture device model/firmware from first message (Ü2)
                 if isinstance(body, dict):
@@ -1492,6 +1497,7 @@ class JackeryDataCoordinator:
                                 for item in items:
                                     if item.get("sn") == device_sn_in_body or item.get("deviceSn") == device_sn_in_body:
                                         item.update(body)
+                                        self._subdevice_last_seen[device_sn_in_body] = time.time()
                                         break
 
                 # Type 101: Sub-device full data
@@ -1532,6 +1538,17 @@ class JackeryDataCoordinator:
                 elif isinstance(body, dict):
                     # Merge top-level keys into cache to preserve fields not present in current message
                     self._merge_normalized_cache(body)
+
+                # System/fallback messages also accept these arrays through their
+                # existing shallow merge. Refresh only members actually received,
+                # without changing those routes' list-replacement semantics.
+                if msg_code not in (23, 101, 102, 123):
+                    for key in ("plugs", "plug", "cts", "collectors"):
+                        items = body.get(key)
+                        if isinstance(items, list):
+                            for item in items:
+                                if isinstance(item, dict) and (child_sn := _subdevice_sn(item)):
+                                    self._subdevice_last_seen[child_sn] = self._last_update_time
 
             except json.JSONDecodeError:
                 _LOGGER.warning(f"Invalid JSON payload on {topic}")
@@ -1748,6 +1765,7 @@ class JackeryDataCoordinator:
 
     def _check_for_new_plugs(self, data: dict) -> None:
         """Check and sync plugs/CTs/collectors (add new, remove old)."""
+        self._update_subdevice_availability()
         all_devices = []
         for key in ("plugs", "plug", "cts", "collectors"):
             items = data.get(key)
@@ -1764,28 +1782,6 @@ class JackeryDataCoordinator:
                 current_sns.add(sn)
 
         now = time.time()
-
-        # 0. Update sub-device availability based on last_seen timestamps
-        for sn in self._known_plugs:
-            last_seen = self._subdevice_last_seen.get(sn, 0)
-            # During the first 60s after start, don't mark offline (device might not have reported yet)
-            if last_seen == 0 and (now - self._start_time) < OFFLINE_TIMEOUT:
-                continue
-            # Expansion batteries report cumulative energy via type-23 (~10 min cadence).
-            # Once data has been received (last_seen > 0), keep available indefinitely —
-            # the value is still valid between updates. Only go unavailable if never seen.
-            if sn in self._expansion_battery_sns:
-                is_available = last_seen > 0
-            else:
-                is_available = last_seen > 0 and (now - last_seen) <= OFFLINE_TIMEOUT
-            for sensor_id in self._entity_keys_for_subdevice(sn):
-                entity = self._sensors.get(sensor_id)
-                if entity is None or entity.available == is_available:
-                    continue
-                entity._attr_available = is_available
-                entity.async_write_ha_state()
-                if not is_available:
-                    _LOGGER.debug("Sub-device %s offline (last seen %.0fs ago)", sn, now - last_seen)
 
         # 1. 更新 missing 状态
         for sn in current_sns:
@@ -2175,17 +2171,57 @@ class JackeryDataCoordinator:
 
         return data
 
+    def _subdevice_is_available(self, sn: str, now: float) -> bool:
+        """Apply the existing per-child timeout and cumulative-energy exception."""
+        last_seen = self._subdevice_last_seen.get(sn, 0)
+        if last_seen == 0 and (now - self._start_time) < OFFLINE_TIMEOUT:
+            return True
+        if sn in self._expansion_battery_sns:
+            return last_seen > 0
+        return last_seen > 0 and (now - last_seen) <= OFFLINE_TIMEOUT
+
+    def _update_subdevice_availability(self) -> None:
+        """Check child MQTT health independently of discovery and incoming traffic."""
+        now = time.time()
+        for sn in list(self._known_plugs):
+            last_seen = self._subdevice_last_seen.get(sn, 0)
+            if last_seen == 0 and (now - self._start_time) < OFFLINE_TIMEOUT:
+                continue
+            is_available = self._subdevice_is_available(sn, now)
+            for sensor_id in self._entity_keys_for_subdevice(sn):
+                # HTTP registration keys share the child SN, but health is HTTP-owned.
+                if sensor_id.startswith("http_"):
+                    continue
+                entity = self._sensors.get(sensor_id)
+                if entity is None or entity.available == is_available:
+                    continue
+                entity._attr_available = is_available
+                entity.async_write_ha_state()
+                if not is_available:
+                    _LOGGER.debug("Sub-device %s offline (last seen %.0fs ago)", sn, now - last_seen)
+
     def _distribute_data(self, data: dict) -> None:
         """Distribute MQTT data only to entities supporting that callback."""
         # HTTP-only sensors share this registry; callbacks may unregister entities.
         for entity in list(self._sensors.values()):
             update = getattr(entity, "_update_from_coordinator", None)
             if callable(update):
+                sn = getattr(entity, "_plug_sn", None)
+                if sn is not None and not self._subdevice_is_available(sn, time.time()):
+                    # Cached values must not undo a child's timeout during fan-out.
+                    if entity.available:
+                        entity._attr_available = False
+                        entity.async_write_ha_state()
+                    continue
                 update(data)
 
     def _mark_all_offline(self) -> None:
-        """Mark all entities as unavailable."""
-        for entity in self._sensors.values():
+        """Mark MQTT entities offline, preserving independent HTTP and energy counters."""
+        for entity in list(self._sensors.values()):
+            if not callable(getattr(entity, "_update_from_coordinator", None)):
+                continue
+            if getattr(entity, "_plug_sn", None) in self._expansion_battery_sns:
+                continue
             if entity.available:
                 entity._attr_available = False
                 entity.async_write_ha_state()
@@ -2202,6 +2238,7 @@ class JackeryDataCoordinator:
 
         while True:
             try:
+                self._update_subdevice_availability()
                 if time.time() - self._last_update_time > OFFLINE_TIMEOUT:
                     self._mark_all_offline()
 
@@ -2319,45 +2356,63 @@ class JackeryDataCoordinator:
         while True:
             try:
                 ip, sm_sn = self._find_smartmeter_ip_and_sn()
-                if not ip or not sm_sn:
-                    await asyncio.sleep(30)
-                    continue
-
-                last_sm_sn = sm_sn
-                url = f"http://{ip}/api/measurement"
                 success = False
-                try:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                        if resp.status == 200:
-                            data = await resp.json(content_type=None)
-                            if not self._http_sm_sensors_created:
-                                await self._create_http_sensors(sm_sn)
-                                self._http_sm_sensors_created = True
-                            self._distribute_http_data(sm_sn, data)
-                            success = True
-                        else:
-                            _LOGGER.debug("SmartMeter HTTP %d from %s", resp.status, url)
-                except (aiohttp.ClientError, TimeoutError) as e:
-                    _LOGGER.debug("SmartMeter HTTP poll failed (%s): %s", ip, e)
+                if ip and sm_sn:
+                    if last_sm_sn and last_sm_sn != sm_sn:
+                        self._mark_http_sensors_unavailable(last_sm_sn)
+                        consecutive_failures = 0
+                    last_sm_sn = sm_sn
+                    url = f"http://{ip}/api/measurement"
+                    try:
+                        async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
+                            if resp.status == 200:
+                                try:
+                                    data = await resp.json(content_type=None)
+                                except ValueError:
+                                    data = None
+                                # An HTTP 200 alone is not a successful measurement.
+                                if isinstance(data, dict):
+                                    for config in SMARTMETER_HTTP_SENSOR_CONFIGS.values():
+                                        value = data.get(config["key"])
+                                        if value is None:
+                                            continue
+                                        try:
+                                            float(value)
+                                        except (TypeError, ValueError):
+                                            continue
+                                        success = True
+                                        break
+                                if success:
+                                    if not self._http_sm_sensors_created:
+                                        await self._create_http_sensors(sm_sn)
+                                        self._http_sm_sensors_created = True
+                                    self._distribute_http_data(sm_sn, data)
+                            else:
+                                _LOGGER.debug("SmartMeter HTTP %d from %s", resp.status, url)
+                    except (aiohttp.ClientError, TimeoutError) as e:
+                        _LOGGER.debug("SmartMeter HTTP poll failed (%s): %s", ip, e)
 
                 if success:
                     consecutive_failures = 0
-                else:
+                elif last_sm_sn:
                     consecutive_failures += 1
                     if consecutive_failures == _FAILURE_THRESHOLD:
                         _LOGGER.warning(
                             "SmartMeter HTTP unreachable for %d polls — marking sensors unavailable",
                             _FAILURE_THRESHOLD,
                         )
-                        self._mark_http_sensors_unavailable(sm_sn)
+                        self._mark_http_sensors_unavailable(last_sm_sn)
 
-                await asyncio.sleep(poll_interval)
+                await asyncio.sleep(poll_interval if ip and sm_sn else 30)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
                 _LOGGER.error("SmartMeter HTTP poll loop error: %s", e)
-                await asyncio.sleep(poll_interval)
+                try:
+                    await asyncio.sleep(poll_interval)
+                except asyncio.CancelledError:
+                    break
 
         if last_sm_sn:
             self._mark_http_sensors_unavailable(last_sm_sn)

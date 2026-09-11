@@ -1,5 +1,8 @@
 # MQTT protocol inventory
 
+For post-baseline host identity validation, child activity tracking and HTTP/MQTT
+health isolation, see the [availability/freshness audit](availability-freshness.md).
+
 See [baseline](baseline.md) for pinned sources. Message **type**, `body.cmd`, `eventId`, and `body.devType` are separate namespaces. `body.cmd=106` inside type=2 is not top-level type=106. Body devType can be a query category; item devType classifies a child. No command semantics beyond source and attributed evidence are assumed.
 
 ## Topics and envelopes
