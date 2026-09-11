@@ -2,6 +2,9 @@
 
 Pinned baseline and C/O source notation: [baseline](baseline.md). This is a description of C, including limitations, rather than a promise of hardware coverage.
 
+Post-baseline availability corrections and intentionally retained policies are
+documented in the [availability/freshness audit](availability-freshness.md).
+
 ## Main device
 
 The user supplies `device_sn`, token and optional topic prefix (`hb`). A config-entry unique ID rejects duplicate trimmed SNs, although entry data retains the original submitted string. Runtime SNs are not model-validated. `sensor.py:1421` extracts the host SN from status/event topics and ignores a different matching SN; if configured SN is empty it can discover one. The matcher uses an unescaped, unanchored regular expression. Topic mismatch and malformed payload validation are not strict.
