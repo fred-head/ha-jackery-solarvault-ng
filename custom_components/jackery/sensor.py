@@ -1352,7 +1352,7 @@ class JackeryDataCoordinator:
         self._topic_event_wildcard = f"{self._topic_root}/device/+/event"
 
     def register_sensor(self, sensor_id: str, entity: Any) -> None:
-        """Register any HA entity that implements _update_from_coordinator."""
+        """Register an HA entity for its supported MQTT or HTTP update path."""
         self._sensors[sensor_id] = entity
 
     def unregister_sensor(self, sensor_id: str) -> None:
@@ -2176,9 +2176,12 @@ class JackeryDataCoordinator:
         return data
 
     def _distribute_data(self, data: dict) -> None:
-        """分发数据给传感器."""
-        for sensor_id, entity in self._sensors.items():
-            entity._update_from_coordinator(data)
+        """Distribute MQTT data only to entities supporting that callback."""
+        # HTTP-only sensors share this registry; callbacks may unregister entities.
+        for entity in list(self._sensors.values()):
+            update = getattr(entity, "_update_from_coordinator", None)
+            if callable(update):
+                update(data)
 
     def _mark_all_offline(self) -> None:
         """Mark all entities as unavailable."""

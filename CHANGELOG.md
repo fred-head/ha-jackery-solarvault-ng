@@ -3,6 +3,14 @@
 All notable changes to this project will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
+## [Unreleased]
+
+### Fixed
+
+- MQTT updates no longer fail when SmartMeter HTTP sensors are registered alongside
+  MQTT entities. HTTP measurements and health remain controlled by HTTP polling.
+  Listener removal during MQTT dispatch no longer interrupts remaining updates.
+
 ---
 
 ## [2.3.0] – unreleased
