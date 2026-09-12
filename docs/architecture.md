@@ -10,12 +10,35 @@ Home Assistant platform entities
              ↓
 sensor.py coordinator and runtime state
              ├──→ protocol/normalization.py ──→ Python standard library
+             ├──→ devices/classification.py ──→ Python standard library
              └──→ calculations/energy_flow.py ──→ Python standard library
 ```
 
 `sensor.py` still owns MQTT/HTTP interaction, routing, cache and freshness state,
 entity classes, discovery and coordinator lifecycle. Identity construction and
 registry migration already live in `identity.py` and `child_migration.py`.
+
+## Device classification package
+
+`custom_components/jackery/devices/classification.py` owns the established
+child-device family decisions. `classify_device()` returns an immutable result
+containing the effective `devType`, family and, where the existing subtype rules
+identify one, the HTO907A, Shelly Pro 3EM or HTO910A model association. Explicit
+contexts preserve the different defaults used by plug arrays, CT arrays,
+Type-102 point updates, Type-23 child statistics and discovery.
+
+The classifier imports only the Python standard library and never mutates its
+input. It also owns the existing static plug-switch filter and the diagnostic CT
+subtype label table. The label table remains descriptive metadata rather than a
+hardware classifier.
+
+Routing and cache placement remain in `sensor.py`: the same payload can retain
+different behavior when its array location contradicts its `devType`. Entity
+group selection, entity construction, source-array lookup, communication-mode
+control policy, field transforms, physical identity and registry migration also
+remain outside the classifier. Child identity continues to use host plus child
+serial independently of family or subtype, so a later subtype change does not
+create a second physical device.
 
 ## Protocol normalization package
 
@@ -77,6 +100,6 @@ does not decide whether a Home Assistant entity is available.
 
 The extractions do not alter formulas, raw-cache retention, source priority,
 zero/null handling, alias precedence or retention, the flat-status whitelist,
-child freshness, the 50 W anomaly branches, Type-106 precedence, entity IDs or
-entity metadata. The exact energy behavior and known limits are defined in
+device-family precedence, child freshness, the 50 W anomaly branches, Type-106
+precedence, entity IDs or entity metadata. The exact energy behavior and known limits are defined in
 [energy-source-policy.md](energy-source-policy.md).

@@ -1,8 +1,9 @@
 # Responsibility and coupling map
 
 Phase 2 now extracts pure payload normalization into
-`protocol/normalization.py` and the energy calculation bundle into
-`calculations/energy_flow.py`; see [architecture.md](architecture.md). Both
+`protocol/normalization.py`, the energy calculation bundle into
+`calculations/energy_flow.py` and child-device classification into
+`devices/classification.py`; see [architecture.md](architecture.md). All three
 modules use only the Python standard library. `sensor.py` retains routing, cache
 mutation, runtime child-age ownership, source metadata and error logging.
 Type-106 live/snapshot state, timer/entity updates and all transport behavior
@@ -37,7 +38,7 @@ remains a custom class, not HA DataUpdateCoordinator.
 | DOMAIN, PLATFORMS; timing/model/status/comm/subtype/bit constants | `__init__.py`; sensor, switch, select, config flow imports. HA-specific enum metadata in SENSORS must stay near entities. | Constants only; `TestConstants`, `TestCommModeLabels`, SOC bound tests | `const.py` for integration policy; `protocol/constants.py` for actual wire maps. LOW, but avoid circular imports and re-export old names initially. |
 | `_field_present`, `_safe_float`, `_power_sample`, `_ct_power`, `_pick_best_power_net`, `_effective_ongrid_net`, `_grid_net_from_system`, `select_grid_source`, `calculate_energy_flow` | **Extracted:** `calculations/energy_flow.py`, imported by sensor coordinator adapter. Standard library only. | Pure selection plus established mutation/return contract for derived keys. Direct calculation/helper/source tests and full coordinator regressions. | **COMPLETED Phase 2.** Runtime normalization/freshness preparation and logging remain in `_calculate_energy_flow`; no semantic redesign. |
 | `normalize_payload_fields`, `extract_flat_body`, `_FLAT_*` | **Extracted:** `protocol/normalization.py`, imported by the sensor coordinator and calculation adapter. Standard library only. `_TYPE106_LIVE_PREFERRED` remains in sensor because its policy depends on cache age/state. | Pure shallow copies; explicit canonical/null/zero rules, alias and unknown-field retention, unchanged flat whitelist and metadata stripping. Direct normalization and route tests. | **COMPLETED Phase 2.** Routing, host/type acceptance, cache application, classification, freshness and Type-106 policy remain outside normalization. |
-| `plug_comm_mode`, `plug_mqtt_control_allowed`, `should_create_plug_switch`; discovery type/subtype branches | switch imports helpers from sensor; sensor dynamically imports switch during discovery. `_merge_subdevice_point_update` also classifies. | Input dict semantics, known sets; v230 helper tests only, no whole discovery coverage. | `devices/classification.py` containing functions and small capability records. HIGH: phase-vs-hardware subtype ambiguity, dynamic/static filter mismatch, HTO/Shelly differentiation. |
+| `should_create_plug_switch`; discovery and point-update type/subtype branches | **Extracted:** `devices/classification.py`, imported by sensor and switch. Contexts retain route-specific plug/CT defaults, Type-102 field inference and Type-23 expansion-battery recognition. `plug_comm_mode` and `plug_mqtt_control_allowed` remain in sensor as control policy. | Pure immutable result; direct family/model/context tests plus full discovery/entity snapshots, contradictory metadata, subtype changes and two-host identity coverage. | **COMPLETED Phase 2.** Classification only: routing, cache/source-array selection, entity construction, identity and communication policy remain with their existing owners. Diagnostic subtype labels are not used as the classifier. |
 | `_subdevice_sn`, `_merge_subdevice_list`, `_merge_subdevice_arrays`, `_merge_subdevice_point_update` | `_handle_message`; use normalization-independent wire keys, classifier, wall clock; point writes existing dict. | `_data_cache`, alias `plug is plugs`, `_subdevice_last_seen`; routing/upstream-sync tests. | Pure structural parsing into `protocol/parser.py`; cache application to `devices/state.py` only once transitions covered. HIGH: identity/aliasing/null/empty-list policy differs by route. |
 | `_handle_message` envelope parse/routing (1421–1550) | HA callback calls it; JSON/regex/time/meta capture; calculation, discovery, distribution chained. | `_last_update_time`, `_ever_received`, `_device_sn`, cache; route tests bypass constructor and often entity creation. | `protocol/parser.py` for validated structural decode; coordinator applies state. HIGH: preserve type/body.cmd distinctions and permissive unknown fallback until separate fixes approved. |
 | Main cache/derived state and listener dispatch (`_merge_normalized_cache`, `_distribute_data`, register/unregister) | All entity platforms share coordinator; controls patch private cache; HTTP registers in same map. | `_data_cache`, `_sensors`; optimistic tests, not full fan-out. | `coordinator.py` initially retains cache and updates; later minimal `devices/state.py` if needed. HIGH: HTTP callback mismatch and exception stopping remaining listeners. |
@@ -55,9 +56,9 @@ remains a custom class, not HA DataUpdateCoordinator.
 
 Today `__init__.py` forwards platforms; sensor setup stores the coordinator; other platform setups assume it already exists. `switch.py → sensor.py` for protocol helpers and `sensor.py → switch.py` dynamically for entities form a cycle. All platforms can reach `_data_cache`, `_device_sn` and `_sensors`. HTTP entities use a different update interface in the same listener map. Transport extraction alone will not resolve these ownership conflicts.
 
-Pure calculations and protocol normalization now have no operational HA
-dependency. `sensor.py` imports both lower-level packages; neither imports the
-coordinator or the other package. The remaining protocol parser and routing
+Pure calculations, protocol normalization and device classification now have no
+operational HA dependency. `sensor.py` imports all three lower-level packages;
+none imports the coordinator or another extracted package. The remaining protocol parser and routing
 logic stays coupled to coordinator state and must be characterized before it is
 moved.
 

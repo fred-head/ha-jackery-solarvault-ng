@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Refactored
 
+- Extract child-device family and known-model classification into a standalone,
+  Home-Assistant-independent module while preserving route-specific defaults,
+  discovery output, identity and cache behavior.
 - Extract MQTT field-alias normalization and flat status-body reconstruction
   into a standalone, Home-Assistant-independent protocol module without changing
   routing or payload behavior.

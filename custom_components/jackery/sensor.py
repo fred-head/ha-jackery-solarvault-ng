@@ -39,6 +39,14 @@ from .calculations.energy_flow import (
     calculate_energy_flow,
     select_grid_source,
 )
+from .devices.classification import (
+    CT_SUBTYPE_MAP,
+    ClassificationContext,
+    DeviceFamily,
+    DeviceModel,
+    classify_device,
+)
+from .devices.classification import should_create_plug_switch as should_create_plug_switch
 from .identity import child_device_identifier, child_unique_id, http_unique_id
 from .protocol.normalization import extract_flat_body, normalize_payload_fields
 
@@ -1029,12 +1037,6 @@ SUBDEVICE_SENSORS = {
     },
 }
 
-# devType values that identify CT/meter sub-devices (2=standard CT, 3=SmartMeter 3P, 4=Meter Collector)
-CT_DEV_TYPES: frozenset[int] = frozenset({2, 3, 4})
-
-# devType values that identify smart plugs
-PLUG_ITEM_DEV_TYPES: frozenset[int] = frozenset({6})
-
 # commMode constants for smart plugs
 COMM_MODE_LOCAL = 1
 COMM_MODE_CLOUD = 2
@@ -1042,17 +1044,6 @@ COMM_MODE_CLOUD = 2
 COMM_MODE_LABELS: dict[int, str] = {
     COMM_MODE_LOCAL: "local",
     COMM_MODE_CLOUD: "cloud",
-}
-
-# CT / meter subType → human readable hardware name (diagnostic attribute only)
-CT_SUBTYPE_MAP: dict[int, str] = {
-    1: "Shelly Single Phase",
-    2: "Shelly Three Phase",
-    3: "Shelly 63A",
-    4: "Eastron Single Phase (4002)",
-    5: "Eastron Three Phase (4003)",
-    6: "Jackery Wireless Smart Meter (US L1/L2 4007)",
-    7: "Jackery Smart Meter 3P (UK 4008)",
 }
 
 # funcEnable bitmask: bit index → feature name (1 = enabled, 0 = disabled).
@@ -1133,11 +1124,6 @@ def plug_mqtt_control_allowed(item: dict) -> tuple[bool, str]:
         False,
         f"Smart plug commMode={mode} does not support MQTT control. Only commMode=1 (local) is supported.",
     )
-
-
-def should_create_plug_switch(item: dict) -> bool:
-    """Only create switch entities for smart plugs (devType=6)."""
-    return item.get("devType") in PLUG_ITEM_DEV_TYPES
 
 
 def _subdevice_sn(item: dict) -> str | None:
@@ -1348,11 +1334,16 @@ class JackeryDataCoordinator:
                 # Type 23: Statistical/Energy Data
                 if msg_code == 23 and isinstance(body, dict):
                     device_sn_in_body = body.get("deviceSn")
-                    dev_type_in_body = body.get("devType")
                     if device_sn_in_body in (None, "system", self._device_sn):
                         # Merge into main device cache
                         self._merge_normalized_cache(body, msg_code)
-                    elif dev_type_in_body == 1 and _subdevice_sn(body):
+                    elif (
+                        classify_device(
+                            body, ClassificationContext.TYPE23_CHILD
+                        ).family
+                        is DeviceFamily.EXPANSION_BATTERY
+                        and _subdevice_sn(body)
+                    ):
                         # Expansion battery (e.g. BP2500) — not in type-101, store separately
                         exp_bats = self._data_cache.setdefault("expansion_batteries", {})
                         if device_sn_in_body not in exp_bats:
@@ -1477,8 +1468,9 @@ class JackeryDataCoordinator:
             for item in raw_plugs:
                 if not isinstance(item, dict):
                     continue
+                classification = classify_device(item, ClassificationContext.PLUG_ARRAY)
                 if item.get("devType") is None:
-                    item = {**item, "devType": 6}
+                    item = {**item, "devType": classification.dev_type}
                 new_plugs.append(item)
                 sn = _subdevice_sn(item)
                 if sn:
@@ -1494,8 +1486,9 @@ class JackeryDataCoordinator:
             for item in raw_cts:
                 if not isinstance(item, dict):
                     continue
+                classification = classify_device(item, ClassificationContext.CT_ARRAY)
                 if item.get("devType") is None:
-                    item = {**item, "devType": 2}
+                    item = {**item, "devType": classification.dev_type}
                 new_cts.append(item)
                 sn = _subdevice_sn(item)
                 if sn:
@@ -1548,26 +1541,26 @@ class JackeryDataCoordinator:
 
         # 2. New device → classify by devType, inferring it from the fields if absent
         entry = dict(body)
-        dev_type = entry.get("devType")
-        if dev_type is None:
-            if any(k in body for k in ("switchSta", "sysSwitch", "totalEgy")):
-                dev_type = 6
-            elif any(k in body for k in ("aPhasePw", "AphasePw", "tPhasePw", "TphasePw", "phasePw")):
-                dev_type = 3
-            if dev_type is not None:
-                entry["devType"] = dev_type
+        classification = classify_device(entry, ClassificationContext.POINT_UPDATE)
+        dev_type = classification.dev_type
+        if entry.get("devType") is None and dev_type is not None:
+            entry["devType"] = dev_type
 
-        if dev_type not in (2, 3, 4, 6):
+        if classification.family is DeviceFamily.UNKNOWN:
             return False
 
-        if dev_type in PLUG_ITEM_DEV_TYPES:
+        if classification.family is DeviceFamily.PLUG:
             self._data_cache["plugs"] = _merge_subdevice_list(
                 self._data_cache.get("plugs"), [entry]
             )
             self._data_cache["plug"] = self._data_cache["plugs"]
             return True
-        if dev_type in CT_DEV_TYPES:
-            key = "collectors" if (dev_type == 4 and entry.get("subType") == 7) else "cts"
+        if classification.family in (DeviceFamily.CT, DeviceFamily.SMARTMETER, DeviceFamily.COLLECTOR):
+            key = (
+                "collectors"
+                if classification.family is DeviceFamily.COLLECTOR
+                else "cts"
+            )
             self._data_cache[key] = _merge_subdevice_list(
                 self._data_cache.get(key), [entry]
             )
@@ -1723,14 +1716,13 @@ class JackeryDataCoordinator:
         new_switch_entities = []
         for plug in all_devices:
             sn = plug.get("deviceSn") or plug.get("sn")
-            dev_type = plug.get("devType")
+            classification = classify_device(plug)
+            dev_type = classification.dev_type
             sub_type = plug.get("subType")
-            if dev_type is None and sub_type == 2:
-                dev_type = 2
 
             # Match the supported point-update/static-switch types. Unknown
             # metadata remains cached but must not invent writable plug entities.
-            if dev_type not in (2, 3, 4, 6):
+            if classification.family is DeviceFamily.UNKNOWN:
                 continue
 
             if sn and sn not in self._known_plugs and self.child_identity_allowed(sn):
@@ -1739,17 +1731,12 @@ class JackeryDataCoordinator:
 
                 if hasattr(self, "config_entry_id"):
                     # Determine sensor group and data source key
-                    is_collector = dev_type == 4 and sub_type == 7
-                    is_ct = dev_type in CT_DEV_TYPES and not is_collector
-                    if is_collector:
-                        sensor_group = "collector"
-                        data_key = "collectors"
-                    elif is_ct:
-                        sensor_group = "ct_3phase" if dev_type == 3 else "ct"
-                        data_key = "cts"
-                    else:
-                        sensor_group = "plug"
-                        data_key = "plugs"
+                    sensor_group, data_key = {
+                        DeviceFamily.COLLECTOR: ("collector", "collectors"),
+                        DeviceFamily.SMARTMETER: ("ct_3phase", "cts"),
+                        DeviceFamily.CT: ("ct", "cts"),
+                        DeviceFamily.PLUG: ("plug", "plugs"),
+                    }[classification.family]
 
                     group_config = SUBDEVICE_SENSORS.get(sensor_group, {})
                     for sensor_key, sensor_cfg in group_config.items():
@@ -1765,7 +1752,7 @@ class JackeryDataCoordinator:
                         )
                         new_entities.append(entity)
 
-                    if not is_ct and not is_collector:
+                    if classification.family is DeviceFamily.PLUG:
                         from .switch import JackeryPlugSwitch
                         switch_entity = JackeryPlugSwitch(
                             plug_sn=sn,
@@ -2102,7 +2089,10 @@ class JackeryDataCoordinator:
         """Find SmartMeter HTO907A IP and SN from MQTT cache (cts list, devType=3, subType=5)."""
         cts = self._data_cache.get("cts") or []
         for item in cts:
-            if isinstance(item, dict) and item.get("devType") == 3 and item.get("subType") == 5:
+            if (
+                isinstance(item, dict)
+                and classify_device(item).model is DeviceModel.HTO907A
+            ):
                 ip = item.get("wip")
                 sn = item.get("deviceSn") or item.get("sn")
                 if ip and sn:

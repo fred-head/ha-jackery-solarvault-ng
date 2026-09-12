@@ -25,6 +25,40 @@ CASES = [
     ("plug-array-default", 101, "plugs", None, 0, "plug", 2, True, "outPw", 50, "power", 50),
 ]
 
+ENTITY_KEYS = {
+    "battery": ("charge_energy", "discharge_energy"),
+    "ct": ("power", "energy"),
+    "smartmeter": (
+        "import_total",
+        "export_total",
+        "import_l1",
+        "import_l2",
+        "import_l3",
+        "export_l1",
+        "export_l2",
+        "export_l3",
+        "import_energy_total",
+        "export_energy_total",
+        "import_energy_l1",
+        "import_energy_l2",
+        "import_energy_l3",
+        "export_energy_l1",
+        "export_energy_l2",
+        "export_energy_l3",
+        "comm_mode",
+        "comm_state",
+        "ip_address",
+    ),
+    "collector": (
+        "import_power",
+        "export_power",
+        "comm_state",
+        "comm_mode",
+        "ip_address",
+    ),
+    "plug": ("power", "energy"),
+}
+
 
 @pytest.mark.parametrize("name,kind,array,dtype,subtype,family,count,has_switch,field,value,key,expected", CASES,
                          ids=[case[0] for case in CASES])
@@ -41,6 +75,7 @@ def test_classification_entity_family_and_measurement(protocol, monkeypatch, nam
     if family is None:
         assert "CHILD" not in protocol._known_plugs
         return
+    assert tuple(e._sensor_key for e in entities) == ENTITY_KEYS[family]
     for e in entities + switches:
         assert f":{family}:" in e.unique_id
         assert e.device_info["identifiers"] == {("jackery", child_device_identifier("HOST_A", "CHILD"))}
@@ -72,6 +107,46 @@ def test_legacy_subtype_only_generic_route(protocol):
     receive(protocol, 25, {"cts": [{"sn": "CHILD", "subType": 2, "bPhasePw": 3}]})
     entities = protocol.add_entities_callback.call_args.args[0]
     assert len(entities) == 2 and all(":ct:" in e.unique_id for e in entities)
+
+
+@pytest.mark.parametrize(
+    ("fields", "family", "data_key", "dev_type", "has_switch"),
+    [
+        ({"aPhasePw": 0}, "smartmeter", "cts", 3, False),
+        ({"switchSta": 0}, "plug", "plugs", 6, True),
+        (
+            {"switchSta": 0, "aPhasePw": 10},
+            "plug",
+            "plugs",
+            6,
+            True,
+        ),
+    ],
+)
+def test_missing_type_point_inference_discovery_snapshot(
+    protocol,
+    fields,
+    family,
+    data_key,
+    dev_type,
+    has_switch,
+):
+    receive(protocol, 102, {"sn": "INFERRED", **fields})
+    entities = protocol.add_entities_callback.call_args.args[0]
+    switches = [
+        entity
+        for call in protocol.add_switch_entities_callback.call_args_list
+        for entity in call.args[0]
+    ]
+    assert tuple(entity._sensor_key for entity in entities) == ENTITY_KEYS[family]
+    assert len(switches) == int(has_switch)
+    assert protocol._data_cache[data_key][0]["devType"] == dev_type
+    assert all(f":{family}:" in entity.unique_id for entity in entities + switches)
+    assert all(
+        entity.device_info["identifiers"]
+        == {("jackery", child_device_identifier("HOST_A", "INFERRED"))}
+        for entity in entities + switches
+    )
 
 
 @pytest.mark.parametrize("order", [("HOST_A", "HOST_B"), ("HOST_B", "HOST_A")])
