@@ -1,6 +1,153 @@
 # Multi-instance identity audit
 
-## PR2A status — identity and migration safety
+## PR2B identity contract
+
+PR2B uses `(jackery, child:{encoded_host}:{encoded_child})` for every physical
+child device and `jackery_child:{encoded_host}:{encoded_child}:{family}:{key}`
+for MQTT child entities. Families remain `battery`, `ct`, `smartmeter`,
+`collector`, and `plug`; MQTT sensor keys retain the existing underscore-free
+tokens. The plug switch ends in `:plug:switch`. Device identity never includes
+classification, so a changed subtype cannot create a second physical device.
+
+Both serial components use UTF-8 percent encoding via `quote(value, safe="")`
+in `identity.py`. Case, whitespace, underscores and literal percent signs are
+preserved as identity; decoding must round-trip to the canonical spelling.
+No serial is split at underscores. Main entity/device identities are unchanged.
+
+Normal HTTP unique IDs remain `jackery_{host}_http_sm_{child}_{key}`. The legacy
+delimiter is ambiguous if either serial itself contains `_http_sm_`; only those
+exceptional pairs use `jackery_child:{encoded_host}:{encoded_child}:http:{key}`.
+For example `(A_http_sm_B, C)` and `(A, B_http_sm_C)` previously produced the same
+HTTP UID. Both MQTT and HTTP use the same host-scoped physical device identifier.
+
+The eleven original PR2B assertions were restored unchanged before production
+changes: **11 failed, 105 deselected** on the PR2A baseline `ed89e74`.
+
+### Migration and conflict policy
+
+`child_migration.py:migrate_child_identities` runs before the existing main
+migration and before any platform/coordinator starts. It first reads the complete
+entry and relevant global registry targets and builds plans without writes.
+Only after preflight finishes does it apply safe plans through HA's
+`async_update_device(new_identifiers=...)` and
+`async_update_entity(new_unique_id=...)`. These synchronous registry callbacks
+do not yield between validation and application. This is an identity-specific
+addition; no protocol, transport, calculation or coordinator extraction is involved.
+
+- Expansion battery, CT (including the type-4 legacy CT path), HTO907A, Shelly
+  Pro 3EM, HTO910A collector, plug sensors and plug switches migrate in place.
+  Historical `Battery`/`SmartMeter` prefixes and known raw/underscore-free field
+  spellings are recognized. Legacy SmartMeter `power`/`energy` records are retained
+  under their scoped identity even though current discovery uses phase fields.
+- The whole child serial comes from the device identifier or an unambiguous
+  match against known prefix/field boundaries. Case, digits and punctuation do
+  not determine ownership. An overlapping main/CT key needs a valid registry
+  link; unknown or ambiguous records are retained and protected from the older
+  generic main migration.
+- A device must belong exclusively to the current config entry. Every linked
+  entity, including disabled entities, must belong to that entry and the Jackery
+  platform. A present parent link must point to an exclusively owned main device
+  identified by the configured host or its historical config-entry ID. Missing
+  parent links are preserved; no parent is guessed during migration.
+- Device and entity targets are checked globally. Entity identity uses HA's
+  `(entity domain, integration platform, unique_id)`. A different record is a
+  conflict even when it belongs to the same entry. Already-correct records are
+  no-ops. Unknown new-format families/fields and malformed encoding are refused.
+- The existing device record gains the scoped identifier and loses `sub_{child}`;
+  the global alias is never retained. Unrelated non-Jackery identifiers survive.
+  Conflicting or unrecognized Jackery aliases veto the migration. Normal main
+  identity remains unchanged. If a literal main serial equals an existing scoped
+  child identifier owned elsewhere, setup fails explicitly before platform
+  creation, preventing that newly reproduced namespace collision.
+- The configured host must be a nonempty string without outer whitespace.
+  Ambiguous host data pauses all child discovery; the migration does not trim or
+  substitute another host identity.
+
+An already-shared historical device is **never split or assigned by load order**.
+Its entire child plan is refused, including otherwise safe sibling entities.
+Safe other children still migrate. If an ambiguous record cannot even be assigned
+to one child, discovery for all children in that entry pauses conservatively.
+MQTT sensor/switch discovery, battery discovery, HTTP entity creation and child
+cleanup all consult this result, so retained records do not acquire duplicate
+replacements. Raw telemetry processing and existing polling policy are unchanged.
+
+Conflict warnings include the config-entry ID, a stable SHA-256-derived opaque
+child reference, a category and recovery guidance. Raw serials are absent from
+these warnings; repeated identical categories are deduplicated within one setup.
+Back up registries and resolve ownership with maintainer assistance, then reload.
+The integration does not delete entities/history or remove another config entry
+to force migration. A test explicitly resolves shared ownership externally and
+verifies that the next migration can proceed using the retained records.
+
+### Interruption recovery and versioning
+
+Config-entry version remains **1**; no `async_migrate_entry` is added. A version
+number cannot encode an entry containing both migrated and conflicted children,
+and advancing it could skip unfinished work. Every setup preflights the actual
+registry state again. Device-first, entity-first, partially updated entities and
+a device temporarily carrying both identifiers all converge to the same result.
+Unexpected registry write errors propagate and prevent platform setup. The next
+setup resumes from the records that survived; no exception blanket, rollback by
+deletion, or target-record merging is used.
+
+### Continuity and lifecycle evidence
+
+`tests/test_child_migration.py` compares every persisted entity/device attribute
+except the deliberately changed identity fields and HA modification timestamps.
+This includes entity registry record ID, `entity_id`, device registry ID, device
+association, names, aliases, areas, labels, options, hidden/disabled flags,
+ownership, metadata, creation timestamps and parent links. Actual platform setup
+and rediscovery reuse the migrated MQTT/HTTP records across repeated reloads.
+
+A real in-memory SQLite Home Assistant recorder writes values before and after
+migration and reads both back under the original `entity_id`. This proves the
+tested registry and short-term history path. It does **not** prove every existing
+production database, long-term statistics migration, or hardware installation.
+No statistics IDs or recorder tables are rewritten.
+
+All seven child configurations are tested with identical serials across both
+host setup orders and reverse reload/unload order. Same-host MQTT/HTTP entities
+share one device; different hosts stay separate. Cleanup and rediscovery remain
+host-scoped. Foreign legacy children do not determine a new host's ownership.
+Repeated discovery does not add listeners twice, and unload releases entity
+references. Existing HTTP task-count tests remain green.
+
+Physical identity excludes classification. In the current runtime, discovery
+creates a serial's entity family once; a later subtype change takes effect after
+reload and reuses the same physical device. Old family entity records remain
+under the existing retention policy. Dynamic reclassification, replacement-meter
+policy, MQTT unsubscribe/failed-start lifecycle, per-field freshness and complete
+statistics validation remain outside PR2B.
+
+### PR2B validation
+
+Validation uses Python 3.13.5 with the existing Home Assistant test environment.
+Transport calls are mocked in lifecycle tests; real HA platforms, registries,
+MQTT message handling and the recorder path run in process.
+
+| Command / check | Result |
+| --- | --- |
+| `.venv/bin/pytest tests/test_multi_instance_identity.py -k 'duplicate_child or duplicate_plug or http_unique_ids' -q --no-cov --timeout=30 --tb=short` before production edits | **11 failed, 105 deselected**, expected PR2A ID/device/discovery collisions. |
+| Compare the restored function block with `docs/future-tests/pr2b-child-identity.py.txt` | Byte-for-byte unchanged; all eleven assertions collected and passing. The artifact remains historical evidence. |
+| `.venv/bin/pytest tests/test_child_migration.py tests/test_multi_instance_identity.py tests/test_migration.py tests/test_config_flow.py tests/test_subdevice_entity.py tests/test_subdevice_availability.py tests/test_availability_freshness.py tests/test_smartmeter_http.py tests/test_mqtt_routing.py tests/test_child_identity.py -q --no-cov --timeout=30 --tb=short` | **350 passed** on final code. |
+| `COVERAGE_FILE=/tmp/pr2b.coverage .venv/bin/pytest tests/ -q --timeout=30 --tb=short` | **475 passed**, **86.32%** statement coverage, no skips/xfails. Identity helpers: **100%**, child migration: **97.52%**. Includes 133 multi-instance, 67 child-migration and 15 identity-helper cases, plus the existing 260 tests. |
+| `.venv/bin/ruff check custom_components/jackery/ tests/` | Passed. |
+| `python3 tools/check_translations.py` | Passed: de/en/fr. |
+| `/tmp/jackery-baseline/lint-venv/bin/mypy custom_components/jackery/` | Passed, **9 source files**, baseline-consistent CI environment. |
+| `.venv/bin/mypy custom_components/jackery/` | **23 pre-existing diagnostics** in 4 files; diagnostic message multiplicities exactly match PR2A, no additions. |
+| `git diff --check` plus trailing-whitespace/final-newline checks for new files | Passed. |
+| `command -v docker` | Unavailable; local HACS/Hassfest not run. CI definitions unchanged. |
+
+Changed files: `custom_components/jackery/{identity.py,child_migration.py,__init__.py,sensor.py,switch.py}`;
+`tests/{test_child_identity.py,test_child_migration.py,test_multi_instance_identity.py}`;
+this report, `docs/{entity-inventory.md,test-coverage-map.md,refactor-map.md}` and
+`CHANGELOG.md`. The eleven-case future-test artifact was preserved unchanged.
+
+## Historical PR2A status — identity and migration safety
+
+The remainder of this document preserves PR2A and original audit evidence.
+The PR2B contract and results above supersede statements below about deferred
+child identity work and unsupported duplicate serials.
 
 **Public entity unique-ID formats: unchanged. Public device identifier formats:
 unchanged. Duplicate child serials across hosts remain unsupported.** PR2A does

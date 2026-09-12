@@ -7,7 +7,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
-- Preserve existing child entity identities during migration, including collectors,
+- Scope child sensors, plug switches and child devices by both SolarVault host and
+  child serial, allowing identical child serials under different hosts. MQTT and
+  HTTP measurements of the same host/meter continue to share one device.
+- Migrate unambiguous child registry identities in place, preserving entity IDs,
+  device IDs and user settings, including disabled entities. Resume interrupted
+  migrations on setup; retain shared/foreign/conflicting records and pause affected
+  discovery instead of guessing ownership or creating replacements.
+- Disambiguate HTTP entity IDs when a serial contains the historical `_http_sm_`
+  separator; ordinary HTTP IDs remain unchanged. Reject setup if a literal host
+  identity would claim another entry's existing scoped child device.
+- Preserve existing child entity records during migration, including collectors,
   numeric/lowercase serials and historical prefixes; retain ambiguous records.
 - Protect foreign/shared devices from identity migration, metadata updates and child
   cleanup. Migration target conflicts retain both records and respect Home Assistant

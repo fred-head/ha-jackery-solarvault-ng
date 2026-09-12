@@ -15,7 +15,9 @@ DOMAIN = "jackery"
 PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.NUMBER, Platform.BUTTON, Platform.SELECT]
 
 
-async def _migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _migrate_unique_ids(
+    hass: HomeAssistant, entry: ConfigEntry, *, protected_entities: set[str] | None = None,
+) -> None:
     """Migrate entity unique IDs from v1.x single-instance format to v2.0 multi-instance format.
 
     Old main-sensor format:    jackery_{sensor_id}
@@ -28,7 +30,7 @@ async def _migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
     Old control-entity format: jackery_{config_entry_id}_{x}
     New control-entity format: jackery_{device_sn}_{x}
 
-    Child identities already contain the child serial and are left as-is.
+    Child identities belong to the separate preflight migration and are left as-is.
     Registry ownership and HA domain/platform identity govern every mutation.
 
     v2.0.1 bug residue: entities with unique_id jackery_{device_sn}_main_{key} were
@@ -53,8 +55,10 @@ async def _migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
     }
 
     for entity_entry in all_entries:
+        if protected_entities and entity_entry.entity_id in protected_entities:
+            continue
         uid = entity_entry.unique_id
-        if entity_entry.platform != DOMAIN or not uid or not uid.startswith("jackery_"):
+        if entity_entry.platform != DOMAIN or not uid or not uid.startswith("jackery_") or uid.startswith("jackery_child:"):
             continue
 
         device = device_reg.async_get(entity_entry.device_id) if entity_entry.device_id else None
@@ -63,7 +67,7 @@ async def _migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
                 _LOGGER.warning("Skipping identity migration for entity %s: device ownership is ambiguous", entity_entry.entity_id)
                 continue
             # The device identifier stores the whole serial; never split serials at underscores.
-            if any(domain == DOMAIN and identifier.startswith("sub_") for domain, identifier in device.identifiers):
+            if any(domain == DOMAIN and identifier.startswith(("sub_", "child:")) for domain, identifier in device.identifiers):
                 continue
 
         if uid.startswith(new_prefix):
@@ -164,8 +168,14 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.info("MQTT integration is available and ready")
 
-    # Migrate unique IDs from v1.x single-instance format (runs harmlessly if already migrated)
-    await _migrate_unique_ids(hass, entry)
+    from .child_migration import migrate_child_identities
+
+    # Child preflight precedes all platform creation; conflicts must not cause
+    # discovery to replace the retained legacy records with fresh entities.
+    child_migration = migrate_child_identities(hass, entry)
+
+    # Keep the existing main-device migration, excluding old/new child records.
+    await _migrate_unique_ids(hass, entry, protected_entities=child_migration.protected_entities)
 
     # All platforms need the same runtime object, regardless of forwarding order.
     from .sensor import JackeryDataCoordinator
@@ -176,6 +186,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         config.get("mqtt_host"), config.get("device_sn"),
     )
     coordinator.config_entry_id = entry.entry_id
+    coordinator._child_migration = child_migration
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "config": entry.data,
