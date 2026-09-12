@@ -2,10 +2,20 @@
 
 Follow-up evidence: [multi-instance identity audit](multi-instance-identity.md)
 adds 60 registry/identity cases, with 24 passing and 36 exposing unresolved
-baseline defects. PR2A classifies those 60 cases, fixes applicable safety defects
-and preserves 11 deferred PR2B cases as a documented future-test artifact. See
-the audit's PR2A status for current tests, results and transport limitations. The original 174-test map below
-is historical, not the current suite count.
+baseline defects. PR2A classified those 60 cases and fixed applicable safety
+defects. PR2B restores all eleven deferred assertions unchanged and passes them.
+`test_child_identity.py` covers canonical encoding and the exceptional HTTP
+delimiter collision. `test_child_migration.py` covers every child family,
+complete registry-setting preservation, shared/foreign/target conflicts,
+interrupted writes and retry, mixed migrated/legacy states, and real recorder
+history before/after migration. `test_multi_instance_identity.py` now exercises
+identical child serials through discovery, reload, unload and cleanup for every
+configuration in both host orders, same-host HTTP/MQTT grouping and subtype
+changes without a second physical device. Existing PR2A protections remain.
+PR2B validation: **475 passed**, **86.32%** statement coverage, including all 260
+tests predating the identity work. Short-term SQLite history is tested; long-term
+statistics and real MQTT unsubscribe are not. See the report for exact commands. The
+original 174-test map below is historical, not the current suite count.
 
 Baseline: [baseline](baseline.md). All 10 test modules and `conftest.py` were read. Existing suite: **174 passed**, statement coverage **60.78%**; no branch coverage configured. [Results and limitations](baseline-test-results.md). No tests were added or changed in this phase.
 

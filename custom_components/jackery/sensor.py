@@ -5,7 +5,7 @@ import logging
 import random
 import re
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import aiohttp
 from homeassistant.components import mqtt as ha_mqtt
@@ -33,6 +33,10 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
+from .identity import child_device_identifier, child_unique_id, http_unique_id
+
+if TYPE_CHECKING:
+    from .child_migration import ChildMigrationResult
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -1343,6 +1347,7 @@ class JackeryDataCoordinator:
         # True as soon as one valid message for this device SN was received (re-auth heuristic)
         self._ever_received: bool = False
         self.config_entry_id: str = ""  # set by async_setup_entry
+        self._child_migration: ChildMigrationResult | None = None
 
         # SmartMeter HTTP polling (optional feature, controlled via options flow)
         self._smartmeter_http_task: asyncio.Task[None] | None = None
@@ -1739,6 +1744,11 @@ class JackeryDataCoordinator:
             if getattr(entity, "_plug_sn", None) == sn or getattr(entity, "_sm_sn", None) == sn
         ]
 
+    def child_identity_allowed(self, sn: str) -> bool:
+        """Do not recreate children whose persisted identity could not migrate."""
+        migration = getattr(self, "_child_migration", None)
+        return migration is None or migration.allows(sn)
+
     def _remove_subdevice_from_ha(self, sn: str) -> None:
         """Remove an unbound sub-device and all its entities from Home Assistant.
 
@@ -1747,11 +1757,14 @@ class JackeryDataCoordinator:
         `async_remove(force_remove=True)` on every entity individually, which left the
         empty device behind.
         """
+        if not self.child_identity_allowed(sn):
+            return
         try:
             from homeassistant.helpers import device_registry as dr
             dev_reg = dr.async_get(self.hass)
             # Identifier must match JackerySubDeviceSensor._attr_device_info
-            device = dev_reg.async_get_device(identifiers={(DOMAIN, f"sub_{sn}")})
+            host = self._device_sn or self.config_entry_id
+            device = dev_reg.async_get_device(identifiers={(DOMAIN, child_device_identifier(host, sn))})
             if device is not None and device.config_entries != {self.config_entry_id}:
                 _LOGGER.warning("Skipping child device removal: config-entry ownership is ambiguous")
                 return
@@ -1830,7 +1843,7 @@ class JackeryDataCoordinator:
             if dev_type is None and sub_type == 2:
                 dev_type = 2
 
-            if sn and sn not in self._known_plugs:
+            if sn and sn not in self._known_plugs and self.child_identity_allowed(sn):
                 _LOGGER.info(f"Discovered new sub-device: {sn} (devType={dev_type}, subType={sub_type})")
                 self._known_plugs.add(sn)
 
@@ -1884,7 +1897,7 @@ class JackeryDataCoordinator:
             return
         new_entities = []
         for sn in exp_bats:
-            if sn not in self._known_plugs:
+            if sn not in self._known_plugs and self.child_identity_allowed(sn):
                 self._known_plugs.add(sn)
                 self._expansion_battery_sns.add(sn)
                 _LOGGER.info(f"Discovered expansion battery: {sn}")
@@ -2426,7 +2439,7 @@ class JackeryDataCoordinator:
 
     async def _create_http_sensors(self, sm_sn: str) -> None:
         """Create JackerySmartMeterHttpSensor entities for the given SmartMeter SN."""
-        if not self.add_entities_callback:
+        if not self.add_entities_callback or not self.child_identity_allowed(sm_sn):
             return
         new_entities = [
             JackerySmartMeterHttpSensor(
@@ -2663,14 +2676,13 @@ class JackerySubDeviceSensor(SensorEntity):
         if self._sensor_config.get("options"):
             self._attr_options = self._sensor_config["options"]
 
-        # Unique ID: jackery_ct_{sn}_power, jackery_plug_{sn}_energy, etc.
+        main_device_id = coordinator._device_sn or config_entry_id
         safe_key = self._sensor_key.replace("_", "") # e.g. energy_import -> energyimport
-        self._attr_unique_id = f"jackery_{device_name.lower()}_{plug_sn}_{safe_key}"
+        self._attr_unique_id = child_unique_id(main_device_id, plug_sn, device_name.lower(), safe_key)
         self._attr_has_entity_name = True
 
-        main_device_id = coordinator._device_sn or config_entry_id
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"sub_{plug_sn}")},
+            "identifiers": {(DOMAIN, child_device_identifier(main_device_id, plug_sn))},
             "via_device": (DOMAIN, main_device_id),
             "name": f"Jackery {device_name} {plug_sn}",
             "manufacturer": "Jackery",
@@ -2924,11 +2936,10 @@ class JackerySmartMeterHttpSensor(SensorEntity):
         self._attr_icon = sensor_config.get("icon")
         self._attr_available = False
 
-        self._attr_unique_id = f"jackery_{coordinator._device_sn}_http_sm_{sm_sn}_{sensor_key}"
-
         main_device_id = coordinator._device_sn or config_entry_id
+        self._attr_unique_id = http_unique_id(main_device_id, sm_sn, sensor_key)
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"sub_{sm_sn}")},
+            "identifiers": {(DOMAIN, child_device_identifier(main_device_id, sm_sn))},
             "via_device": (DOMAIN, main_device_id),
             "name": f"Jackery SmartMeter {sm_sn}",
             "manufacturer": "Jackery",

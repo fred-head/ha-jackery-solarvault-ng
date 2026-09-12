@@ -1,7 +1,7 @@
 """Identity audit using actual platforms and HA registries, with synthetic serials.
 
-PR2A safety regressions. Deferred duplicate-serial assertions are preserved in
-docs/future-tests/pr2b-child-identity.py.txt. See
+PR2A safety and restored PR2B duplicate-serial regressions. Original evidence is
+preserved in docs/future-tests/pr2b-child-identity.py.txt. See
 docs/multi-instance-identity.md before changing public identity formats.
 """
 
@@ -16,6 +16,8 @@ from homeassistant.helpers import entity_registry as er
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.jackery import DOMAIN, _migrate_unique_ids
+from custom_components.jackery.child_migration import migrate_child_identities
+from custom_components.jackery.identity import child_device_identifier
 from custom_components.jackery.number import NUMBERS
 from custom_components.jackery.sensor import (
     SENSORS,
@@ -186,7 +188,7 @@ async def test_distinct_children_with_overlapping_metadata(hass, setup_hosts, or
         first = registry_snapshot(hass, entries[host])
         await discover(hass, c, f"CHILD_{host}", group, dev_type, sub_type, data_key)
         assert registry_snapshot(hass, entries[host]) == first
-        device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, f"sub_CHILD_{host}")})
+        device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, child_device_identifier(host, f"CHILD_{host}"))})
         parent = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, host)})
         assert device.config_entries == {entries[host].entry_id}
         assert device.via_device_id == parent.id
@@ -205,11 +207,146 @@ async def test_distinct_children_with_overlapping_metadata(hass, setup_hosts, or
         assert registry_snapshot(hass, other) == before_other
 
 
+@pytest.mark.parametrize("order", [HOSTS, HOSTS[::-1]])
+@pytest.mark.parametrize("group,dev_type,sub_type,data_key", CHILDREN)
+async def test_identical_children_discovery_reload_unload_cleanup(hass, setup_hosts, order, group, dev_type, sub_type, data_key):
+    entries = await setup_hosts(order)
+    devices, entities = dr.async_get(hass), er.async_get(hass)
+    child_devices = {}
+    for host in order:
+        entry = entries[host]
+        coordinator = coordinator_for(hass, entry)
+        await discover(hass, coordinator, "SAME_child:%", group, dev_type, sub_type, data_key)
+        device = devices.async_get_device(identifiers={(DOMAIN, child_device_identifier(host, "SAME_child:%"))})
+        child_devices[host] = device
+        assert device.config_entries == {entry.entry_id}
+        assert device.via_device_id == devices.async_get_device(identifiers={(DOMAIN, host)}).id
+        records = er.async_entries_for_device(entities, device.id, include_disabled_entities=True)
+        assert len(records) == len(SUBDEVICE_SENSORS[group]) + (group == "plug")
+        assert all(e.config_entry_id == entry.entry_id for e in records)
+        assert "SAME_child:%" in coordinator._known_plugs
+        before = registry_snapshot(hass, entry)
+        listeners = dict(coordinator._sensors)
+        await discover(hass, coordinator, "SAME_child:%", group, dev_type, sub_type, data_key)
+        assert registry_snapshot(hass, entry) == before
+        assert coordinator._sensors == listeners
+    assert child_devices[HOSTS[0]].id != child_devices[HOSTS[1]].id
+    for host in order[::-1]:
+        entry = entries[host]
+        other = entries[next(h for h in HOSTS if h != host)]
+        before = registry_snapshot(hass, entry)
+        other_before = registry_snapshot(hass, other)
+        previous = coordinator_for(hass, entry)
+        assert await hass.config_entries.async_unload(entry.entry_id)
+        assert not previous._sensors
+        assert registry_snapshot(hass, other) == other_before
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await discover(hass, coordinator_for(hass, entry), "SAME_child:%", group, dev_type, sub_type, data_key)
+        assert registry_snapshot(hass, entry) == before
+        assert registry_snapshot(hass, other) == other_before
+    first, other = (entries[h] for h in order)
+    other_before = registry_snapshot(hass, other)
+    c = coordinator_for(hass, first)
+    c._remove_subdevice_from_ha("SAME_child:%")
+    await hass.async_block_till_done()
+    assert devices.async_get(child_devices[order[0]].id) is None
+    assert not c._entity_keys_for_subdevice("SAME_child:%")
+    assert registry_snapshot(hass, other) == other_before
+    await discover(hass, c, "SAME_child:%", group, dev_type, sub_type, data_key)
+    recovered = devices.async_get_device(identifiers={(DOMAIN, child_device_identifier(order[0], "SAME_child:%"))})
+    assert recovered is not None and recovered.config_entries == {first.entry_id}
+    assert registry_snapshot(hass, other) == other_before
+
+
+@pytest.mark.parametrize("order", [HOSTS, HOSTS[::-1]])
+async def test_http_mqtt_grouping_survives_both_reload_orders(hass, setup_hosts, order):
+    entries = await setup_hosts(order)
+    originals = {}
+    for host in order:
+        c = coordinator_for(hass, entries[host])
+        await discover(hass, c, "SAME", "ct_3phase", 3, 5, "cts")
+        await c._create_http_sensors("SAME")
+        await hass.async_block_till_done()
+        device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, child_device_identifier(host, "SAME"))})
+        records = er.async_entries_for_device(er.async_get(hass), device.id, include_disabled_entities=True)
+        assert len(records) == len(SUBDEVICE_SENSORS["ct_3phase"]) + len(SMARTMETER_HTTP_SENSOR_CONFIGS)
+        originals[host] = registry_snapshot(hass, entries[host])
+    for host in order[::-1]:
+        assert await hass.config_entries.async_reload(entries[host].entry_id)
+        c = coordinator_for(hass, entries[host])
+        await discover(hass, c, "SAME", "ct_3phase", 3, 5, "cts")
+        await c._create_http_sensors("SAME")
+        await hass.async_block_till_done()
+        assert {h: registry_snapshot(hass, e) for h, e in entries.items()} == originals
+
+
+async def test_reclassification_reuses_physical_device(hass, setup_hosts):
+    entry = (await setup_hosts())[HOSTS[0]]
+    c = coordinator_for(hass, entry)
+    await discover(hass, c, "SAME", "ct", 2, 1, "cts")
+    device = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, child_device_identifier(HOSTS[0], "SAME"))})
+    old = registry_snapshot(hass, entry)[0]
+    # The existing discovery set fixes a family's fields for this runtime.
+    await discover(hass, c, "SAME", "ct_3phase", 3, 5, "cts")
+    assert registry_snapshot(hass, entry)[0] == old
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await discover(hass, coordinator_for(hass, entry), "SAME", "ct_3phase", 3, 5, "cts")
+    current = dr.async_get(hass).async_get_device(identifiers={(DOMAIN, child_device_identifier(HOSTS[0], "SAME"))})
+    assert current.id == device.id
+    records = er.async_entries_for_device(er.async_get(hass), device.id, include_disabled_entities=True)
+    assert len(records) == len(SUBDEVICE_SENSORS["ct"]) + len(SUBDEVICE_SENSORS["ct_3phase"])
+    assert {e.entity_id for e in records} >= {eid for eid, values in old.items() if values[2] == device.id}
+
+
 def child_entities(coordinator, serial, group, dev_type, data_key):
     return [JackerySubDeviceSensor(
         serial, dev_type, key, config, coordinator, coordinator.config_entry_id,
         data_key=data_key, use_expansion=group == "expansion_battery", sensor_group=group,
     ) for key, config in SUBDEVICE_SENSORS[group].items()]
+
+
+@pytest.mark.parametrize("group,dev_type,sub_type,data_key", CHILDREN)
+def test_duplicate_child_serial_unique_ids_are_host_scoped(group, dev_type, sub_type, data_key):
+    """Every current child sensor definition must resist a cross-host collision."""
+    coordinators = [JackeryDataCoordinator(None, "hb", "tok", "localhost", host) for host in HOSTS]
+    ids = [{e.unique_id for e in child_entities(c, "DUPLICATE", group, dev_type, data_key)} for c in coordinators]
+    assert all(len(values) == len(SUBDEVICE_SENSORS[group]) for values in ids)
+    assert ids[0].isdisjoint(ids[1])
+
+
+def test_duplicate_plug_switch_unique_id_is_host_scoped():
+    switches = [JackeryPlugSwitch("DUPLICATE", 6, JackeryDataCoordinator(None, "hb", "tok", "localhost", host), host)
+                for host in HOSTS]
+    assert switches[0].unique_id != switches[1].unique_id
+
+
+async def test_http_unique_ids_differ_but_devices_must_also_be_separate(hass):
+    devices = []
+    ids = []
+    registry = dr.async_get(hass)
+    for host in HOSTS:
+        entry = MockConfigEntry(domain=DOMAIN, data={"device_sn": host}, unique_id=host)
+        entry.add_to_hass(hass)
+        registry.async_get_or_create(config_entry_id=entry.entry_id, identifiers={(DOMAIN, host)})
+        c = JackeryDataCoordinator(hass, "hb", "tok", "localhost", host)
+        entities = [JackerySmartMeterHttpSensor("DUPLICATE", key, config, c, entry.entry_id)
+                    for key, config in SMARTMETER_HTTP_SENSOR_CONFIGS.items()]
+        ids.append({e.unique_id for e in entities})
+        devices.append(registry.async_get_or_create(config_entry_id=entry.entry_id, **entities[0].device_info))
+    assert ids[0].isdisjoint(ids[1])
+    assert devices[0].id != devices[1].id
+
+
+@pytest.mark.parametrize("order", [HOSTS, HOSTS[::-1]])
+async def test_duplicate_child_discovery_does_not_claim_other_host(hass, setup_hosts, order):
+    entries = await setup_hosts(order)
+    await discover(hass, coordinator_for(hass, entries[order[0]]), "DUPLICATE", "plug", 6, 0, "plugs")
+    first = registry_snapshot(hass, entries[order[0]])
+    await discover(hass, coordinator_for(hass, entries[order[1]]), "DUPLICATE", "plug", 6, 0, "plugs")
+    assert registry_snapshot(hass, entries[order[0]]) == first
+    second_children = [e for e in er.async_entries_for_config_entry(er.async_get(hass), entries[order[1]].entry_id)
+                       if "DUPLICATE" in e.unique_id]
+    assert len(second_children) == len(SUBDEVICE_SENSORS["plug"]) + 1
 
 
 async def test_child_cleanup_cannot_delete_another_entries_device(hass, setup_hosts):
@@ -442,9 +579,10 @@ async def test_child_cleanup_requires_exclusive_ownership(hass, setup_hosts, gro
     for serial in ["ABC1", "XABC", "ABC_extra", "X_ABC"]:
         await discover(hass, c, serial, group, dev_type, sub_type, data_key)
     registry = dr.async_get(hass)
-    device = registry.async_get_device(identifiers={(DOMAIN, "sub_ABC")})
+    identifier = child_device_identifier(owner.data["device_sn"], "ABC")
+    device = registry.async_get_device(identifiers={(DOMAIN, identifier)})
     if ownership == "shared":
-        registry.async_get_or_create(config_entry_id=own.entry_id, identifiers={(DOMAIN, "sub_ABC")})
+        registry.async_get_or_create(config_entry_id=own.entry_id, identifiers={(DOMAIN, identifier)})
     before_other = registry_snapshot(hass, other)
     other_listeners = {key: entity for key, entity in c._sensors.items() if getattr(entity, "_plug_sn", None) != "ABC"}
     c._remove_subdevice_from_ha("ABC")
@@ -455,7 +593,7 @@ async def test_child_cleanup_requires_exclusive_ownership(hass, setup_hosts, gro
     if ownership == "own":
         assert not er.async_entries_for_device(er.async_get(hass), device.id)
         await discover(hass, c, "ABC", group, dev_type, sub_type, data_key)
-        assert registry.async_get_device(identifiers={(DOMAIN, "sub_ABC")}) is not None
+        assert registry.async_get_device(identifiers={(DOMAIN, identifier)}) is not None
 
 
 def test_listener_matching_uses_stored_child_serial():
@@ -500,20 +638,20 @@ async def test_obsolete_cleanup_does_not_delete_unrelated_records(hass, registry
 
 
 @pytest.mark.parametrize("group,dev_type,sub_type,data_key", CHILDREN)
-def test_existing_public_child_formats(group, dev_type, sub_type, data_key):
+def test_host_scoped_child_formats_preserve_family_and_fields(group, dev_type, sub_type, data_key):
     c = JackeryDataCoordinator(None, "hb", "tok", "localhost", HOSTS[0])
     family = {"ct_3phase": "smartmeter", "expansion_battery": "battery"}.get(group, group)
     for entity, key in zip(child_entities(c, "123_abc", group, dev_type, data_key), SUBDEVICE_SENSORS[group], strict=True):
-        assert entity.unique_id == f"jackery_{family}_123_abc_{key.replace('_', '')}"
-        assert entity.device_info["identifiers"] == {(DOMAIN, "sub_123_abc")}
+        assert entity.unique_id == f"jackery_child:{HOSTS[0]}:123_abc:{family}:{key.replace('_', '')}"
+        assert entity.device_info["identifiers"] == {(DOMAIN, f"child:{HOSTS[0]}:123_abc")}
         assert entity.device_info["via_device"] == (DOMAIN, HOSTS[0])
     switch = JackeryPlugSwitch("123_abc", 6, c, "entry")
-    assert switch.unique_id == "jackery_plug_123_abc_switch"
-    assert switch.device_info["identifiers"] == {(DOMAIN, "sub_123_abc")}
+    assert switch.unique_id == f"jackery_child:{HOSTS[0]}:123_abc:plug:switch"
+    assert switch.device_info["identifiers"] == {(DOMAIN, f"child:{HOSTS[0]}:123_abc")}
     for key, config in SMARTMETER_HTTP_SENSOR_CONFIGS.items():
         entity = JackerySmartMeterHttpSensor("123_abc", key, config, c, "entry")
         assert entity.unique_id == f"jackery_{HOSTS[0]}_http_sm_123_abc_{key}"
-        assert entity.device_info["identifiers"] == {(DOMAIN, "sub_123_abc")}
+        assert entity.device_info["identifiers"] == {(DOMAIN, f"child:{HOSTS[0]}:123_abc")}
 
 
 @pytest.mark.parametrize("setup_hosts", [False, True, None], indirect=True)
@@ -574,8 +712,15 @@ async def test_device_link_disambiguates_overlapping_ct_identity(hass, registry_
 async def test_shared_http_mqtt_device_cleanup_retains_both_entries(hass, setup_hosts):
     entries = await setup_hosts()
     a, b = (coordinator_for(hass, entries[host]) for host in HOSTS)
-    await discover(hass, b, "SHARED", "ct_3phase", 3, 5, "cts")
-    await a._create_http_sensors("SHARED")
+    # Seed the historical state explicitly: current discovery correctly keeps
+    # these two hosts separate, but existing shared records must stay protected.
+    mqtt = child_entities(b, "SHARED", "ct_3phase", 3, "cts")[0]
+    mqtt._attr_unique_id = "jackery_smartmeter_SHARED_importtotal"
+    mqtt._attr_device_info["identifiers"] = {(DOMAIN, "sub_SHARED")}
+    http = JackerySmartMeterHttpSensor("SHARED", "frequency", SMARTMETER_HTTP_SENSOR_CONFIGS["frequency"], a, a.config_entry_id)
+    http._attr_device_info["identifiers"] = {(DOMAIN, "sub_SHARED")}
+    b.add_entities_callback([mqtt])
+    a.add_entities_callback([http])
     await hass.async_block_till_done()
     registry = dr.async_get(hass)
     device = registry.async_get_device(identifiers={(DOMAIN, "sub_SHARED")})
@@ -583,6 +728,7 @@ async def test_shared_http_mqtt_device_cleanup_retains_both_entries(hass, setup_
     before = [registry_snapshot(hass, entry) for entry in entries.values()]
     listeners = dict(a._sensors)
     for c in [a, b]:
+        c._child_migration = migrate_child_identities(hass, entries[c._device_sn])
         c._remove_subdevice_from_ha("SHARED")
         await _migrate_unique_ids(hass, entries[c._device_sn])
     await hass.async_block_till_done()

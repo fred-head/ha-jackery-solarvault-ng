@@ -1,19 +1,19 @@
 # Entity inventory
 
-The subsequent [multi-instance identity audit](multi-instance-identity.md) adds
-real registry regressions for child collisions, collector reload and unsafe
-migration/cleanup cases. Its migration design is proposed, not implemented; the
-baseline formats below remain the production contract. PR2A now protects child
-IDs and registry ownership and removes the platform-order dependency. The migration
-heuristic described below is historical; see the audit's PR2A status for corrections.
+The [multi-instance identity report](multi-instance-identity.md) records the PR2A
+ownership/setup fixes and PR2B's implemented host-scoped child migration. Identity
+rules below reflect PR2B; sensor definitions and baseline source anchors remain
+the behavioral inventory. No measurements, units, translations or formulas changed.
 
 ## Entity identity and lifecycle contract
 
 Main sensors: `jackery_{main_sn}_{sensor_id}`; main switches: `jackery_{main_sn}_switch_{field}`; numbers: `jackery_{main_sn}_number_{field}`. Main identity falls back to entry ID where constructor code says so. Select suffixes are `auto_standby_select` / `work_mode_select`; reboot suffix `reboot`.
 
-Child sensors: `jackery_{device_name_lower}_{child_sn}_{key_without_underscores}`, where device name is battery, collector, smartmeter (devType=3), ct, or plug. Child switch: `jackery_plug_{child_sn}_switch`. HTTP: `jackery_{main_sn}_http_sm_{meter_sn}_{sensor_key}`. MQTT child unique IDs and device identifiers lack main SN; HTTP IDs include it. Thus main-device multi-instance support does not imply isolation when the same child SN appears under two hosts. Source: C `sensor.py:2437,2564,2852`; platform constructors.
+Child sensors: `jackery_child:{encoded_host}:{encoded_child}:{family}:{key_without_underscores}`, where family is battery, collector, smartmeter (HTO907A/Shelly), ct, or plug. Child switch: `jackery_child:{encoded_host}:{encoded_child}:plug:switch`. Every child device uses `(jackery, child:{encoded_host}:{encoded_child})` via the unchanged main device. `identity.py` percent-encodes both serial components with UTF-8 and `safe=""`, preserving case and underscores. Identical child serials under different hosts are separate physical identities.
 
-Migration (`__init__.py:17`) preserves recognized lowercase-prefix child IDs only when the following SN starts uppercase; prefixes are smartmeter/battery/plug/ct, **not collector**. It prefixes old main sensors, chooses switch/number suffix from entity platform, translates entry-ID controls, removes conflicting old orphans and already-prefixed `main_*` residue, removes `max_feed_in_select`, and migrates the old entry-ID device identifier to host SN. Collector/numeric-or-lowercase SN preservation is not covered and can be misclassified. Do not import official host-prefixed child IDs or `main_*` controls: they conflict with this migration policy.
+HTTP normally retains `jackery_{main_sn}_http_sm_{meter_sn}_{sensor_key}`. Only serial pairs containing the ambiguous `_http_sm_` delimiter use `jackery_child:{encoded_host}:{encoded_child}:http:{sensor_key}`. HTTP and MQTT measurements of the same host/child share one device.
+
+`child_migration.py` preflights all active registry records, including disabled entities, before applying in-place entity/device identity updates. Unambiguous legacy `jackery_{family}_{child}_{key}` and `sub_{child}` records migrate while preserving entity IDs, device IDs and user settings. Shared/foreign ownership, unknown records and target conflicts retain records and pause affected discovery/cleanup. Registry state drives idempotent recovery on each setup; config-entry version remains 1. The existing main migration remains separate and excludes protected child records. See the identity report for exact ownership requirements, exceptional namespace collisions and recorder continuity evidence.
 
 No disabled-by-default settings are declared for any platform. Device class/state class are absent for writable entities except reboot's restart device class. Initial numbers and HTTP sensors explicitly start unavailable; other classes largely inherit HA availability and update when data appears. Reboot is not registered for coordinator offline updates. Known entities with missing fields often retain state/availability; no per-field freshness exists.
 
@@ -50,7 +50,7 @@ Read-only max_output_power, soc_charge_limit, soc_discharge_limit, max_feed_grid
 
 The work_mode read-only sensor and socForceChg number are absent from current definitions. maxOutPw moved from select to number and obsolete max_feed_in_select is explicitly removed by migration. There is no corresponding cleanup for every historical work_mode/socForceChg entity. Source comments in number.py still mention a maxOutPw select although final code creates a number; dictionary/constructor behavior takes precedence over those stale comments.
 
-Baseline and evidence notation: [baseline](baseline.md). Tables enumerate runtime dictionaries at C, with source anchors for every definition. All rows below are **read-only sensor entities**, enabled by default (no integration override), with no explicit entity category. All main sensors belong to the main SN device; each child group belongs to `sub_{child_sn}` via the main device. HTTP sensors belong to the same meter device as MQTT sensors. A dash means absent/None metadata.
+Baseline and evidence notation: [baseline](baseline.md). Tables enumerate runtime dictionaries at C, with source anchors for every definition. All rows below are **read-only sensor entities**, enabled by default (no integration override), with no explicit entity category. All main sensors belong to the main SN device; each child group now belongs to `child:{encoded_host}:{encoded_child}` via the main device. HTTP sensors belong to the same meter device as MQTT sensors. A dash means absent/None metadata.
 
 ## Sensor definitions
 

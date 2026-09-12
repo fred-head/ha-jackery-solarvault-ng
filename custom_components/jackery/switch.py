@@ -12,6 +12,7 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
+from .identity import child_device_identifier, child_unique_id
 from .sensor import (
     COMM_MODE_LABELS,
     plug_comm_mode,
@@ -83,7 +84,7 @@ async def async_setup_entry(
     for item in coordinator.get_subdevices():
         sn = item.get("deviceSn") or item.get("sn")
         dev_type = item.get("devType")
-        if sn and should_create_plug_switch(item):
+        if sn and coordinator.child_identity_allowed(sn) and should_create_plug_switch(item):
             entities.append(
                 JackeryPlugSwitch(
                     plug_sn=sn,
@@ -114,12 +115,12 @@ class JackeryPlugSwitch(SwitchEntity):
         self._raw_data: dict[str, Any] = {}
 
         self._attr_name = "Switch"
-        self._attr_unique_id = f"jackery_plug_{plug_sn}_switch"
+        main_device_id = coordinator._device_sn or config_entry_id
+        self._attr_unique_id = child_unique_id(main_device_id, plug_sn, "plug", "switch")
         self._attr_has_entity_name = True
 
-        main_device_id = coordinator._device_sn or config_entry_id
         self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"sub_{plug_sn}")},
+            "identifiers": {(DOMAIN, child_device_identifier(main_device_id, plug_sn))},
             "via_device": (DOMAIN, main_device_id),
             "name": f"Jackery Plug {plug_sn}",
             "manufacturer": "Jackery",
