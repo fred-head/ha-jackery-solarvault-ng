@@ -1,5 +1,13 @@
 # Incremental and reversible roadmap
 
+Current progress: the energy calculation bundle described in phase 2 is now
+implemented on `refactor/extract-energy-calculations`. The extraction follows
+the finalized [energy-source contract](energy-source-policy.md): calculation
+helpers and formulas moved to `calculations/energy_flow.py`, while protocol
+normalization and coordinator freshness ownership remain at their existing
+runtime boundary. See [architecture.md](architecture.md). Later rows remain
+future work and are not implemented by this extraction.
+
 Phase 0/1 stops with this documentation. The following work requires subsequent review. Baseline: 174 tests passing, translation/Ruff pass, CI-style lint-only mypy pass; combined HA+lint environment has 23 typing findings. The [test map](test-coverage-map.md) defines actual assertion limits.
 
 Each row is one small PR, or a sequence of PRs when explicitly indicated. Do not combine bugfixes with extraction. Preserve raw payloads, entity IDs, unique IDs, registry associations, units/scales, translations, default enablement, command bytes (apart from generated timestamps/IDs) and source precedence unless the PR explicitly and independently changes a diagnosed behavior. Run existing suite, Ruff, translation check and the documented mypy environments; CI HACS/Hassfest remains a gate. Keep a dated exception ledger for the already-known combined typing failures until fixed, rather than disabling checks.

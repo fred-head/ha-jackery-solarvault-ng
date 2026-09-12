@@ -1,14 +1,14 @@
 # Responsibility and coupling map
 
-The subsequent [energy/source policy](energy-source-policy.md) keeps all code in
-`sensor.py`. `_power_sample`/`_ct_power` define narrow presence/zero rules;
-the coordinator owns bounded live/snapshot metadata and grid selection observes
-existing child activity. `_calculate_energy_flow` retains formulas but now
-consults coordinator freshness and records source decisions; its snapshot-only
-tests call it without coordinator state. A future extraction must pass freshness
-explicitly rather than losing that dependency. The existing timer reevaluates
-grid/home outputs after child expiry; EPS null and no-grid availability are
-regression protected. No module extraction was performed.
+Phase 2 now extracts the energy calculation bundle into
+`calculations/energy_flow.py`; see [architecture.md](architecture.md). Pure
+numeric/presence/net helpers, CT/collector/system selection and derived formulas
+live there. The module accepts coordinator-prepared `SourceFreshness` and has no
+Home Assistant dependency. `sensor.py` retains a narrow adapter for protocol
+normalization, runtime child-age ownership, source metadata and error logging.
+Type-106 live/snapshot state, timer/entity updates and all transport behavior
+remain in `sensor.py`. The extraction preserves the contract in
+[energy-source-policy.md](energy-source-policy.md).
 
 The subsequent [MQTT lifecycle fix](mqtt-lifecycle.md) retains subscription
 cleanup handles per coordinator and adds setup-failure/unload cleanup in place.
@@ -22,17 +22,22 @@ forwarding. PR2B now isolates child identities by host and migrates unambiguous
 registry records in place. `identity.py` owns shared identity construction and
 canonical recognition; `child_migration.py` owns registry preflight/apply. Setup
 runs migration before forwarding; discovery and cleanup consult its conflict
-result. These additions are confined to persistent identity correctness. No
-protocol, transport, calculation or coordinator extraction has been performed;
-the source map below describes the pinned baseline.
+result. These additions are confined to persistent identity correctness. At that
+point, no protocol, transport, calculation or coordinator extraction had been
+performed; the source map below preserves that pinned baseline before the Phase
+2 completion record above.
 
-Pinned source: [baseline](baseline.md). Proposed destinations are **future extractions**, not files created by this task. C `sensor.py` has 2,913 lines: definitions 60–1123, protocol helpers 1126–1310, coordinator 1311–2393, setup/entities 2396–2913. Seven production Python modules total 3,966 lines. The coordinator is a custom class, not HA DataUpdateCoordinator.
+Pinned historical source: [baseline](baseline.md). Destinations below describe
+the original plan; completion labels record implemented extractions. At that
+baseline C `sensor.py` had 2,913 lines: definitions 60–1123, protocol helpers
+1126–1310, coordinator 1311–2393, setup/entities 2396–2913. The coordinator
+remains a custom class, not HA DataUpdateCoordinator.
 
 | Cohesive concern / existing symbols | Dependencies and callers | Mutable state / relevant tests | Destination / risk |
 | --- | --- | --- | --- |
 | DOMAIN, PLATFORMS; timing/model/status/comm/subtype/bit constants | `__init__.py`; sensor, switch, select, config flow imports. HA-specific enum metadata in SENSORS must stay near entities. | Constants only; `TestConstants`, `TestCommModeLabels`, SOC bound tests | `const.py` for integration policy; `protocol/constants.py` for actual wire maps. LOW, but avoid circular imports and re-export old names initially. |
-| `_field_present`, `_safe_float`, `_pick_best_power_net`, `_effective_ongrid_net`, `_grid_net_from_system`; `_calculate_energy_flow` (1189–1277,1997–2176) | Calculation invokes normalization and helpers, logging only; called from message handler and direct tests with self=None. | Mutates supplied dict and returns it; caches raw and derived keys together. `test_calculate_energy_flow`, helper/total-battery tests | `calculations/energy_flow.py`. MEDIUM: preserve mutation, sign, zero handling, max-magnitude/tie ordering, anomaly thresholds, source priority. First extraction leaves method wrapper. |
-| `_normalize_payload_fields`, `_extract_flat_body`, `_FLAT_*`, `_TYPE106_SKIP_IF_ESTABLISHED` | Normalize called during all main merges and calculations; flat extraction only handler. 106 policy depends on cache, not pure normalization. | Helpers return copies; explicit target/null rules; `TestNormalizePayloadFields`, `TestExtractFlatBody`, route tests. | `protocol/normalization.py`; keep 106 cache policy outside helper initially. LOW–MEDIUM. |
+| `_field_present`, `_safe_float`, `_power_sample`, `_ct_power`, `_pick_best_power_net`, `_effective_ongrid_net`, `_grid_net_from_system`, `select_grid_source`, `calculate_energy_flow` | **Extracted:** `calculations/energy_flow.py`, imported by sensor coordinator adapter. Standard library only. | Pure selection plus established mutation/return contract for derived keys. Direct calculation/helper/source tests and full coordinator regressions. | **COMPLETED Phase 2.** Runtime normalization/freshness preparation and logging remain in `_calculate_energy_flow`; no semantic redesign. |
+| `_normalize_payload_fields`, `_extract_flat_body`, `_FLAT_*`, `_TYPE106_LIVE_PREFERRED` | Normalize called during all main merges and the calculation adapter; flat extraction only handler. 106 policy depends on cache, not pure normalization. | Helpers return copies; explicit target/null rules; `TestNormalizePayloadFields`, `TestExtractFlatBody`, route tests. | `protocol/normalization.py`; keep 106 cache policy outside helper initially. LOW–MEDIUM. |
 | `plug_comm_mode`, `plug_mqtt_control_allowed`, `should_create_plug_switch`; discovery type/subtype branches | switch imports helpers from sensor; sensor dynamically imports switch during discovery. `_merge_subdevice_point_update` also classifies. | Input dict semantics, known sets; v230 helper tests only, no whole discovery coverage. | `devices/classification.py` containing functions and small capability records. HIGH: phase-vs-hardware subtype ambiguity, dynamic/static filter mismatch, HTO/Shelly differentiation. |
 | `_subdevice_sn`, `_merge_subdevice_list`, `_merge_subdevice_arrays`, `_merge_subdevice_point_update` | `_handle_message`; use normalization-independent wire keys, classifier, wall clock; point writes existing dict. | `_data_cache`, alias `plug is plugs`, `_subdevice_last_seen`; routing/upstream-sync tests. | Pure structural parsing into `protocol/parser.py`; cache application to `devices/state.py` only once transitions covered. HIGH: identity/aliasing/null/empty-list policy differs by route. |
 | `_handle_message` envelope parse/routing (1421–1550) | HA callback calls it; JSON/regex/time/meta capture; calculation, discovery, distribution chained. | `_last_update_time`, `_ever_received`, `_device_sn`, cache; route tests bypass constructor and often entity creation. | `protocol/parser.py` for validated structural decode; coordinator applies state. HIGH: preserve type/body.cmd distinctions and permissive unknown fallback until separate fixes approved. |

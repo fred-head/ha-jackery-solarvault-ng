@@ -2,7 +2,6 @@
 import asyncio
 import json
 import logging
-import math
 import random
 import re
 import time
@@ -34,6 +33,12 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
+from .calculations.energy_flow import (
+    SourceFreshness,
+    _power_sample,
+    calculate_energy_flow,
+    select_grid_source,
+)
 from .identity import child_device_identifier, child_unique_id, http_unique_id
 
 if TYPE_CHECKING:
@@ -1106,34 +1111,6 @@ _TYPE106_LIVE_PREFERRED: frozenset[str] = frozenset({
 })
 
 
-def _power_sample(value: Any) -> float | None:
-    """Read finite power, preserving zero and the existing PV dictionary aliases."""
-    if isinstance(value, dict):
-        value = next((value[k] for k in ("pvPw", "w", "power") if value.get(k) is not None), None)
-    if isinstance(value, bool):
-        return None
-    try:
-        number = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    return number if math.isfinite(number) else None
-
-
-def _ct_power(ct: dict, total: tuple[str, str], phases: tuple[str, ...]) -> float | None:
-    """Totals (including zero) precede phase sums; metadata is not a measurement."""
-    value = next((ct[k] for k in total if ct.get(k) is not None), None)
-    if value is not None:
-        return _power_sample(value)
-    samples = []
-    for key in phases:
-        alias = key[0].upper() + key[1:].replace("Phase", "phase")
-        raw = ct.get(alias) if ct.get(alias) is not None else ct.get(key)
-        sample = _power_sample(raw)
-        if sample is not None:
-            samples.append(sample)
-    return sum(samples) if samples else None
-
-
 SMARTMETER_HTTP_SENSOR_CONFIGS: dict[str, dict] = {
     "voltage_l1":        {"key": "volt1", "unit": UnitOfElectricPotential.VOLT,           "device_class": SensorDeviceClass.VOLTAGE,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:lightning-bolt"},
     "voltage_l2":        {"key": "volt2", "unit": UnitOfElectricPotential.VOLT,           "device_class": SensorDeviceClass.VOLTAGE,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:lightning-bolt"},
@@ -1217,97 +1194,6 @@ def _merge_subdevice_list(
             continue
         merged[sn] = {**merged.get(sn, {}), **item}
     return list(merged.values())
-
-
-def _field_present(data: dict, key: str) -> bool:
-    """Return True if `key` exists in `data` and is not None (0 is a valid reading)."""
-    return key in data and data[key] is not None
-
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    """Convert an MQTT field to float, falling back to `default` on None/garbage."""
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _pick_best_power_net(candidates: list[float]) -> float:
-    """Pick the non-zero candidate with the largest magnitude.
-
-    A device may report the same physical quantity through several fields
-    (type-2 vs. type-106).  A field that is present but reports 0 must not
-    mask a field that carries an actual reading, so the largest magnitude wins.
-    If every candidate is 0 the last one is returned (still a valid "no flow").
-    """
-    if not candidates:
-        return 0.0
-    non_zero = [v for v in candidates if abs(v) > 0]
-    if non_zero:
-        return max(non_zero, key=abs)
-    return candidates[-1]
-
-
-def _effective_ongrid_net(
-    data: dict,
-    grid_in: float,
-    grid_out: float,
-    ongrid_charge: float,
-    ongrid_supply: float,
-    in_grid_side: float,
-    out_grid_side: float,
-) -> float:
-    """Net power at the grid-tied port (positive = grid → unit).
-
-    Multi-source: `gridInPw/gridOutPw` (type-106), `inOngridPw/outOngridPw` (type-2)
-    and `inGridSidePw/outGridSidePw` all describe the same port on different firmware
-    revisions.  Only sources actually present in the payload are considered.
-    """
-    candidates: list[float] = []
-    if _field_present(data, "gridInPw") or _field_present(data, "gridOutPw"):
-        candidates.append(grid_in - grid_out)
-    if _field_present(data, "inOngridPw") or _field_present(data, "outOngridPw"):
-        candidates.append(ongrid_charge - ongrid_supply)
-    if _field_present(data, "inGridSidePw") or _field_present(data, "outGridSidePw"):
-        candidates.append(in_grid_side - out_grid_side)
-    return _pick_best_power_net(candidates)
-
-
-def _grid_net_from_system(
-    data: dict,
-    grid_in: float,
-    grid_out: float,
-    ongrid_charge: float,
-    ongrid_supply: float,
-    in_grid_side: float,
-    out_grid_side: float,
-    *,
-    include_ongrid: bool = True,
-) -> tuple[float, bool]:
-    """Derive net grid power from device-reported fields when no CT/meter is available.
-
-    Returns `(net_power, available)`; positive = import from grid.
-
-    `include_ongrid` controls whether `inOngridPw/outOngridPw` may act as the grid
-    reading.  This fork calls it with `include_ongrid=False`: those two fields are
-    already used to compute `p_ong`, so accepting them as the "grid meter" would make
-    `p_home = p_grid - p_ong` collapse to 0 and destroy the AC-output fallback
-    (`p_home = outOngridPw`) used on installations without a meter.
-    """
-    candidates: list[float] = []
-    if _field_present(data, "inGridSidePw") or _field_present(data, "outGridSidePw"):
-        candidates.append(in_grid_side - out_grid_side)
-    if _field_present(data, "gridInPw") or _field_present(data, "gridOutPw"):
-        candidates.append(grid_in - grid_out)
-    if include_ongrid and (
-        _field_present(data, "inOngridPw") or _field_present(data, "outOngridPw")
-    ):
-        candidates.append(ongrid_charge - ongrid_supply)
-    if not candidates:
-        return 0.0, False
-    return _pick_best_power_net(candidates), True
 
 
 def _normalize_payload_fields(payload: dict) -> dict:
@@ -2073,177 +1959,29 @@ class JackeryDataCoordinator:
         )
 
     def _calculate_energy_flow(self, data: dict) -> dict:
-        """Compute the derived energy-flow values from the merged cache.
-
-        Sources, in priority order:
-        - PV:      `pvPw` (scalar or dict)
-        - Ongrid:  `_effective_ongrid_net()` over gridInPw/gridOutPw, inOngridPw/outOngridPw
-                   and inGridSidePw/outGridSidePw (positive = grid → unit)
-        - ACSocket: `swEpsInPw` / `swEpsOutPw`
-        - Grid:    CT (`cts`) → Meter Collector (`collectors`) → `_grid_net_from_system()`
-        - Battery: total-stack balance PV + ongrid charge - supply + EPS in - out
-        - Home:    p_grid − p_ong (clamped to ≥ 0), else the unit's net AC output
-        """
+        """Normalize/cache runtime inputs, then delegate pure energy calculation."""
         try:
-            # 0. Normalize field aliases (gridBuyPw→gridInPw, gridSellPw→gridOutPw,
-            #    workModel→workMode) so the multi-source helpers see canonical keys.
             data.update(_normalize_payload_fields(data))
-
-            # 1. PV
-            # Handle dict for PV if necessary (copied from sensor logic)
-            pv = _power_sample(data.get("pvPw"))
-            if pv is None:
-                pv = 0.0
-
-            # 2. Ongrid — net power at the grid-tied port, multi-source so that a
-            #    type-106 zero cannot mask a live type-2 reading (and vice versa).
-            grid_in = _safe_float(data.get("gridInPw"))
-            grid_out = _safe_float(data.get("gridOutPw"))
-            ongrid_charge = _safe_float(data.get("inOngridPw"))
-            ongrid_supply = _safe_float(data.get("outOngridPw"))
-            in_grid_side = _safe_float(data.get("inGridSidePw"))
-            out_grid_side = _safe_float(data.get("outGridSidePw"))
-            p_ong = _effective_ongrid_net(  # 流入主机为正
-                data,
-                grid_in,
-                grid_out,
-                ongrid_charge,
-                ongrid_supply,
-                in_grid_side,
-                out_grid_side,
-            )
-
-            # 3. ACSocket (EPS)
-            ac_in = _safe_float(data.get("swEpsInPw"))
-            ac_out = _safe_float(data.get("swEpsOutPw"))
-
-            # 4. Grid (Meter)
-            # 优先从 'cts' 数组中提取 CT 数据 (Smart CT Meter)
-            # cts item: { ..., "TphasePw": <Import>, "TnphasePw": <Export>, "commState": 1/0, ... }
-            grid_available = False
-            grid_buy = 0.0
-            grid_sell = 0.0
-
-            source = "unavailable"
-            source_age = None
-            skipped_stale = 0
-            skipped_missing = 0
-            now = time.time()
-            for array in ("cts", "collectors"):
-                items = data.get(array)
-                if not isinstance(items, list):
-                    continue
-                for item in items:
-                    if not isinstance(item, dict):
-                        continue
-                    sn = _subdevice_sn(item)
-                    age = None
-                    if self is not None and sn is not None:
-                        seen = self._subdevice_last_seen.get(sn)
-                        age = now - seen if seen is not None else None
-                        if not self._subdevice_is_available(sn, now):
-                            skipped_stale += 1
-                            continue
-                    if array == "cts":
-                        in_pw = _ct_power(item, ("TphasePw", "tPhasePw"), ("aPhasePw", "bPhasePw", "cPhasePw"))
-                        out_pw = _ct_power(item, ("TnphasePw", "tnPhasePw"), ("anPhasePw", "bnPhasePw", "cnPhasePw"))
-                    else:
-                        in_pw = _power_sample(item.get("inPw"))
-                        out_pw = _power_sample(item.get("outPw"))
-                    if in_pw is None and out_pw is None:
-                        skipped_missing += 1
-                        continue
-                    grid_buy = in_pw if in_pw is not None else 0.0
-                    grid_sell = out_pw if out_pw is not None else 0.0
-                    grid_available = True
-                    source, source_age = array, age
-                    break
-                if grid_available:
-                    break
-
-            # Fallback 2: device-reported system fields (gridInPw/gridOutPw — already
-            # alias-normalized from gridBuyPw/gridSellPw — or inGridSidePw/outGridSidePw).
-            # inOngridPw/outOngridPw are deliberately excluded (see _grid_net_from_system).
-            if not grid_available:
-                sys_net, sys_available = _grid_net_from_system(
-                    data,
-                    grid_in,
-                    grid_out,
-                    ongrid_charge,
-                    ongrid_supply,
-                    in_grid_side,
-                    out_grid_side,
-                    include_ongrid=False,
-                )
-                if sys_available:
-                    source = "system"
-                    grid_available = True
-                    grid_buy = max(0.0, sys_net)
-                    grid_sell = max(0.0, -sys_net)
-
-            # Calculate P_grid
-            p_grid = None
-            if grid_available:
-                p_grid = grid_buy - grid_sell
-
-                # 🔴异常流程（仅当电表可用且并网口处于充电态时生效）
-                # GridAvailable=true 且 GridBuy < OngridCharge 且 (OngridCharge - GridBuy) <= 50W
-                if grid_buy < ongrid_charge and (ongrid_charge - grid_buy) <= 50:
-                    p_grid = p_ong
-
-            # 5. Battery (total stack — main unit + expansion batteries)
-            # batInPw/batOutPw are main-unit-only and do NOT include expansion batteries
-            # (e.g. BP2500). Confirmed 2026-08-04 by parallel MQTT/app measurement:
-            # energy balance matches the Jackery app within ≤13 W; batInPw diverges by
-            # 200–300 W when the BP2500 is actively charging.
-            # Formula: PV + grid_in − grid_out_to_ac − eps_out + eps_in
-            total_batt_net = pv + ongrid_charge - ongrid_supply - ac_out + ac_in
-            total_batt_charge = max(0.0, total_batt_net)
-            total_batt_discharge = max(0.0, -total_batt_net)
-            p_batt = total_batt_net
-
-            # 6. Home (Calculated)
-            p_home = 0.0
-
-            if p_grid is not None:
-                # 电表可用
-                # Base formula: p_home = p_grid - p_ong
-                #   = (grid_buy - grid_sell) - (ongrid_charge - ongrid_supply)
-                #   = ongrid_supply + grid_buy - grid_sell - ongrid_charge
-                # This correctly handles all normal scenarios including phase-balanced
-                # feed-in (outOngridPw is total SolarVault AC output, not net-to-grid).
-                p_home = p_grid - p_ong
-
-                # 🔴 异常分支 1: measurement noise — grid_buy slightly below ongrid_charge
-                if grid_buy > 0 and ongrid_charge > 0 and grid_buy < ongrid_charge and (ongrid_charge - grid_buy) <= 50:
-                    p_home = 0.0
-
-                # 🔴 异常分支 2: larger discrepancy between grid_buy and ongrid_charge
-                elif grid_buy > 0 and ongrid_charge > 0 and grid_buy < ongrid_charge and (ongrid_charge - grid_buy) > 50:
-                    p_home = ongrid_charge - grid_buy
-
-            else:
-                # 电表不可用 (No CT / collector / system fields) — the unit's net AC output
-                # is the only available estimate of the house load.
-                p_home = max(0.0, -p_ong)
-
-            # House loads cannot be negative — clamp any sensor-timing artefact to 0.
-            p_home = max(0.0, p_home)
-
-            # Store calculated values
-            data["calc_home_power"] = p_home
-            data["calc_batt_net_power"] = p_batt
-            data["total_battery_charge_power"] = total_batt_charge
-            data["total_battery_discharge_power"] = total_batt_discharge
-            data["grid_available"] = grid_available
-            data["calc_grid_net_power"] = p_grid if grid_available else None
+            freshness: dict[str, SourceFreshness] | None = None
             if self is not None:
-                # No serials/tokens; activity age is deliberately not sample age.
-                self._energy_sources["grid"] = {
-                    "source": source, "activity_age": source_age,
-                    "skipped_stale": skipped_stale, "skipped_missing": skipped_missing,
-                    "reason": "first usable meter" if source in ("cts", "collectors") else "no usable meter",
-                }
+                now = time.time()
+                freshness = {}
+                for array in ("cts", "collectors"):
+                    items = data.get(array)
+                    if not isinstance(items, list):
+                        continue
+                    for item in items:
+                        if not isinstance(item, dict) or (sn := _subdevice_sn(item)) is None:
+                            continue
+                        seen = self._subdevice_last_seen.get(sn)
+                        freshness[sn] = SourceFreshness(
+                            available=self._subdevice_is_available(sn, now),
+                            activity_age=now - seen if seen is not None else None,
+                        )
+            selected = select_grid_source(data, freshness)
+            calculate_energy_flow(data, selected)
+            if self is not None:
+                self._energy_sources["grid"] = selected.metadata()
 
         except Exception as e:
             _LOGGER.error(f"Error calculating energy flow: {e}")

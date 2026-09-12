@@ -5,6 +5,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Refactored
+
+- Extract energy-flow formulas and grid-source calculation into a standalone,
+  Home-Assistant-independent calculation module without changing runtime behavior.
+
 ### Fixed
 
 - Allow repeated Type-106 power snapshots to update instead of freezing the first

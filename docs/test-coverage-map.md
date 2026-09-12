@@ -1,5 +1,16 @@
 # Test coverage map
 
+Phase 2 adds direct package-boundary coverage in `test_energy_flow_module.py` and
+moves existing helper/formula tests to import `calculations.energy_flow`
+directly. These tests prove same-object mutation, explicit selected-source input,
+freshness supplied by the caller, raw-source non-mutation, observability shape
+and system fallback. Protocol-alias cases deliberately continue through the
+coordinator adapter. All pre-extraction energy/source and full integration tests
+remain the acceptance contract.
+Final extraction validation: **1,085 passed, 92.68% coverage**. The extracted
+module itself has 99% statement coverage; repository coverage increased slightly
+from 92.57% despite moving code. No skips or xfails were introduced.
+
 The [energy/source follow-up](energy-source-policy.md) adds
 `test_energy_source_policy.py`, replaces the Type-106 frozen-value diagnostic in
 `test_protocol_contract.py`, and extends `test_availability_freshness.py`.
