@@ -1,5 +1,10 @@
 # Test coverage map
 
+The subsequent [MQTT lifecycle tests](mqtt-lifecycle.md) cover subscription
+ownership, callback delivery across unload/reload, two-entry isolation, partial
+startup and cleanup failures, and concurrent/cancelled lifecycle operations.
+The broker boundary is simulated; HA entry/platform lifecycle runs in process.
+
 Follow-up evidence: [multi-instance identity audit](multi-instance-identity.md)
 adds 60 registry/identity cases, with 24 passing and 36 exposing unresolved
 baseline defects. PR2A classified those 60 cases and fixed applicable safety
