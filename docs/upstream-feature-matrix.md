@@ -1,5 +1,14 @@
 # Community / Official feature matrix
 
+The subsequent [energy-source comparison](energy-source-policy.md#upstream-comparison)
+pins freshly fetched official/community heads and classifies Type-106 protection,
+CT zero/presence, collector fallback and battery/home formulas. Official's
+presence distinction is supported; its zero replacement and unconditional
+snapshot overwrite are not adopted. Community's total-stack battery and
+home-export fixes remain supported by historical source evidence. Conflicting
+host aliases and wire timestamps require real-device evidence. The current
+bounded live preference and stale-meter exclusion are local correctness fixes.
+
 ## Protocol/command follow-up (2026-09-12)
 
 Fetched references still match Official `af97223ff17fc8f14314cbc6da7213a5eee7004d`

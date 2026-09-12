@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Allow repeated Type-106 power snapshots to update instead of freezing the first
+  value, while protecting valid live host measurements for 60 seconds.
+- Fall back from expired or measurement-less CT/SmartMeter and collector sources,
+  update derived grid/home values on the existing timer, and mark grid power
+  unavailable when no usable source remains. Preserve explicit zero CT/PV aliases.
+- Handle null EPS power without interrupting updates to other energy sensors.
 - Accept Type-23 statistics addressed to the configured SolarVault serial and
   prevent child messages from overwriting host model/firmware metadata.
 - Ignore malformed child arrays, serials and host model values without blocking

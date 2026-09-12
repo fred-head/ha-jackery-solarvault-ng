@@ -1,5 +1,15 @@
 # Responsibility and coupling map
 
+The subsequent [energy/source policy](energy-source-policy.md) keeps all code in
+`sensor.py`. `_power_sample`/`_ct_power` define narrow presence/zero rules;
+the coordinator owns bounded live/snapshot metadata and grid selection observes
+existing child activity. `_calculate_energy_flow` retains formulas but now
+consults coordinator freshness and records source decisions; its snapshot-only
+tests call it without coordinator state. A future extraction must pass freshness
+explicitly rather than losing that dependency. The existing timer reevaluates
+grid/home outputs after child expiry; EPS null and no-grid availability are
+regression protected. No module extraction was performed.
+
 The subsequent [MQTT lifecycle fix](mqtt-lifecycle.md) retains subscription
 cleanup handles per coordinator and adds setup-failure/unload cleanup in place.
 Subscription ownership is now tested before any transport extraction.

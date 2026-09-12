@@ -1,5 +1,10 @@
 # Protocol routing and command contract
 
+Follow-up: [energy-source-policy.md](energy-source-policy.md) resolves the
+Type-106 frozen-field defect characterized in this report and replaces its
+diagnostic assertions with a bounded live-preference contract. It also documents
+and tests source selection; the results below describe this earlier PR.
+
 Audit date: 2026-09-12. Branch: `test/protocol-routing-commands`; starting foundation
 `016f849f8115a1478ba6faeb64fbc5daf0d988d2` (493 tests, 86.52% coverage).
 This report supersedes the historical routing/command gaps in the Phase 0/1

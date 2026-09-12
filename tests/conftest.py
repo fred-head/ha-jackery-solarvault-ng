@@ -33,6 +33,9 @@ def coordinator():
     coord.add_entities_callback = None
     coord.add_switch_entities_callback = None
     coord._data_cache = {}
+    coord._power_live_seen = {}
+    coord._power_106_samples = {}
+    coord._energy_sources = {}
     coord._topic_status_wildcard = "hb/device/+/status"
     coord._topic_event_wildcard = "hb/device/+/event"
     return coord
