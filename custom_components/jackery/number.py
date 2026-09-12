@@ -149,17 +149,25 @@ class JackeryMainNumber(NumberEntity):
 
         min_key = cfg.get("min_key")
         if min_key and min_key in data:
-            new_min = float(data[min_key])
-            if new_min != self._attr_native_min_value:
-                self._attr_native_min_value = new_min
-                changed = True
+            try:
+                new_min = float(data[min_key])
+            except (TypeError, ValueError, OverflowError):
+                pass
+            else:
+                if new_min != self._attr_native_min_value:
+                    self._attr_native_min_value = new_min
+                    changed = True
 
         max_key = cfg.get("max_key")
         if max_key and max_key in data:
-            new_max = float(data[max_key])
-            if new_max != self._attr_native_max_value:
-                self._attr_native_max_value = new_max
-                changed = True
+            try:
+                new_max = float(data[max_key])
+            except (TypeError, ValueError, OverflowError):
+                pass
+            else:
+                if new_max != self._attr_native_max_value:
+                    self._attr_native_max_value = new_max
+                    changed = True
 
         if self._key in data:
             val = data.get(self._key)

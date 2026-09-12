@@ -1,5 +1,10 @@
 # Current community capabilities
 
+This is the historical community inventory. The current tested classification and
+command behavior, including explicitly rejected unknown-device discovery, is in
+[protocol-routing-commands.md](protocol-routing-commands.md). Merged lifecycle,
+freshness and identity fixes supersede the corresponding limitations below.
+
 Pinned baseline and C/O source notation: [baseline](baseline.md). This is a description of C, including limitations, rather than a promise of hardware coverage.
 
 Post-baseline availability corrections and intentionally retained policies are
