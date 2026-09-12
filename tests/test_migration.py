@@ -11,6 +11,7 @@ import pytest
 from homeassistant import config_entries
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.jackery import DOMAIN, _migrate_unique_ids
 
@@ -45,7 +46,8 @@ def _find_by_uid(ent_reg, entry_id, uid):
 
 async def test_main_sensor_gets_sn_prefix(hass):
     """jackery_{sensor_id} → jackery_{sn}_{sensor_id}."""
-    entry = await _create_entry(hass)
+    entry = MockConfigEntry(domain=DOMAIN, data={"device_sn": _DEVICE_SN}, unique_id=_DEVICE_SN)
+    entry.add_to_hass(hass)
     ent_reg = er.async_get(hass)
 
     ent_reg.async_get_or_create("sensor", "jackery", "jackery_battery_soc", config_entry=entry)
@@ -65,7 +67,7 @@ async def test_main_sensor_gets_sn_prefix(hass):
 # ---------------------------------------------------------------------------
 
 async def test_subdevice_uid_preserved(hass):
-    """Sub-device entity (uppercase char after prefix) must not be migrated."""
+    """A historical child entity without a device link must be preserved."""
     entry = await _create_entry(hass)
     ent_reg = er.async_get(hass)
 
@@ -97,11 +99,11 @@ async def test_main_infix_artifact_deleted(hass):
 
 
 # ---------------------------------------------------------------------------
-# Conflict: target already exists — delete orphan
+# Conflict: target already exists — preserve both registry records
 # ---------------------------------------------------------------------------
 
-async def test_conflict_orphan_deleted(hass):
-    """Old uid cannot migrate when target already exists — orphan is deleted."""
+async def test_conflict_records_preserved(hass):
+    """A duplicate target does not prove the source has no user data/history."""
     entry = await _create_entry(hass)
     ent_reg = er.async_get(hass)
 
@@ -113,8 +115,8 @@ async def test_conflict_orphan_deleted(hass):
 
     await _migrate_unique_ids(hass, entry)
 
-    assert not _find_by_uid(ent_reg, entry.entry_id, old_uid), \
-        "Orphan must be deleted when target already exists"
+    assert _find_by_uid(ent_reg, entry.entry_id, old_uid), \
+        "Conflicting source must be preserved for explicit reconciliation"
     assert _find_by_uid(ent_reg, entry.entry_id, new_uid), \
         "New-format entity must be preserved"
 

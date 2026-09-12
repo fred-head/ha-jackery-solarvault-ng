@@ -86,7 +86,7 @@ def test_expansion_battery_stays_available_after_long_gap():
     coord._expansion_battery_sns.add(EXP_SN)
     coord._subdevice_last_seen[EXP_SN] = time.time() - 600  # seen long ago
 
-    fake_entity = MagicMock()
+    fake_entity = MagicMock(_plug_sn=EXP_SN)
     fake_entity.available = False  # currently offline
     coord._sensors[f"jackery_battery_{EXP_SN}_foo"] = fake_entity
 
@@ -105,7 +105,7 @@ def test_expansion_battery_unavailable_if_never_seen():
     coord._expansion_battery_sns.add(EXP_SN)
     # last_seen = 0 (never seen), start_time is in the past (past grace period)
 
-    fake_entity = MagicMock()
+    fake_entity = MagicMock(_plug_sn=EXP_SN)
     fake_entity.available = True  # currently falsely marked online
     coord._sensors[f"jackery_battery_{EXP_SN}_foo"] = fake_entity
 
@@ -145,7 +145,7 @@ def test_startup_grace_period_suppresses_offline():
     coord._known_plugs.add(DUMMY_SN)
     # last_seen = 0 (never seen)
 
-    fake_entity = MagicMock()
+    fake_entity = MagicMock(_plug_sn=PLUG_SN)
     fake_entity.available = True
     coord._sensors[f"jackery_plug_{PLUG_SN}_foo"] = fake_entity
 

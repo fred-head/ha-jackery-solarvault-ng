@@ -1709,6 +1709,9 @@ class JackeryDataCoordinator:
         model = DEVICE_TYPE_MODEL_MAP.get(self._device_type or 0, DEFAULT_MODEL)
         identifier = self._device_sn or self.config_entry_id
         device = registry.async_get_device(identifiers={(DOMAIN, identifier)})
+        if device and device.config_entries != {self.config_entry_id}:
+            _LOGGER.warning("Skipping device metadata update: config-entry ownership is ambiguous")
+            return
         if device:
             registry.async_update_device(device.id, model=model, sw_version=self._soft_ver)
             _LOGGER.debug("Device registry updated: model=%s sw_version=%s", model, self._soft_ver)
@@ -1732,8 +1735,8 @@ class JackeryDataCoordinator:
         """Return all registered entity keys (unique_ids) belonging to a sub-device SN."""
         return [
             sensor_id
-            for sensor_id in self._sensors
-            if f"_{sn}_" in sensor_id or sensor_id.endswith(f"_{sn}")
+            for sensor_id, entity in self._sensors.items()
+            if getattr(entity, "_plug_sn", None) == sn or getattr(entity, "_sm_sn", None) == sn
         ]
 
     def _remove_subdevice_from_ha(self, sn: str) -> None:
@@ -1749,6 +1752,9 @@ class JackeryDataCoordinator:
             dev_reg = dr.async_get(self.hass)
             # Identifier must match JackerySubDeviceSensor._attr_device_info
             device = dev_reg.async_get_device(identifiers={(DOMAIN, f"sub_{sn}")})
+            if device is not None and device.config_entries != {self.config_entry_id}:
+                _LOGGER.warning("Skipping child device removal: config-entry ownership is ambiguous")
+                return
             if device is not None:
                 dev_reg.async_remove_device(device.id)
                 _LOGGER.info("Sub-device %s unbound — removed from HA device registry.", sn)
@@ -2457,21 +2463,12 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Jackery sensors."""
-    config = config_entry.data
-    topic_prefix = config.get("topic_prefix", "hb")
-    token = config.get("token")
-    mqtt_host = config.get("mqtt_host")
-    device_sn = config.get("device_sn")
-
-    coordinator = JackeryDataCoordinator(hass, topic_prefix, token, mqtt_host, device_sn)
-    coordinator.config_entry_id = config_entry.entry_id
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
 
     # Register callback for dynamic entities
     def add_entities_callback(new_entities):
         async_add_entities(new_entities)
     coordinator.add_entities_callback = add_entities_callback
-
-    hass.data[DOMAIN][config_entry.entry_id]["coordinator"] = coordinator
 
     entities = []
     for sensor_id, sensor_config in SENSORS.items():
@@ -2486,7 +2483,6 @@ async def async_setup_entry(
         entities.append(entity)
 
     async_add_entities(entities)
-    await coordinator.async_start()
 
 
 class JackerySensor(SensorEntity):

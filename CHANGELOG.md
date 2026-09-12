@@ -7,6 +7,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Preserve existing child entity identities during migration, including collectors,
+  numeric/lowercase serials and historical prefixes; retain ambiguous records.
+- Protect foreign/shared devices from identity migration, metadata updates and child
+  cleanup. Migration target conflicts retain both records and respect Home Assistant
+  entity domains and integration platforms.
+- Match child listeners by their stored serial so overlapping serials cannot remove
+  unrelated listeners.
+- Initialize the coordinator before platform setup so switches, numbers, selects and
+  buttons load regardless of platform order, including after reload.
+
 - Foreign-host MQTT traffic and invalid message envelopes no longer refresh the
   configured SolarVault's heartbeat or suppress its silence-based reauthentication hint.
 - Child MQTT entities now expire independently after 60 seconds without reports;

@@ -1,5 +1,12 @@
 # Entity inventory
 
+The subsequent [multi-instance identity audit](multi-instance-identity.md) adds
+real registry regressions for child collisions, collector reload and unsafe
+migration/cleanup cases. Its migration design is proposed, not implemented; the
+baseline formats below remain the production contract. PR2A now protects child
+IDs and registry ownership and removes the platform-order dependency. The migration
+heuristic described below is historical; see the audit's PR2A status for corrections.
+
 ## Entity identity and lifecycle contract
 
 Main sensors: `jackery_{main_sn}_{sensor_id}`; main switches: `jackery_{main_sn}_switch_{field}`; numbers: `jackery_{main_sn}_number_{field}`. Main identity falls back to entry ID where constructor code says so. Select suffixes are `auto_standby_select` / `work_mode_select`; reboot suffix `reboot`.

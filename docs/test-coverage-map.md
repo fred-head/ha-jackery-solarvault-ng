@@ -1,5 +1,12 @@
 # Test coverage map
 
+Follow-up evidence: [multi-instance identity audit](multi-instance-identity.md)
+adds 60 registry/identity cases, with 24 passing and 36 exposing unresolved
+baseline defects. PR2A classifies those 60 cases, fixes applicable safety defects
+and preserves 11 deferred PR2B cases as a documented future-test artifact. See
+the audit's PR2A status for current tests, results and transport limitations. The original 174-test map below
+is historical, not the current suite count.
+
 Baseline: [baseline](baseline.md). All 10 test modules and `conftest.py` were read. Existing suite: **174 passed**, statement coverage **60.78%**; no branch coverage configured. [Results and limitations](baseline-test-results.md). No tests were added or changed in this phase.
 
 `conftest.coordinator` bypasses `__init__` with `__new__`, omits config_entry_id and HTTP state, and uses poll counter=0 rather than production=2. Most routing tests therefore merge cache without creating actual child entities or running transport. Helpers frequently replace `async_write_ha_state`, timers or registry removal with mocks. Passing cache assertions do not establish end-to-end HA availability.
