@@ -1,12 +1,11 @@
 # Incremental and reversible roadmap
 
-Current progress: the energy calculation bundle described in phase 2 is now
-implemented on `refactor/extract-energy-calculations`. The extraction follows
-the finalized [energy-source contract](energy-source-policy.md): calculation
-helpers and formulas moved to `calculations/energy_flow.py`, while protocol
-normalization and coordinator freshness ownership remain at their existing
-runtime boundary. See [architecture.md](architecture.md). Later rows remain
-future work and are not implemented by this extraction.
+Current progress: the pure normalization and energy calculation bundles described
+in phases 1 and 2 are implemented. Established aliases and flat-status body
+reconstruction live in `protocol/normalization.py`; formulas and source selection
+live in `calculations/energy_flow.py`. Coordinator-owned routing, cache mutation,
+freshness and Type-106 precedence remain in `sensor.py`. See
+[architecture.md](architecture.md). Later rows remain future work.
 
 Phase 0/1 stops with this documentation. The following work requires subsequent review. Baseline: 174 tests passing, translation/Ruff pass, CI-style lint-only mypy pass; combined HA+lint environment has 23 typing findings. The [test map](test-coverage-map.md) defines actual assertion limits.
 
@@ -16,8 +15,8 @@ Each row is one small PR, or a sequence of PRs when explicitly indicated. Do not
 | --- | --- | --- | --- | --- |
 | 0. Make characterization credible | tests fixtures/conftest/new regression modules; pyproject/CI only if needed for documented environment split | No production behavior change. Preserve existing 174 assertions and explicit baseline results. | Full MQTT→cache→real entity path; HTTP coexistence; two-host clocks; 106 ordering; collector/Shelly/BP fixtures; complete registry snapshots. Use synthetic IDs and identify capture provenance. | LOW production risk. Fixtures exercise actual constructors and callbacks, not just __new__; failing intended bug cases land with their separate fix. Revert test-only PR freely. |
 | 0a. Fix confirmed defects independently | Small targeted sensor.py/HTTP changes plus regression tests; never architectural moves | Everything outside each bug's expected transition remains unchanged. Preserve control/identity contracts. | First: register HTTP sensor then inject MQTT, proving all intended entities still update; then isolated heartbeat/type23 fixes; freshness/registry changes only after broader evidence. | HIGH defect impact but narrow change. Each fix must fail on C and pass with minimal change. One PR/revert per defect; freeze updated behavior in baseline before extraction. |
-| 1. Extract pure normalization first | `protocol/__init__.py`, `protocol/normalization.py`, sensor.py compatibility exports | Same aliases, null/zero priority, shallow-copy behavior and flat whitelist. `TestNormalizePayloadFields`, `TestExtractFlatBody`, routing tests. | Conflicting alias/explicit-zero/null cases; flat aliases-only/energy-only; non-dict envelopes remain parser concern. | LOW–MEDIUM. No HA import in helper module; old imports/tests still work. Single commit revert. This precedes energy extraction because calculation calls normalization. |
-| 2. Extract calculation bundle | `calculations/__init__.py`, `calculations/energy_flow.py`, sensor.py wrapper | Same dict mutation/return, derived keys, raw fields, battery stack formula, CT/collector/system precedence, sign/clamp/anomaly behavior. 22 energy tests + helper/total-battery cases. | Recorded/synthetic golden scenarios with collector, subtype2 Shelly, empty CT, source conflicts, total zero/phase contradiction, boundary=50W. | MEDIUM. Byte-equivalent resulting cache for fixture playback; helper tests run without HA import. Keep wrapper until call sites migrate. No canonical-state redesign. |
+| 1. Extract pure normalization first | **Completed:** `protocol/__init__.py`, `protocol/normalization.py`, sensor.py caller imports | Same aliases, null/zero priority, alias retention, shallow-copy behavior, flat whitelist and metadata stripping. Direct normalization plus routing tests. | Added conflicting alias/explicit-zero/null cases and flat aliases-only/energy-only cases; non-dict envelopes remain parser concern. | **COMPLETED.** Standard-library-only helper module; no routing, cache, classification, freshness or command decisions moved. |
+| 2. Extract calculation bundle | **Completed:** `calculations/__init__.py`, `calculations/energy_flow.py`, sensor.py wrapper | Same dict mutation/return, derived keys, raw fields, battery stack formula, CT/collector/system precedence, sign/clamp/anomaly behavior. Direct calculation/helper/source tests. | Added collector, subtype2 Shelly, empty CT, source conflicts, total zero/phase contradiction and 50 W boundary scenarios. | **COMPLETED.** Standard-library-only calculation module; coordinator retains freshness and logging. No canonical-state redesign. |
 | 3. Centralize device classification | `devices/__init__.py`, `devices/classification.py`, sensor.py, switch.py | Preserve current groups and source-array behavior including type3 all subtypes, collector4/7, expansion1, unknown fallback until separate fix. Existing helper/routing tests. | Discovery entity snapshots for all groups, omitted/string/unknown devType, main SN, static/dynamic switch paths, repeated discovery. | HIGH. Same count/IDs/parents/control gates on every fixture. Resolve or explicitly preserve inconsistent branches rather than silently standardizing. Revert helper/import PR. |
 | 4. Extract structural protocol parsing | protocol/parser.py, sensor.py/coordinator wrapper | Same type2/23/101/102/106/107/123 and generic routing decisions, body/flat distinctions. Routing/upstream tests. | Reordering, duplicate/repeated reports, null arrays/points, main vs child metadata, unknown keys, malformed shapes. | HIGH. Replay old/new parser through same transition code and compare states/effects. No new deletion/ack semantics. |
 | 5. Isolate state transitions and availability ownership | coordinator.py; optional devices/state.py; sensor.py adapters | Preserve the now-characterized corrected behavior, energy policies, cumulative-battery exception and historical entity identities. Availability and migration tests. | Full timer/message/update/recovery, no-list, actual removal, all entity types, HTTP separate freshness. | HIGH. One state owner; values cannot silently override health decision. Any change to C's stale behavior was already isolated in 0a, not introduced here. Revert without persisted-state migration. |
@@ -33,6 +32,12 @@ Each row is one small PR, or a sequence of PRs when explicitly indicated. Do not
 
 The first implementation task is a minimal HTTP/MQTT coexistence regression and isolated fix for `_distribute_data` calling a nonexistent method on HTTP sensors. It is a concrete source/probe-confirmed defect invisible to the current green suite. Keep this a bugfix, not a refactor.
 
-The **first refactoring PR** should extract pure normalization with compatibility exports (phase 1). The **second refactoring PR** should extract the energy calculation bundle (phase 2), once its additional collector/zero/source cases exist. This reverses the illustrative calculations-first order to avoid a new calculation module importing sensor.py for normalization.
+The next isolated extraction should centralize device classification (phase 3)
+after its discovery/entity snapshots are complete. Structural parsing and routing
+remain a separate later step because their null, list, identity and freshness
+effects are more stateful than payload normalization.
 
-For risky freshness, unbinding and identity changes, preserve C behavior until evidence justifies an explicit change; a known defect is not permission to silently redesign adjacent behavior. Reversion must not require deleting HA entities, re-pairing meters, changing tokens or discarding history. No Phase 2 branch, implementation files or tests are created by the current task.
+For risky freshness, unbinding and identity changes, preserve established behavior
+until evidence justifies an explicit change; a known defect is not permission to
+silently redesign adjacent behavior. Reversion must not require deleting HA
+entities, re-pairing meters, changing tokens or discarding history.

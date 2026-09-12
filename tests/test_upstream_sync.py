@@ -9,11 +9,13 @@ from custom_components.jackery.calculations.energy_flow import (
     _safe_float,
     calculate_energy_flow,
 )
+from custom_components.jackery.protocol.normalization import (
+    extract_flat_body,
+    normalize_payload_fields,
+)
 from custom_components.jackery.sensor import (
     CT_SUBTYPE_MAP,
     FUNC_ENABLE_BITS,
-    _extract_flat_body,
-    _normalize_payload_fields,
 )
 from tests.conftest import FakeMqttMsg
 
@@ -117,47 +119,47 @@ class TestGridNetFromSystem:
 
 
 # ---------------------------------------------------------------------------
-# _normalize_payload_fields
+# normalize_payload_fields
 # ---------------------------------------------------------------------------
 
 class TestNormalizePayloadFields:
     def test_grid_buy_aliased_to_grid_in(self):
-        assert _normalize_payload_fields({"gridBuyPw": 300})["gridInPw"] == 300
+        assert normalize_payload_fields({"gridBuyPw": 300})["gridInPw"] == 300
 
     def test_grid_sell_aliased_to_grid_out(self):
-        assert _normalize_payload_fields({"gridSellPw": 120})["gridOutPw"] == 120
+        assert normalize_payload_fields({"gridSellPw": 120})["gridOutPw"] == 120
 
     def test_work_model_aliased_to_work_mode(self):
-        assert _normalize_payload_fields({"workModel": 4})["workMode"] == 4
+        assert normalize_payload_fields({"workModel": 4})["workMode"] == 4
 
     def test_existing_value_wins_over_alias(self):
-        result = _normalize_payload_fields({"workModel": 4, "workMode": 2})
+        result = normalize_payload_fields({"workModel": 4, "workMode": 2})
         assert result["workMode"] == 2
 
     def test_zero_alias_is_kept(self):
-        assert _normalize_payload_fields({"gridSellPw": 0})["gridOutPw"] == 0
+        assert normalize_payload_fields({"gridSellPw": 0})["gridOutPw"] == 0
 
     def test_input_not_mutated(self):
         payload = {"gridBuyPw": 10}
-        _normalize_payload_fields(payload)
+        normalize_payload_fields(payload)
         assert "gridInPw" not in payload
 
 
 # ---------------------------------------------------------------------------
-# _extract_flat_body
+# extract_flat_body
 # ---------------------------------------------------------------------------
 
 class TestExtractFlatBody:
     def test_non_status_payload_returns_empty(self):
-        assert _extract_flat_body({"type": 25, "messageId": 1234}) == {}
+        assert extract_flat_body({"type": 25, "messageId": 1234}) == {}
 
     def test_status_fields_extracted(self):
         raw = {"type": 2, "ts": 1, "messageId": 9, "token": "x", "batSoc": 88, "pvPw": 120}
-        assert _extract_flat_body(raw) == {"batSoc": 88, "pvPw": 120}
+        assert extract_flat_body(raw) == {"batSoc": 88, "pvPw": 120}
 
     def test_meta_keys_stripped(self):
         raw = {"type": 2, "deviceType": 3, "softver": "1.0", "soc": 50}
-        assert _extract_flat_body(raw) == {"soc": 50}
+        assert extract_flat_body(raw) == {"soc": 50}
 
 
 def test_flat_status_message_merged_into_cache(coordinator):
