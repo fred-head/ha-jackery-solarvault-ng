@@ -1,17 +1,19 @@
 """Tests for the v2.0.0 upstream sync additions (helpers, type-102/107, flat body)."""
 import json
 
+from custom_components.jackery.calculations.energy_flow import (
+    _effective_ongrid_net,
+    _field_present,
+    _grid_net_from_system,
+    _pick_best_power_net,
+    _safe_float,
+    calculate_energy_flow,
+)
 from custom_components.jackery.sensor import (
     CT_SUBTYPE_MAP,
     FUNC_ENABLE_BITS,
-    JackeryDataCoordinator,
-    _effective_ongrid_net,
     _extract_flat_body,
-    _field_present,
-    _grid_net_from_system,
     _normalize_payload_fields,
-    _pick_best_power_net,
-    _safe_float,
 )
 from tests.conftest import FakeMqttMsg
 
@@ -24,7 +26,7 @@ def send(coord, topic: str, payload: dict) -> None:
 
 
 def calc(data: dict) -> dict:
-    return JackeryDataCoordinator._calculate_energy_flow(None, data)
+    return calculate_energy_flow(data)
 
 
 # ---------------------------------------------------------------------------
