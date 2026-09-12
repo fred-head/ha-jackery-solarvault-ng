@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Refactored
 
+- Extract MQTT field-alias normalization and flat status-body reconstruction
+  into a standalone, Home-Assistant-independent protocol module without changing
+  routing or payload behavior.
 - Extract energy-flow formulas and grid-source calculation into a standalone,
   Home-Assistant-independent calculation module without changing runtime behavior.
 

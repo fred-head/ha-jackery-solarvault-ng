@@ -1,12 +1,22 @@
 # Test coverage map
 
+The protocol-normalization extraction adds 18 direct cases in
+`test_protocol_normalization.py`. They cover all three established aliases,
+canonical zero precedence, canonical/alias null behavior, missing and unknown
+fields, alias retention, shallow-copy/non-mutation behavior, key-presence handling
+for flat zero/null values, the unchanged flat whitelist and complete metadata
+stripping. Existing direct helper and MQTT route tests now import the extracted
+module. Final validation: **1,103 passed, 92.69% coverage**; the normalization
+module has 100% statement coverage. No skips or xfails were introduced.
+
 Phase 2 adds direct package-boundary coverage in `test_energy_flow_module.py` and
 moves existing helper/formula tests to import `calculations.energy_flow`
 directly. These tests prove same-object mutation, explicit selected-source input,
 freshness supplied by the caller, raw-source non-mutation, observability shape
-and system fallback. Protocol-alias cases deliberately continue through the
-coordinator adapter. All pre-extraction energy/source and full integration tests
-remain the acceptance contract.
+and system fallback. Protocol-alias cases now use the dedicated normalization
+module and continue through the coordinator adapter in route tests. All
+pre-extraction energy/source and full integration tests remain the acceptance
+contract.
 Final extraction validation: **1,085 passed, 92.68% coverage**. The extracted
 module itself has 99% statement coverage; repository coverage increased slightly
 from 92.57% despite moving code. No skips or xfails were introduced.
@@ -70,8 +80,8 @@ Baseline: [baseline](baseline.md). All 10 test modules and `conftest.py` were re
 | Type102 | `test_upstream_sync::test_type102_*`: known/new child, inference, arrays, last-seen, main SN excluded | Null filtering assertion, aliases/collectors, malformed fields, arrays plus point body, real firmware evidence |
 | Type106 | `test_type106_*`: merge, workModel normalization/explicit key priority | Protected live-field set, first/second 106-only snapshots, null seed, 2→106→107 ordering |
 | Type107 | `test_type107_*`: soc, workModel alias, unrelated cache retained | Command acknowledgement semantics, reordered/duplicate messages |
-| Flat payloads | `TestExtractFlatBody`, two flat routing tests | Aliases-only/energy-only/arrays-only payloads, non-dict JSON, null body variants |
-| Normalization | `TestNormalizePayloadFields`: three aliases, explicit value, zero alias, no input mutation | Explicit target zero against conflicting alias, null target/value combinations throughout all routes |
+| Flat payloads | Direct module tests cover the whitelist, zero/null key presence, metadata stripping, aliases-only/energy-only/arrays-only rejection and non-mutation; two flat routing tests cover cache behavior | Non-dict JSON and route-specific null body variants remain parser concerns |
+| Normalization | Direct module tests cover all three aliases, canonical conflict/zero/null precedence, null aliases, missing/unknown fields, alias retention and shallow non-mutation; MQTT routes cover ingestion | No global phase-casing normalization exists; route-specific null merge semantics remain separate contracts |
 | Zero values | `_field_present`, `_safe_float`, `_pick_best_power_net`, explicit zero grid aliases, temperature zero | Upper/lower phase alias conflicts, zero totals vs nonzero phases, nonfinite values, empty CT suppressing collector fallback |
 | Energy flow | 22 tests in `test_calculate_energy_flow`; helper and four total-battery tests in `test_upstream_sync` | Collector fallback, multi-meter choice, source freshness, contradictory sources and complete recorded scenarios |
 | SmartMeter detection | Routing type3/subtype5 tests and generic enum sensor tests | Actual discovery-generated 19 sensors, metadata-only cache behavior, model fixtures |

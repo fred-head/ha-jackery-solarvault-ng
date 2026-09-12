@@ -9,16 +9,26 @@ incremental target and risk order remain in [refactoring-roadmap.md](refactoring
 Home Assistant platform entities
              ↓
 sensor.py coordinator and runtime state
-             ↓
-calculations/energy_flow.py
-             ↓
-Python standard library
+             ├──→ protocol/normalization.py ──→ Python standard library
+             └──→ calculations/energy_flow.py ──→ Python standard library
 ```
 
-`sensor.py` still owns MQTT/HTTP interaction, protocol normalization, cache and
-freshness state, entity classes, discovery and coordinator lifecycle. Identity
-construction and registry migration already live in `identity.py` and
-`child_migration.py`.
+`sensor.py` still owns MQTT/HTTP interaction, routing, cache and freshness state,
+entity classes, discovery and coordinator lifecycle. Identity construction and
+registry migration already live in `identity.py` and `child_migration.py`.
+
+## Protocol normalization package
+
+`custom_components/jackery/protocol/normalization.py` owns the established
+`gridBuyPw` to `gridInPw`, `gridSellPw` to `gridOutPw` and `workModel` to
+`workMode` aliases. It also reconstructs a body from the existing flat-status
+whitelist and removes the established envelope metadata keys. Both functions
+make shallow copies, preserve original and unknown wire fields and import only
+the Python standard library.
+
+The module does not parse JSON, validate topics or hosts, select a message route,
+classify devices, merge state, advance freshness, apply Type-106 live/snapshot
+precedence or build commands. Those responsibilities remain in `sensor.py`.
 
 ## Energy calculation package
 
@@ -53,7 +63,7 @@ coordinator always supplies its freshness-aware selection during production
 message processing and timer reevaluation.
 
 The coordinator's `_calculate_energy_flow` method remains as a narrow adapter.
-It applies the existing `_normalize_payload_fields` protocol aliases, translates
+It applies `normalize_payload_fields`, translates
 its child last-seen state into `SourceFreshness`, calls the pure calculation
 functions, stores source observability metadata and retains the existing error
 log/fallback boundary.
@@ -65,7 +75,8 @@ does not decide whether a Home Assistant entity is available.
 
 ## Preserved contract
 
-The extraction does not alter formulas, raw-cache retention, source priority,
-zero/null handling, alias precedence, child freshness, the 50 W anomaly branches,
-Type-106 precedence, entity IDs or entity metadata. The exact behavior and known
-limits are defined in [energy-source-policy.md](energy-source-policy.md).
+The extractions do not alter formulas, raw-cache retention, source priority,
+zero/null handling, alias precedence or retention, the flat-status whitelist,
+child freshness, the 50 W anomaly branches, Type-106 precedence, entity IDs or
+entity metadata. The exact energy behavior and known limits are defined in
+[energy-source-policy.md](energy-source-policy.md).

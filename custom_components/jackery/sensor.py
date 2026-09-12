@@ -40,6 +40,7 @@ from .calculations.energy_flow import (
     select_grid_source,
 )
 from .identity import child_device_identifier, child_unique_id, http_unique_id
+from .protocol.normalization import extract_flat_body, normalize_payload_fields
 
 if TYPE_CHECKING:
     from .child_migration import ChildMigrationResult
@@ -1071,35 +1072,6 @@ FUNC_ENABLE_BITS: dict[int, str] = {
     11: "smart_plug_first",  # bit11 smart plug priority
 }
 
-# Fields that identify a *flat* status message (payload without a type/body wrapper).
-# If any of these appear at the top level, the message body is reconstructed from the
-# remaining top-level keys (see _extract_flat_body).
-_FLAT_PAYLOAD_KEYS: frozenset[str] = frozenset(
-    {
-        "batSoc",
-        "soc",
-        "pvPw",
-        "stat",
-        "workMode",
-        "inOngridPw",
-        "outOngridPw",
-        "gridInPw",
-        "gridOutPw",
-        "inGridSidePw",
-        "outGridSidePw",
-        "swEpsInPw",
-        "swEpsOutPw",
-        "batInPw",
-        "batOutPw",
-        "otherLoadPw",
-    }
-)
-
-# Top-level envelope keys that are never part of the payload body
-_FLAT_META_KEYS: frozenset[str] = frozenset(
-    {"type", "eventId", "messageId", "ts", "deviceType", "token", "softver", "body"}
-)
-
 # Real-time power fields shared between type-2 (~11 s) and type-106 (~30 s).
 # Preserve live readings for OFFLINE_TIMEOUT, not forever based on key presence.
 # See docs/energy-source-policy.md and the snapshot race in commit 8043585.
@@ -1194,37 +1166,6 @@ def _merge_subdevice_list(
             continue
         merged[sn] = {**merged.get(sn, {}), **item}
     return list(merged.values())
-
-
-def _normalize_payload_fields(payload: dict) -> dict:
-    """Normalize MQTT field aliases before merging a payload into the cache.
-
-    - `gridBuyPw`  → `gridInPw`
-    - `gridSellPw` → `gridOutPw`
-    - `workModel`  (type-106) → `workMode` (type-107 / our sensor key)
-
-    Existing keys are never overwritten, so an explicit value always wins over its alias.
-    """
-    result = dict(payload)
-
-    if result.get("gridInPw") is None and result.get("gridBuyPw") is not None:
-        result["gridInPw"] = result["gridBuyPw"]
-    if result.get("gridOutPw") is None and result.get("gridSellPw") is not None:
-        result["gridOutPw"] = result["gridSellPw"]
-    if result.get("workMode") is None and result.get("workModel") is not None:
-        result["workMode"] = result["workModel"]
-
-    return result
-
-
-def _extract_flat_body(raw_data: dict) -> dict:
-    """Reconstruct a body dict from a flat status message (no `body` wrapper).
-
-    Returns an empty dict when the payload does not look like device status data.
-    """
-    if not any(key in raw_data for key in _FLAT_PAYLOAD_KEYS):
-        return {}
-    return {key: value for key, value in raw_data.items() if key not in _FLAT_META_KEYS}
 
 
 class JackeryDataCoordinator:
@@ -1374,7 +1315,7 @@ class JackeryDataCoordinator:
                      # If Type 101 and body is None, ignore.
                      if msg_code == 101:
                          return
-                     flat_body = _extract_flat_body(raw_data)
+                     flat_body = extract_flat_body(raw_data)
                      body = flat_body if flat_body else {}
 
                 if not isinstance(body, dict):
@@ -1450,7 +1391,7 @@ class JackeryDataCoordinator:
 
                 # Type 106: Full system state (response to type-105 poll)
                 elif msg_code == 106 and isinstance(body, dict):
-                    normalized = _normalize_payload_fields(body)
+                    normalized = normalize_payload_fields(body)
                     for k, v in normalized.items():
                         if k in _TYPE106_LIVE_PREFERRED:
                             self._power_106_samples[k] = (v, self._last_update_time)
@@ -1506,7 +1447,7 @@ class JackeryDataCoordinator:
 
     def _merge_normalized_cache(self, payload: dict, msg_code: Any = None) -> None:
         """Normalize field aliases and merge a main-device payload into the cache."""
-        self._data_cache.update(_normalize_payload_fields(payload))
+        self._data_cache.update(normalize_payload_fields(payload))
         for key in _TYPE106_LIVE_PREFERRED.intersection(payload):
             self._power_live_seen.pop(key, None)
             if msg_code in (2, 23, 25, 107) and _power_sample(payload[key]) is not None:
@@ -1961,7 +1902,7 @@ class JackeryDataCoordinator:
     def _calculate_energy_flow(self, data: dict) -> dict:
         """Normalize/cache runtime inputs, then delegate pure energy calculation."""
         try:
-            data.update(_normalize_payload_fields(data))
+            data.update(normalize_payload_fields(data))
             freshness: dict[str, SourceFreshness] | None = None
             if self is not None:
                 now = time.time()
