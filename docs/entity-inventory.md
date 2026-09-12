@@ -3,7 +3,9 @@
 The subsequent [multi-instance identity audit](multi-instance-identity.md) adds
 real registry regressions for child collisions, collector reload and unsafe
 migration/cleanup cases. Its migration design is proposed, not implemented; the
-baseline formats below remain the production contract.
+baseline formats below remain the production contract. PR2A now protects child
+IDs and registry ownership and removes the platform-order dependency. The migration
+heuristic described below is historical; see the audit's PR2A status for corrections.
 
 ## Entity identity and lifecycle contract
 

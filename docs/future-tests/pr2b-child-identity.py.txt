@@ -1,0 +1,46 @@
+# PR2B: unchanged assertions from audit commit 5b9563f.
+# Reinsert into tests/test_multi_instance_identity.py; uses its imports,
+# CHILDREN/HOSTS, setup_hosts, child_entities, discover and registry_snapshot.
+
+@pytest.mark.parametrize("group,dev_type,sub_type,data_key", CHILDREN)
+def test_duplicate_child_serial_unique_ids_are_host_scoped(group, dev_type, sub_type, data_key):
+    """Every current child sensor definition must resist a cross-host collision."""
+    coordinators = [JackeryDataCoordinator(None, "hb", "tok", "localhost", host) for host in HOSTS]
+    ids = [{e.unique_id for e in child_entities(c, "DUPLICATE", group, dev_type, data_key)} for c in coordinators]
+    assert all(len(values) == len(SUBDEVICE_SENSORS[group]) for values in ids)
+    assert ids[0].isdisjoint(ids[1])
+
+
+def test_duplicate_plug_switch_unique_id_is_host_scoped():
+    switches = [JackeryPlugSwitch("DUPLICATE", 6, JackeryDataCoordinator(None, "hb", "tok", "localhost", host), host)
+                for host in HOSTS]
+    assert switches[0].unique_id != switches[1].unique_id
+
+
+async def test_http_unique_ids_differ_but_devices_must_also_be_separate(hass):
+    devices = []
+    ids = []
+    registry = dr.async_get(hass)
+    for host in HOSTS:
+        entry = MockConfigEntry(domain=DOMAIN, data={"device_sn": host}, unique_id=host)
+        entry.add_to_hass(hass)
+        registry.async_get_or_create(config_entry_id=entry.entry_id, identifiers={(DOMAIN, host)})
+        c = JackeryDataCoordinator(hass, "hb", "tok", "localhost", host)
+        entities = [JackerySmartMeterHttpSensor("DUPLICATE", key, config, c, entry.entry_id)
+                    for key, config in SMARTMETER_HTTP_SENSOR_CONFIGS.items()]
+        ids.append({e.unique_id for e in entities})
+        devices.append(registry.async_get_or_create(config_entry_id=entry.entry_id, **entities[0].device_info))
+    assert ids[0].isdisjoint(ids[1])
+    assert devices[0].id != devices[1].id
+
+
+@pytest.mark.parametrize("order", [HOSTS, HOSTS[::-1]])
+async def test_duplicate_child_discovery_does_not_claim_other_host(hass, setup_hosts, order):
+    entries = await setup_hosts(order)
+    await discover(hass, coordinator_for(hass, entries[order[0]]), "DUPLICATE", "plug", 6, 0, "plugs")
+    first = registry_snapshot(hass, entries[order[0]])
+    await discover(hass, coordinator_for(hass, entries[order[1]]), "DUPLICATE", "plug", 6, 0, "plugs")
+    assert registry_snapshot(hass, entries[order[0]]) == first
+    second_children = [e for e in er.async_entries_for_config_entry(er.async_get(hass), entries[order[1]].entry_id)
+                       if "DUPLICATE" in e.unique_id]
+    assert len(second_children) == len(SUBDEVICE_SENSORS["plug"]) + 1

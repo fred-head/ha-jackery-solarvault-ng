@@ -1,10 +1,151 @@
 # Multi-instance identity audit
 
+## PR2A status — identity and migration safety
+
+**Public entity unique-ID formats: unchanged. Public device identifier formats:
+unchanged. Duplicate child serials across hosts remain unsupported.** PR2A does
+not implement the proposed `jackery_child:` namespace. The audit/design below is
+historical evidence from baseline `00ecba9`, committed as `5b9563f`; its failing
+results describe that baseline, not the current merge-target suite.
+
+### Fixed in PR2A
+
+- Preserve collector, SmartMeter, battery, plug and CT child IDs, including numeric,
+  lowercase and underscore-containing serials and historical `SmartMeter`/`Battery`
+  prefixes. Prefer the existing device link; without one, preserve recognized
+  child families. Exact legacy main sensor keys still migrate. If a key could be
+  both main and child (e.g. `jackery_ct_import_energy`), an absent device link is
+  insufficient evidence: retain it and warn instead of guessing.
+- Check migration targets globally by HA's `(entity domain, integration platform,
+  unique ID)` using the entity registry API. Different domains/platforms do not
+  conflict. Retain **both** records on actual target conflicts, even within one
+  entry: matching IDs alone do not prove either record has dispensable history
+  or user settings. Foreign targets no longer raise a migration `ValueError`.
+- Only migrate exclusively owned main devices; preserve both devices on a target
+  conflict and keep unrelated identifiers during an in-place migration. Skip
+  entity migration on foreign/shared associated devices. Host metadata writes
+  also require exclusive ownership. These checks protect migration/update paths;
+  they do not resolve HA's creation-time merging of unscoped child devices.
+- Child deletion requires exclusive config-entry ownership. Foreign/shared
+  matches remain intact, including local listeners when deletion is refused.
+  Same-entry deletion and rediscovery still work. Registry ownership is checked
+  around the unchanged global `sub_{serial}` lookup.
+- Listener matching uses the entity's exact stored `_plug_sn` or `_sm_sn`, so a
+  serial inside another serial, the host ID or an unrelated ID component cannot
+  remove that listener. HTTP keeps its separate health path.
+- Create one coordinator in integration setup before forwarding platforms; start
+  MQTT/HTTP only after forwarding has installed both dynamic callbacks. Sensor
+  setup consumes that existing object. Sensor-first, controls-first and ordinary
+  concurrent forwarding now produce all five platforms, in either host order.
+  Unload clears entity registrations and stops polling; reload creates a fresh
+  coordinator with the same public IDs. No coordinator module was extracted.
+- Keep only the documented obsolete-select cleanup in the select domain, and
+  known v2.0.1 main-sensor residue cleanup in the sensor domain. Unknown residue
+  names and wrong-domain records remain intact.
+
+### Classification of every original audit test (60 cases)
+
+Names below are from `tests/test_multi_instance_identity.py` at `5b9563f`.
+Parameter subsets are explicit where one function spans classifications.
+
+| Original test / parameter subset | Cases | Classification | PR2A disposition |
+| --- | ---: | --- | --- |
+| `test_platform_setup_order_does_not_drop_controls` | 1 | PR2A | Retained; extended to three forwarding modes. |
+| `test_two_hosts_all_platforms_and_reload_isolation` | 2 | ALREADY_PASSING | Retained; extended to three forwarding modes and exact ID sets. |
+| `test_distinct_children_with_overlapping_metadata`, collector in both host orders | 2 | PR2A | Retained; collector reload now preserves registry identities. |
+| Same test, other six child configurations in both host orders | 12 | ALREADY_PASSING | Retained unchanged. |
+| `test_duplicate_child_serial_unique_ids_are_host_scoped`, all seven configurations | 7 | PR2B | Assertions preserved verbatim in future-test source. |
+| `test_duplicate_plug_switch_unique_id_is_host_scoped` | 1 | PR2B | Same. |
+| `test_http_unique_ids_differ_but_devices_must_also_be_separate` | 1 | PR2B | Same; HTTP entity IDs differ, devices still collide. |
+| `test_duplicate_child_discovery_does_not_claim_other_host`, both orders | 2 | PR2B | Same. |
+| `test_child_cleanup_cannot_delete_another_entries_device` | 1 | PR2A | Retained; foreign device protected. |
+| `test_child_migration_preserves_identity`, uppercase serial with lowercase smartmeter/battery/ct/plug prefix | 4 | ALREADY_PASSING | Retained unchanged. |
+| Same test, other 17 prefix/serial combinations | 17 | PR2A | Retained unchanged; IDs now preserved. |
+| `test_legacy_migration_is_entry_scoped_and_idempotent`, both orders | 2 | ALREADY_PASSING | Retained unchanged. |
+| `test_migration_conflict_is_scoped_to_entity_domain` | 1 | PR2A | Retained unchanged. |
+| `test_main_device_migration_cannot_rewrite_foreign_device` | 1 | PR2A | Retained; bidirectional/shared cases added separately. |
+| `test_migration_target_owned_by_other_entry_is_not_claimed`, both entries | 2 | PR2A | Retained unchanged. |
+| `test_existing_cleanup_policy_is_scoped_and_idempotent`, both entries | 2 | NEEDS_REVIEW → PR2A | Original tests passed but required deleting conflicting source records. Now explicitly assert source preservation while still checking documented obsolete cleanup and entry isolation. |
+| `test_meters_and_plugs_reappear_without_changing_ownership`, both orders | 2 | ALREADY_PASSING | Retained unchanged. |
+
+Totals: **25 PR2A, 11 PR2B, 22 ALREADY_PASSING, 2 NEEDS_REVIEW** (both review
+cases resolved above). All 49 applicable original cases remain in the active
+suite; extensions add coverage rather than skipping failed assertions.
+
+The 11 PR2B cases are stored unchanged in
+[future-tests/pr2b-child-identity.py.txt](future-tests/pr2b-child-identity.py.txt).
+The `.py.txt` file is a documented test design artifact, deliberately outside
+pytest collection. Reinsert its functions into the original test module in
+PR2B; its header lists the shared helpers/imports. No `xfail`, skip marker or
+weakened duplicate-isolation assertion was added. The original baseline evidence
+remains below and in commit `5b9563f`.
+
+Additional PR2A tests cover unlinked historical children, exact ID formats,
+ambiguous CT identity, both directions of device ownership, shared/foreign device
+and entity targets, domain/platform isolation, guarded obsolete cleanup, exact
+listener serials, plug/CT/SmartMeter deletion and rediscovery, HTTP/MQTT shared
+registry protection, and HTTP polling across reloads. Three old availability mocks
+now supply the `_plug_sn` attribute real entities already have; their health
+assertions are unchanged. The older `test_main_sensor_gets_sn_prefix` now seeds an
+unloaded entry so it tests real in-place migration rather than accidental orphan
+removal; `test_conflict_records_preserved` explicitly tests the revised conflict
+policy.
+
+### Deferred to PR2B
+
+**The principal unresolved defect is global child identity:** MQTT child entity
+IDs and `sub_{serial}` device identifiers still omit the host. The same child
+serial under two hosts therefore still collides; exclusive-owner cleanup guards
+do not provide duplicate-serial isolation or prevent HA creation-time merging.
+
+PR2B must cover host-scoped child entity identity, host-scoped child device
+identity, duplicate child serial isolation, migration from old child identities,
+already-shared historical-device conflict handling, interrupted migration,
+recorder/entity continuity validation, and HTTP/MQTT shared-device migration.
+The proposed migration design below remains unimplemented. No automatic history
+split, reassignment or conflict-record deletion is introduced by PR2A.
+
+MQTT unsubscribe callbacks are still not retained (pre-existing lifecycle issue).
+The new setup-order tests mock the broker and prove coordinator/polling/entity
+lifecycle, not broker subscription cleanup. Failed or partial MQTT subscription
+startup and the broader transport lifecycle refactor remain separate work.
+Existing replacement-meter HTTP discovery policy is also unchanged.
+
+### PR2A validation (2026-09-12 UTC)
+
+Python 3.13.5, existing locked HA test environment. The initial sandbox test run
+stalled and was interrupted, as in the documented baseline; pytest runs below
+used the approved sandbox exception. No broker/hardware was contacted.
+
+| Command/check | Result |
+| --- | --- |
+| `.venv/bin/pytest tests/test_multi_instance_identity.py tests/test_migration.py -q --no-cov --timeout=30 --tb=short` before production edits, after PR2B separation/conflict-test correction | **28 failed, 27 passed**, reproducing the safety defects against baseline production. |
+| Expanded regression run before production edits | **71 failed, 33 passed, 35 setup/teardown errors**; the new lifecycle assertions additionally expose starting the coordinator before both platform callbacks exist. |
+| `.venv/bin/pytest tests/test_multi_instance_identity.py -k 'ambiguous_unlinked or device_link_disambiguates' -q --no-cov --timeout=30 --tb=short` before the ambiguity guard | **1 failed, 2 passed**; unlinked CT identity was guessed incorrectly. |
+| `.venv/bin/pytest tests/test_multi_instance_identity.py tests/test_migration.py -q --no-cov --timeout=30 --tb=short` after fixes, before the final shared HTTP/MQTT case | **110 passed**. |
+| `.venv/bin/pytest tests/test_multi_instance_identity.py tests/test_migration.py tests/test_config_flow.py tests/test_subdevice_entity.py tests/test_subdevice_availability.py tests/test_availability_freshness.py tests/test_smartmeter_http.py tests/test_mqtt_routing.py -q --no-cov --timeout=30 --tb=short` | **240 passed**. |
+| `.venv/bin/pytest tests/ -q --timeout=30 --tb=short` on final code | **365 passed**, **84.32%** statement coverage; no skipped or expected-failure tests. Includes **105 PR2A identity cases** and the 260 existing tests. |
+| `.venv/bin/ruff check custom_components/jackery/ tests/` | Passed. |
+| `python3 tools/check_translations.py` | Passed: de/en/fr. |
+| `/tmp/jackery-baseline/lint-venv/bin/mypy custom_components/jackery/` | Passed, seven source files; baseline-consistent CI environment. |
+| `.venv/bin/mypy custom_components/jackery/` | **23 existing diagnostics**, now in four files. The three optional constructor-argument findings moved from sensor setup to integration setup. Message multiplicities match the baseline exactly after removing paths/line numbers; no additional findings. |
+| `git diff --check` and new-file whitespace check | Passed. |
+| Compare PR2B future-test source with `git show 5b9563f:tests/test_multi_instance_identity.py` | Deferred assertion block matches byte-for-byte. |
+| `command -v docker` | Unavailable; local HACS/Hassfest could not run. CI validator definitions unchanged. |
+
+The first full run exposed two old availability mocks missing the stored serial;
+these were corrected to match real entities without changing their availability
+assertions. No unrelated failing check was disabled. Production changes are
+limited to `custom_components/jackery/__init__.py` and `sensor.py`; supporting
+changes cover tests, this report, the future-test artifact, inventory/coverage/map
+status notes and `CHANGELOG.md`.
+
+## Historical Phase 0/1 follow-up audit
+
 Scope: `fix/multi-instance-identity`, baseline `00ecba9`. Synthetic data only.
-This document separates observed behavior from the proposed migration design.
-Audit completed on 2026-09-12 UTC. **Implementation paused at the user's Step 11
-boundary: no production changes, no identity migration applied, no user-visible
-fix claimed. The new safety tests intentionally remain failing.**
+Audit completed on 2026-09-12 UTC and originally paused at the user's Step 11
+boundary without production changes. All "current"/"failing" descriptions below
+refer to that original audit baseline; PR2A status and validation supersede them.
 
 ## Current identity model (before production changes)
 

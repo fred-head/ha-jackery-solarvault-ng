@@ -3,7 +3,9 @@
 Follow-up [identity audit](multi-instance-identity.md): registry tests now reproduce
 the child identity/migration risks below, and a forced platform ordering test
 confirms controls can return before sensor setup creates their coordinator.
-These are correctness prerequisites; no module extraction has been performed.
+PR2A now fixes migration/cleanup safety and creates the coordinator before platform
+forwarding. Duplicate child serial isolation remains PR2B. No module extraction
+has been performed; the source map below describes the pinned baseline.
 
 Pinned source: [baseline](baseline.md). Proposed destinations are **future extractions**, not files created by this task. C `sensor.py` has 2,913 lines: definitions 60–1123, protocol helpers 1126–1310, coordinator 1311–2393, setup/entities 2396–2913. Seven production Python modules total 3,966 lines. The coordinator is a custom class, not HA DataUpdateCoordinator.
 
