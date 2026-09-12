@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import math
 import random
 import re
 import time
@@ -1095,16 +1096,42 @@ _FLAT_META_KEYS: frozenset[str] = frozenset(
 )
 
 # Real-time power fields shared between type-2 (~11 s) and type-106 (~30 s).
-# type-2 is more current; once the cache has a type-2 reading for these keys,
-# the snapshot values from a type-106 poll must not overwrite them.
-# At startup (empty cache) type-106 is still allowed to populate them so the
-# initial state is available for the ~11 s before the first type-2 arrives.
-_TYPE106_SKIP_IF_ESTABLISHED: frozenset[str] = frozenset({
+# Preserve live readings for OFFLINE_TIMEOUT, not forever based on key presence.
+# See docs/energy-source-policy.md and the snapshot race in commit 8043585.
+_TYPE106_LIVE_PREFERRED: frozenset[str] = frozenset({
     "batInPw", "batOutPw",
     "pvPw", "pv1", "pv2", "pv3", "pv4",
     "swEpsInPw", "swEpsOutPw",
     "stackInPw", "stackOutPw",
 })
+
+
+def _power_sample(value: Any) -> float | None:
+    """Read finite power, preserving zero and the existing PV dictionary aliases."""
+    if isinstance(value, dict):
+        value = next((value[k] for k in ("pvPw", "w", "power") if value.get(k) is not None), None)
+    if isinstance(value, bool):
+        return None
+    try:
+        number = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    return number if math.isfinite(number) else None
+
+
+def _ct_power(ct: dict, total: tuple[str, str], phases: tuple[str, ...]) -> float | None:
+    """Totals (including zero) precede phase sums; metadata is not a measurement."""
+    value = next((ct[k] for k in total if ct.get(k) is not None), None)
+    if value is not None:
+        return _power_sample(value)
+    samples = []
+    for key in phases:
+        alias = key[0].upper() + key[1:].replace("Phase", "phase")
+        raw = ct.get(alias) if ct.get(alias) is not None else ct.get(key)
+        sample = _power_sample(raw)
+        if sample is not None:
+            samples.append(sample)
+    return sum(samples) if samples else None
 
 
 SMARTMETER_HTTP_SENSOR_CONFIGS: dict[str, dict] = {
@@ -1341,6 +1368,10 @@ class JackeryDataCoordinator:
         self.add_entities_callback: Any = None
         self.add_switch_entities_callback: Any = None
         self._data_cache: dict[str, Any] = {}
+        self._power_live_seen: dict[str, tuple[int, float]] = {}
+        # Bounded raw snapshot evidence, including samples suppressed by live priority.
+        self._power_106_samples: dict[str, tuple[Any, float]] = {}
+        self._energy_sources: dict[str, Any] = {}
 
         # Device meta — populated from first MQTT message, used to update device registry (Ü2/Ü3)
         self._device_type: int | None = None
@@ -1493,7 +1524,7 @@ class JackeryDataCoordinator:
                     dev_type_in_body = body.get("devType")
                     if device_sn_in_body in (None, "system", self._device_sn):
                         # Merge into main device cache
-                        self._merge_normalized_cache(body)
+                        self._merge_normalized_cache(body, msg_code)
                     elif dev_type_in_body == 1 and _subdevice_sn(body):
                         # Expansion battery (e.g. BP2500) — not in type-101, store separately
                         exp_bats = self._data_cache.setdefault("expansion_batteries", {})
@@ -1533,19 +1564,20 @@ class JackeryDataCoordinator:
 
                 # Type 106: Full system state (response to type-105 poll)
                 elif msg_code == 106 and isinstance(body, dict):
-                    # Settings (workMode, maxFeedGrid, …): always update.
-                    # Real-time power fields: only populate if not already established
-                    # by a fresher type-2 message — prevents 30 s-stale snapshots
-                    # from overwriting live readings (see _TYPE106_SKIP_IF_ESTABLISHED).
                     normalized = _normalize_payload_fields(body)
                     for k, v in normalized.items():
-                        if k not in _TYPE106_SKIP_IF_ESTABLISHED or k not in self._data_cache:
-                            self._data_cache[k] = v
+                        if k in _TYPE106_LIVE_PREFERRED:
+                            self._power_106_samples[k] = (v, self._last_update_time)
+                            live = self._power_live_seen.get(k)
+                            if live is not None and self._last_update_time - live[1] <= OFFLINE_TIMEOUT:
+                                continue
+                            self._power_live_seen.pop(k, None)
+                        self._data_cache[k] = v
                     _LOGGER.debug("Received type-106 system state (%d fields)", len(body))
 
                 # Type 107: Incremental system update (soc, workMode, …)
                 elif msg_code == 107 and isinstance(body, dict):
-                    self._merge_normalized_cache(body)
+                    self._merge_normalized_cache(body, msg_code)
                     _LOGGER.debug("Received type-107 incremental update: %s", body)
 
                 # Type 123: Auth error from device
@@ -1557,7 +1589,7 @@ class JackeryDataCoordinator:
                 # Type 25 or Status: Main device data
                 elif isinstance(body, dict):
                     # Merge top-level keys into cache to preserve fields not present in current message
-                    self._merge_normalized_cache(body)
+                    self._merge_normalized_cache(body, msg_code)
 
                 # System/fallback messages also accept these arrays through their
                 # existing shallow merge. Refresh only members actually received,
@@ -1586,9 +1618,13 @@ class JackeryDataCoordinator:
         except Exception as e:
             _LOGGER.error(f"Error handling message: {e}")
 
-    def _merge_normalized_cache(self, payload: dict) -> None:
+    def _merge_normalized_cache(self, payload: dict, msg_code: Any = None) -> None:
         """Normalize field aliases and merge a main-device payload into the cache."""
         self._data_cache.update(_normalize_payload_fields(payload))
+        for key in _TYPE106_LIVE_PREFERRED.intersection(payload):
+            self._power_live_seen.pop(key, None)
+            if msg_code in (2, 23, 25, 107) and _power_sample(payload[key]) is not None:
+                self._power_live_seen[key] = (msg_code, self._last_update_time)
 
     def _merge_subdevice_arrays(self, body: dict) -> bool:
         """Merge plugs/cts/collectors arrays from a body into the cache.
@@ -2045,7 +2081,7 @@ class JackeryDataCoordinator:
                    and inGridSidePw/outGridSidePw (positive = grid → unit)
         - ACSocket: `swEpsInPw` / `swEpsOutPw`
         - Grid:    CT (`cts`) → Meter Collector (`collectors`) → `_grid_net_from_system()`
-        - Battery: `batInPw`/`batOutPw` when reported, else the estimate pv + p_ac + p_ong
+        - Battery: total-stack balance PV + ongrid charge - supply + EPS in - out
         - Home:    p_grid − p_ong (clamped to ≥ 0), else the unit's net AC output
         """
         try:
@@ -2055,11 +2091,9 @@ class JackeryDataCoordinator:
 
             # 1. PV
             # Handle dict for PV if necessary (copied from sensor logic)
-            pv_val = data.get("pvPw", 0)
-            if isinstance(pv_val, dict):
-                pv = _safe_float(pv_val.get("pvPw") or pv_val.get("w") or pv_val.get("power"))
-            else:
-                pv = _safe_float(pv_val)
+            pv = _power_sample(data.get("pvPw"))
+            if pv is None:
+                pv = 0.0
 
             # 2. Ongrid — net power at the grid-tied port, multi-source so that a
             #    type-106 zero cannot mask a live type-2 reading (and vice versa).
@@ -2090,51 +2124,42 @@ class JackeryDataCoordinator:
             grid_buy = 0.0
             grid_sell = 0.0
 
-            cts = data.get("cts")
-            if cts and isinstance(cts, list) and len(cts) > 0:
-                # 尝试获取第一个 CT 数据
-                ct_data = cts[0]
-                # 检查通讯状态 (如果 commState 存在且为 0 可能表示离线，视具体协议而定，这里暂定只要有数据即可)
-                # TphasePw: 总正向有功 (Grid Buy)
-                # TnphasePw: 总负向有功 (Grid Sell)
-                t_phase_pw = ct_data.get("TphasePw") or ct_data.get("tPhasePw")
-                tn_phase_pw = ct_data.get("TnphasePw") or ct_data.get("tnPhasePw")
-
-                # Fallback: if total phase missing, sum A/B/C
-                if t_phase_pw is None:
-                    a_pw = ct_data.get("AphasePw") or ct_data.get("aPhasePw") or 0
-                    b_pw = ct_data.get("BphasePw") or ct_data.get("bPhasePw") or 0
-                    c_pw = ct_data.get("CphasePw") or ct_data.get("cPhasePw") or 0
-                    if any(v is not None for v in [a_pw, b_pw, c_pw]):
-                        t_phase_pw = float(a_pw) + float(b_pw) + float(c_pw)
-
-                if tn_phase_pw is None:
-                    an_pw = ct_data.get("AnphasePw") or ct_data.get("anPhasePw") or 0
-                    bn_pw = ct_data.get("BnphasePw") or ct_data.get("bnPhasePw") or 0
-                    cn_pw = ct_data.get("CnphasePw") or ct_data.get("cnPhasePw") or 0
-                    if any(v is not None for v in [an_pw, bn_pw, cn_pw]):
-                        tn_phase_pw = float(an_pw) + float(bn_pw) + float(cn_pw)
-
-                if t_phase_pw is not None or tn_phase_pw is not None:
-                    grid_buy = float(t_phase_pw or 0)
-                    grid_sell = float(tn_phase_pw or 0)
-                    grid_available = True
-
-            # Fallback 1: Meter Collector (HTO910A, devType=4, subType=7)
-            # Appears in data_cache["collectors"]; fields inPw/outPw are direct W values.
-            if not grid_available:
-                collectors = data.get("collectors")
-                if collectors and isinstance(collectors, list):
-                    for collector in collectors:
-                        if not isinstance(collector, dict):
+            source = "unavailable"
+            source_age = None
+            skipped_stale = 0
+            skipped_missing = 0
+            now = time.time()
+            for array in ("cts", "collectors"):
+                items = data.get(array)
+                if not isinstance(items, list):
+                    continue
+                for item in items:
+                    if not isinstance(item, dict):
+                        continue
+                    sn = _subdevice_sn(item)
+                    age = None
+                    if self is not None and sn is not None:
+                        seen = self._subdevice_last_seen.get(sn)
+                        age = now - seen if seen is not None else None
+                        if not self._subdevice_is_available(sn, now):
+                            skipped_stale += 1
                             continue
-                        in_pw = collector.get("inPw")
-                        out_pw = collector.get("outPw")
-                        if in_pw is not None or out_pw is not None:
-                            grid_buy = float(in_pw or 0)
-                            grid_sell = float(out_pw or 0)
-                            grid_available = True
-                            break
+                    if array == "cts":
+                        in_pw = _ct_power(item, ("TphasePw", "tPhasePw"), ("aPhasePw", "bPhasePw", "cPhasePw"))
+                        out_pw = _ct_power(item, ("TnphasePw", "tnPhasePw"), ("anPhasePw", "bnPhasePw", "cnPhasePw"))
+                    else:
+                        in_pw = _power_sample(item.get("inPw"))
+                        out_pw = _power_sample(item.get("outPw"))
+                    if in_pw is None and out_pw is None:
+                        skipped_missing += 1
+                        continue
+                    grid_buy = in_pw if in_pw is not None else 0.0
+                    grid_sell = out_pw if out_pw is not None else 0.0
+                    grid_available = True
+                    source, source_age = array, age
+                    break
+                if grid_available:
+                    break
 
             # Fallback 2: device-reported system fields (gridInPw/gridOutPw — already
             # alias-normalized from gridBuyPw/gridSellPw — or inGridSidePw/outGridSidePw).
@@ -2151,6 +2176,7 @@ class JackeryDataCoordinator:
                     include_ongrid=False,
                 )
                 if sys_available:
+                    source = "system"
                     grid_available = True
                     grid_buy = max(0.0, sys_net)
                     grid_sell = max(0.0, -sys_net)
@@ -2211,6 +2237,13 @@ class JackeryDataCoordinator:
             data["total_battery_discharge_power"] = total_batt_discharge
             data["grid_available"] = grid_available
             data["calc_grid_net_power"] = p_grid if grid_available else None
+            if self is not None:
+                # No serials/tokens; activity age is deliberately not sample age.
+                self._energy_sources["grid"] = {
+                    "source": source, "activity_age": source_age,
+                    "skipped_stale": skipped_stale, "skipped_missing": skipped_missing,
+                    "reason": "first usable meter" if source in ("cts", "collectors") else "no usable meter",
+                }
 
         except Exception as e:
             _LOGGER.error(f"Error calculating energy flow: {e}")
@@ -2287,6 +2320,16 @@ class JackeryDataCoordinator:
                 self._update_subdevice_availability()
                 if time.time() - self._last_update_time > OFFLINE_TIMEOUT:
                     self._mark_all_offline()
+                elif self._data_cache:
+                    # Child expiry can change the energy source between messages.
+                    # Reuse this timer; update only changed derived grid/home entities.
+                    previous = {key: self._data_cache.get(key) for key in ("calc_grid_net_power", "calc_home_power")}
+                    self._calculate_energy_flow(self._data_cache)
+                    changed = {key for key, value in previous.items() if self._data_cache.get(key) != value}
+                    for sensor_id, key in (("grid_net_power", "calc_grid_net_power"), ("home_power", "calc_home_power")):
+                        entity = self._sensors.get(sensor_id)
+                        if key in changed and isinstance(entity, JackerySensor):
+                            entity._update_from_coordinator(self._data_cache)
 
                 # Re-auth heuristic: the device stays completely silent when it rejects
                 # the token (it does not answer with an error). If we have been polling
@@ -2574,10 +2617,10 @@ class JackerySensor(SensorEntity):
         """Receive data from coordinator."""
         # Special handling for EPS Output Power (Bidirectional)
         if self._sensor_id == "eps_output_power":
-            out_p = float(data.get("swEpsOutPw", 0))
-            in_p = float(data.get("swEpsInPw", 0))
-            self._attr_native_value = out_p - in_p
-            self._attr_available = True
+            out_p = _power_sample(data.get("swEpsOutPw", 0))
+            in_p = _power_sample(data.get("swEpsInPw", 0))
+            self._attr_available = out_p is not None and in_p is not None
+            self._attr_native_value = out_p - in_p if out_p is not None and in_p is not None else None
             self.async_write_ha_state()
             return
 
@@ -2588,7 +2631,10 @@ class JackerySensor(SensorEntity):
         value = data[json_key]
 
         if self._sensor_id == "grid_net_power" and value is None:
-            # Keep last value when CT data is temporarily missing
+            # Keep the last value for recovery, but do not present it as current.
+            if self.available:
+                self._attr_available = False
+                self.async_write_ha_state()
             return
 
         # Process specific conversions

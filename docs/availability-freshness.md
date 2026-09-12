@@ -1,5 +1,13 @@
 # Availability and freshness audit
 
+The subsequent [energy/source policy](energy-source-policy.md) also applies the
+existing child timeout to CT/collector selection. Incoming MQTT and the existing
+timer reevaluate derived grid/home values; no remaining grid source makes the
+grid entity unavailable. EPS null becomes unavailable without interrupting
+fan-out. HTTP health, host/child timeouts and cumulative battery exceptions
+remain intact. Per-measurement expiry beyond the eleven Type-106 preference
+fields is not introduced; metadata-only child activity remains a known limit.
+
 Scope: `fix/availability-freshness`, starting from the HTTP/MQTT dispatch fix
 (`61b0f8c`). This is a correctness audit, not the architectural extraction.
 All scenarios use synthetic data, not captured hardware traffic.

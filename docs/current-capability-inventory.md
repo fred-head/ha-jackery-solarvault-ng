@@ -1,5 +1,10 @@
 # Current community capabilities
 
+The later [energy/source contract](energy-source-policy.md) inventories raw power
+and energy fields, preserves total-stack formulas, corrects repeated Type-106
+updates and excludes expired/measurement-less meters from grid selection. HTTP
+measurements remain supplemental and do not supply active grid-power fallback.
+
 This is the historical community inventory. The current tested classification and
 command behavior, including explicitly rejected unknown-device discovery, is in
 [protocol-routing-commands.md](protocol-routing-commands.md). Merged lifecycle,

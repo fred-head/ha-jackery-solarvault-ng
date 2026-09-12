@@ -290,6 +290,72 @@ async def test_mqtt_cannot_revive_failed_http_for_same_child(runtime):
     assert http.native_value == 50
 
 
+@pytest.mark.parametrize("mqtt_healthy,http_healthy", [(True, True), (False, True), (True, False), (False, False)])
+async def test_energy_sources_keep_http_health_independent(runtime, mqtt_tick, mqtt_healthy, http_healthy):
+    c, clock, http = runtime.coordinator, runtime.clock, runtime.http
+    grid = await runtime.add(JackerySensor("grid_net_power", c, "ENTRY"))
+    receive(c, {"cts": [{"deviceSn": "METER", "devType": 3, "tPhasePw": 0}]}, code=101)
+    c._distribute_http_data("METER", {"freq": 0})
+    assert grid.native_value == http.native_value == 0
+    if not http_healthy:
+        c._mark_http_sensors_unavailable("METER")
+    clock.now += 61
+    if mqtt_healthy:
+        receive(c, {"deviceSn": "METER", "tPhasePw": 0}, code=102)
+    await mqtt_tick()
+    assert grid.available == mqtt_healthy
+    assert http.available == http_healthy
+    assert http.native_value == 0
+    # HTTP recovery cannot make MQTT current; MQTT recovery cannot change HTTP.
+    c._distribute_http_data("METER", {"freq": 50})
+    assert grid.available == mqtt_healthy
+    receive(c, {"deviceSn": "METER", "tPhasePw": 20}, code=102)
+    assert grid.available and grid.native_value == 20
+    assert http.available and http.native_value == 50
+
+
+@pytest.mark.parametrize("fallback", [None, 100])
+async def test_meter_expiry_updates_derived_entities_on_existing_timer(runtime, mqtt_tick, fallback):
+    c, clock = runtime.coordinator, runtime.clock
+    grid = await runtime.add(JackerySensor("grid_net_power", c, "ENTRY"))
+    home = await runtime.add(JackerySensor("home_power", c, "ENTRY"))
+    receive(c, {"cts": [{"deviceSn": "METER", "devType": 3, "tPhasePw": 800}]}, code=101)
+    assert grid.native_value == home.native_value == 800
+    clock.now += 40
+    body = {"batSoc": 42}
+    if fallback is not None:
+        body["gridInPw"] = fallback
+    receive(c, body)
+    main_writes = runtime.main.async_write_ha_state.call_count
+    clock.now += 21
+    await mqtt_tick()
+    assert grid.available == (fallback is not None)
+    if fallback is not None:
+        assert grid.native_value == fallback
+    assert home.native_value == 0
+    assert runtime.main.async_write_ha_state.call_count == main_writes
+    writes = grid.async_write_ha_state.call_count
+    await mqtt_tick()
+    assert grid.async_write_ha_state.call_count == writes
+    assert c._data_cache["cts"][0]["tPhasePw"] == 800
+    receive(c, {"deviceSn": "METER", "tPhasePw": 0}, code=102)
+    assert grid.available and grid.native_value == 0
+
+
+@pytest.mark.parametrize("field", ["swEpsInPw", "swEpsOutPw"])
+async def test_106_null_eps_does_not_interrupt_energy_entity_fanout(runtime, field):
+    c = runtime.coordinator
+    eps = await runtime.add(JackerySensor("eps_output_power", c, "ENTRY"))
+    battery = await runtime.add(JackerySensor("battery_net_power", c, "ENTRY"))
+    receive(c, {"swEpsInPw": 0, "swEpsOutPw": 20, "pvPw": 100}, code=106)
+    assert eps.native_value == 20 and battery.native_value == 80
+    receive(c, {field: None, "pvPw": 200}, code=106)
+    assert not eps.available
+    assert battery.native_value == (200 if field == "swEpsOutPw" else 180)
+    receive(c, {field: 0}, code=106)
+    assert eps.available
+
+
 async def test_expansion_cumulative_energy_survives_silence(runtime, mqtt_tick):
     c = runtime.coordinator
     config = SUBDEVICE_SENSORS["expansion_battery"]["charge_energy"]

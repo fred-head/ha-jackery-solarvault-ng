@@ -112,12 +112,12 @@ PROTECTED = ["batInPw", "batOutPw", "pvPw", "pv1", "pv2", "pv3", "pv4",
 
 
 @pytest.mark.parametrize("field", PROTECTED)
-@pytest.mark.parametrize("first", [0, 12, None])
-def test_106_frozen_field_diagnostic(protocol, field, first):
-    """Known defect evidence: key existence freezes even 106-only and null seeds."""
+@pytest.mark.parametrize("first,new", [(12, 90), (0, 90), (None, 90), (12, 0), (12, None)])
+def test_106_repeated_field_contract(protocol, field, first, new):
+    """A snapshot cannot establish a permanent lock, including zero/null seeds."""
     receive(protocol, 106, {field: first, "maxOutPw": 600, "future": "retained"})
-    receive(protocol, 106, {field: 90, "maxOutPw": 700})
-    assert protocol._data_cache[field] == first
+    receive(protocol, 106, {field: new, "maxOutPw": 700})
+    assert protocol._data_cache[field] == new
     assert protocol._data_cache["maxOutPw"] == 700
     assert protocol._data_cache["future"] == "retained"
 

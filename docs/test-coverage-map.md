@@ -1,5 +1,20 @@
 # Test coverage map
 
+The [energy/source follow-up](energy-source-policy.md) adds
+`test_energy_source_policy.py`, replaces the Type-106 frozen-value diagnostic in
+`test_protocol_contract.py`, and extends `test_availability_freshness.py`.
+Coverage includes all eleven fields across five value transitions, six ordering
+sequences, live protection/expiry/recovery, raw snapshot retention, CT/collector/
+system selection, zero/null aliases, timer-driven failover and EPS null fan-out.
+The HTTP/MQTT health matrix proves independent zero/recovery behavior; HTTP has
+no active grid-power source in this implementation. Eight balance scenarios
+protect directional signs, EPS, home and total-stack formulas. Remaining host
+magnitude and metadata-only freshness limitations have characterization tests.
+All playback is synthetic; no real-trace or hardware validation is claimed.
+Final energy/source validation: **1,081 passed, 92.57% coverage** (219 additional
+cases relative to foundation). Ruff, translations and CI mypy pass; HA-aware
+mypy retains the same 23 findings in four files with no new findings.
+
 The subsequent [protocol/command contract](protocol-routing-commands.md) adds
 `test_protocol_contract.py`, `test_classification_contract.py` and
 `test_command_contract.py`: real MQTT routing/cache/discovery, known device families,
