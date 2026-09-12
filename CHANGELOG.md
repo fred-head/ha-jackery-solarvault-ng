@@ -7,6 +7,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Accept Type-23 statistics addressed to the configured SolarVault serial and
+  prevent child messages from overwriting host model/firmware metadata.
+- Ignore malformed child arrays, serials and host model values without blocking
+  valid MQTT updates; unsupported device types no longer create plug entities.
+- Keep invalid switch telemetry and SOC bounds from interrupting updates to
+  other entities while retaining the last usable control value or bound.
 - Release each config entry's MQTT subscriptions on unload and failed startup,
   preventing duplicate listeners and updates to old coordinators after reload.
   Serialize coordinator start/stop, attempt all cleanup after callback failures,

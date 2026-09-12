@@ -1,5 +1,33 @@
 # Community / Official feature matrix
 
+## Protocol/command follow-up (2026-09-12)
+
+Fetched references still match Official `af97223ff17fc8f14314cbc6da7213a5eee7004d`
+and community `183d74b7e042061ccb985ddc023b3cb7a085452e`. Current local comparison
+starts from merged foundation `016f849`. The historical matrix below remains pinned
+to Phase 0/1; this section supersedes its current-status implications.
+
+| Behavior | Current comparison classification | Decision / evidence |
+| --- | --- | --- |
+| Type23 actual host deviceSn | OFFICIAL_FIX_CANDIDATE → CURRENT_EQUIVALENT for this case | FIX_NOW: regression failed locally; Official 12c2e7c recognizes host SN. Local host branch corrected without losing expansion handling. Empty-string SN remains deferred. |
+| Child metadata contaminating host | OFFICIAL_FIX_CANDIDATE → CURRENT_EQUIVALENT for guard | FIX_NOW: Official d0e0c9f limits capture to host messages of selected types. Local adopts guard after failing tests. Top-level firmware and model-update behavior still differ. |
+| Aliases, main/plug action envelopes, standby/reboot values | CURRENT_EQUIVALENT | Exact payload tests, explicit canonical zero preserved, IDs sampled in same range. No execution correlation in either source. |
+| Host topic ownership | CURRENT_EQUIVALENT for topics | Local lifecycle/freshness fixes already merged; local strict parsing and unsubscribe retention exceed Official. No redesign here. |
+| Type101 merge vs authoritative replacement | COMMUNITY_BEHAVIOR_INTENTIONAL | Preserve empty/omitted children and cached fields; Official category replacement/unbinding needs device evidence. |
+| Type102/generic point routing and classification | NEEDS_LATER_INVESTIGATION | Official has broader inference and generic child routing; local arrays and point routes intentionally characterized separately. |
+| HTO907A/Shelly/HTO910A/expansion groups | COMMUNITY_BEHAVIOR_INTENTIONAL | Preserve 19 SmartMeter, 5 collector and 2 expansion sensors; do not replace with Official generic CT table. |
+| Unknown dynamic plug discovery | NEEDS_LATER_INVESTIGATION for taxonomy | Local unsupported types now produce no new entities, matching explicit project policy and existing type6 static control gate; no new taxonomy ported. |
+| Type106 protected fields and energy sources | NEEDS_LATER_INVESTIGATION | Repeated-106 freeze reproduced for 11 keys, including null/zero seeds. Official overwrites all; port deferred to energy/source PR. |
+| Plug optimistic cache, coordinator commMode gate and switchSta priority | NEEDS_LATER_INVESTIGATION | Official differs; keep local non-optimistic plug telemetry and entity guard. No acknowledgement evidence justifies a broader change. |
+| Extra main switches/numbers/work mode | COMMUNITY_BEHAVIOR_INTENTIONAL | Preserve force charge, follow meter, defaultPw/maxFeedGrid and selective cache optimism. |
+| Poll schedule and partial publish failures | COMMUNITY_BEHAVIOR_INTENTIONAL | Keep local type2 read, [2,3,6] requests, 105 throttling and pacing. Official requests [2,6] with different timing/error boundaries. |
+| Command confirmation and top-level metadata | NEEDS_LATER_INVESTIGATION | Publish success is not execution; top-level softver and replacement deviceType behavior deferred. |
+
+See [protocol-routing-commands.md](protocol-routing-commands.md) for full behavioral
+matrices and [upstream-sync.md](upstream-sync.md) for exact source provenance.
+
+## Historical Phase 0/1 comparison
+
 Comparison is of actual source at [C and O](baseline.md), not repository age or names. `SAME` means the scoped behavior matches, not that the implementations are byte-identical. `COMMUNITY_ONLY` follows the task's terminology (`LOCAL_ONLY` in AGENTS.md). Hardware observations are not independently repeated here. Official contains no test directory.
 
 ## Behavior matrix

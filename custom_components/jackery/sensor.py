@@ -1166,7 +1166,9 @@ def should_create_plug_switch(item: dict) -> bool:
 
 def _subdevice_sn(item: dict) -> str | None:
     """Extract device serial number from a sub-device dict (Ü7)."""
-    return item.get("deviceSn") or item.get("sn")
+    sn = item.get("deviceSn") or item.get("sn")
+    # Serial spelling is identity: reject malformed values without coercion.
+    return sn if isinstance(sn, str) and sn else None
 
 
 def _merge_subdevice_list(
@@ -1183,7 +1185,7 @@ def _merge_subdevice_list(
     for item in (existing or []) + new_items:
         if not isinstance(item, dict):
             continue
-        sn = item.get("deviceSn") or item.get("sn")
+        sn = _subdevice_sn(item)
         if not sn:
             continue
         merged[sn] = {**merged.get(sn, {}), **item}
@@ -1460,6 +1462,17 @@ class JackeryDataCoordinator:
 
                 if not isinstance(body, dict):
                     return
+                # Generic status routes shallow-replace lists; validate members
+                # before calculation/discovery without changing that merge policy.
+                body = dict(body)
+                for key in ("plugs", "plug", "socket", "sockets", "cts", "ct", "collectors"):
+                    if isinstance(body.get(key), list):
+                        body[key] = [item for item in body[key]
+                                     if isinstance(item, dict)
+                                     and (not (item.get("deviceSn") or item.get("sn")) or _subdevice_sn(item))]
+                    elif body.get(key) is not None:
+                        # A scalar/dict here would poison the next list merge.
+                        del body[key]
                 if not self._device_sn:
                     self._device_sn = sn
                     _LOGGER.info(f"Discovered device SN: {self._device_sn}")
@@ -1469,7 +1482,8 @@ class JackeryDataCoordinator:
                 self._ever_received = True
 
                 # Capture device model/firmware from first message (Ü2)
-                if isinstance(body, dict):
+                body_sn = body.get("deviceSn")
+                if msg_code in (2, 23, 25, 106, 107) and body_sn in (None, "system", self._device_sn):
                     self._capture_device_meta(raw_data, body)
 
                 # Merge logic
@@ -1477,10 +1491,10 @@ class JackeryDataCoordinator:
                 if msg_code == 23 and isinstance(body, dict):
                     device_sn_in_body = body.get("deviceSn")
                     dev_type_in_body = body.get("devType")
-                    if device_sn_in_body == "system" or device_sn_in_body is None:
+                    if device_sn_in_body in (None, "system", self._device_sn):
                         # Merge into main device cache
                         self._merge_normalized_cache(body)
-                    elif dev_type_in_body == 1:
+                    elif dev_type_in_body == 1 and _subdevice_sn(body):
                         # Expansion battery (e.g. BP2500) — not in type-101, store separately
                         exp_bats = self._data_cache.setdefault("expansion_batteries", {})
                         if device_sn_in_body not in exp_bats:
@@ -1680,6 +1694,9 @@ class JackeryDataCoordinator:
             if dev_type is not None:
                 entry["devType"] = dev_type
 
+        if dev_type not in (2, 3, 4, 6):
+            return False
+
         if dev_type in PLUG_ITEM_DEV_TYPES:
             self._data_cache["plugs"] = _merge_subdevice_list(
                 self._data_cache.get("plugs"), [entry]
@@ -1699,8 +1716,12 @@ class JackeryDataCoordinator:
         changed = False
         device_type = raw_data.get("deviceType")
         if device_type is not None and self._device_type is None:
-            self._device_type = int(device_type)
-            changed = True
+            try:
+                self._device_type = int(device_type)
+            except (TypeError, ValueError, OverflowError):
+                _LOGGER.debug("Ignoring invalid host deviceType")
+            else:
+                changed = True
         soft_ver = body.get("softver")
         if soft_ver is not None and soft_ver != self._soft_ver:
             self._soft_ver = str(soft_ver)
@@ -1843,6 +1864,11 @@ class JackeryDataCoordinator:
             sub_type = plug.get("subType")
             if dev_type is None and sub_type == 2:
                 dev_type = 2
+
+            # Match the supported point-update/static-switch types. Unknown
+            # metadata remains cached but must not invent writable plug entities.
+            if dev_type not in (2, 3, 4, 6):
+                continue
 
             if sn and sn not in self._known_plugs and self.child_identity_allowed(sn):
                 _LOGGER.info(f"Discovered new sub-device: {sn} (devType={dev_type}, subType={sub_type})")

@@ -164,7 +164,10 @@ class JackeryPlugSwitch(SwitchEntity):
         if val is None:
             val = my_plug.get("switchSta")
         if val is not None:
-            self._attr_is_on = bool(int(val))
+            try:
+                self._attr_is_on = bool(int(val))
+            except (TypeError, ValueError, OverflowError):
+                return
         self._attr_available = True
         self.async_write_ha_state()
 
@@ -271,7 +274,10 @@ class JackeryMainSwitch(SwitchEntity):
         val = data.get(self._key)
         if val is None:
             return
-        self._attr_is_on = bool(int(val))
+        try:
+            self._attr_is_on = bool(int(val))
+        except (TypeError, ValueError, OverflowError):
+            return
         self._attr_available = True
         self.async_write_ha_state()
 
@@ -323,6 +329,9 @@ class JackeryFollowMeterSwitch(JackeryOptimisticSwitch):
         val = data.get(self._key)
         if val is None:
             return
-        self._attr_is_on = bool(int(val))
+        try:
+            self._attr_is_on = bool(int(val))
+        except (TypeError, ValueError, OverflowError):
+            return
         self._attr_available = True
         self.async_write_ha_state()

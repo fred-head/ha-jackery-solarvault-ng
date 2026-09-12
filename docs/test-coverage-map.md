@@ -1,5 +1,14 @@
 # Test coverage map
 
+The subsequent [protocol/command contract](protocol-routing-commands.md) adds
+`test_protocol_contract.py`, `test_classification_contract.py` and
+`test_command_contract.py`: real MQTT routing/cache/discovery, known device families,
+exact action envelopes, HA number-service boundaries, commMode rejection, optimism,
+publish failures and Type-106 ordering. Synthetic fixtures are not hardware captures.
+The report records regression-first failure evidence and final validation results.
+Final hardening run: **862 passed, 92.28% coverage**, including **369 new cases**;
+targeted regression suite: **728 passed**. All 493 foundation protections remain.
+
 The subsequent [MQTT lifecycle tests](mqtt-lifecycle.md) cover subscription
 ownership, callback delivery across unload/reload, two-entry isolation, partial
 startup and cleanup failures, and concurrent/cancelled lifecycle operations.
