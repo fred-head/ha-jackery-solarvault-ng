@@ -7,6 +7,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Release each config entry's MQTT subscriptions on unload and failed startup,
+  preventing duplicate listeners and updates to old coordinators after reload.
+  Serialize coordinator start/stop, attempt all cleanup after callback failures,
+  and unwind already-loaded platforms when setup fails.
 - Scope child sensors, plug switches and child devices by both SolarVault host and
   child serial, allowing identical child serials under different hosts. MQTT and
   HTTP measurements of the same host/meter continue to share one device.

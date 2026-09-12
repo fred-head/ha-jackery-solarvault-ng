@@ -1,4 +1,5 @@
 """Energy Monitor MQTT Integration for Home Assistant."""
+import asyncio
 import logging
 from typing import cast
 
@@ -193,9 +194,19 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         "coordinator": coordinator,
     }
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
-    # Discovery must not run until both dynamic entity callbacks are installed.
-    await coordinator.async_start()
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        # Discovery must not run until both dynamic entity callbacks are installed.
+        await coordinator.async_start()
+    except (Exception, asyncio.CancelledError):
+        # HA cannot unload a coordinator whose setup never completed. Release
+        # resources here, including already-forwarded entity platforms.
+        try:
+            await coordinator.async_stop()
+        finally:
+            if await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+                hass.data[DOMAIN].pop(entry.entry_id, None)
+        raise
 
     return True
 
@@ -206,11 +217,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
     coordinator = entry_data.get("coordinator")
-    if coordinator:
-        await coordinator.async_stop()
-        _LOGGER.info("Coordinator stopped")
-
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    try:
+        if coordinator:
+            await coordinator.async_stop()
+    finally:
+        # A faulty unsubscribe must not prevent entity references being released.
+        unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)

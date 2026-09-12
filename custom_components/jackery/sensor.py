@@ -28,7 +28,7 @@ from homeassistant.const import (
     UnitOfTemperature,
     UnitOfTime,
 )
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -1326,6 +1326,8 @@ class JackeryDataCoordinator:
         self._sensors: dict[str, Any] = {}
         self._data_task: asyncio.Task[None] | None = None
         self._subscribed = False
+        self._mqtt_unsubscribers: list[CALLBACK_TYPE] = []
+        self._lifecycle_lock = asyncio.Lock()
         self._last_update_time = time.time()
         self._start_time = time.time()
 
@@ -1353,8 +1355,10 @@ class JackeryDataCoordinator:
         self._smartmeter_http_task: asyncio.Task[None] | None = None
         self._http_sm_sensors_created: bool = False
 
-        self._topic_status_wildcard = f"{self._topic_root}/device/+/status"
-        self._topic_event_wildcard = f"{self._topic_root}/device/+/event"
+        # Relayed child reports also arrive on the host's status/event topics.
+        topic_sn = device_sn or "+"
+        self._topic_status = f"{self._topic_root}/device/{topic_sn}/status"
+        self._topic_event = f"{self._topic_root}/device/{topic_sn}/event"
 
     def register_sensor(self, sensor_id: str, entity: Any) -> None:
         """Register an HA entity for its supported MQTT or HTTP update path."""
@@ -1366,62 +1370,59 @@ class JackeryDataCoordinator:
             del self._sensors[sensor_id]
 
     async def async_start(self) -> None:
-        """启动协调器."""
-        if self._subscribed:
-            return
+        """Own every subscription as soon as it is created; unwind failed starts."""
+        async with self._lifecycle_lock:
+            if self._subscribed:
+                return
+            try:
+                @callback
+                def message_received(msg):
+                    self._handle_message(msg)
 
-        try:
-            # 订阅状态主题 (Wildcard) 以发现设备和接收数据
-            @callback
-            def message_received(msg):
-                self._handle_message(msg)
+                for topic in (self._topic_status, self._topic_event):
+                    unsubscribe = await ha_mqtt.async_subscribe(self.hass, topic, message_received, 1)
+                    self._mqtt_unsubscribers.append(unsubscribe)
+                _LOGGER.debug("MQTT subscriptions created for entry %s", self.config_entry_id)
 
-            await ha_mqtt.async_subscribe(
-                self.hass,
-                self._topic_status_wildcard,
-                message_received,
-                1
-            )
-            _LOGGER.info(f"Coordinator subscribed to: {self._topic_status_wildcard}")
-
-            # Subscribe to event topic for sub-device data (Type 101)
-            await ha_mqtt.async_subscribe(
-                self.hass,
-                self._topic_event_wildcard,
-                message_received,
-                1
-            )
-            _LOGGER.info(f"Coordinator subscribed to: {self._topic_event_wildcard}")
-
-            self._subscribed = True
-
-            # 启动定时轮询
-            self._data_task = asyncio.create_task(self._periodic_data_request())
-
-            # Start optional SmartMeter HTTP polling if enabled in options
-            entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
-            if entry and entry.options.get("smartmeter_http_poll", False):
-                self._smartmeter_http_task = asyncio.create_task(self._smartmeter_http_poll_loop())
-                _LOGGER.info("SmartMeter HTTP polling enabled (interval=%ds)", entry.options.get("smartmeter_poll_interval", 10))
-
-        except Exception as e:
-            _LOGGER.error(f"Failed to start coordinator: {e}")
+                self._data_task = asyncio.create_task(self._periodic_data_request())
+                # HTTP retains its existing independent polling/health policy.
+                entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
+                if entry and entry.options.get("smartmeter_http_poll", False):
+                    self._smartmeter_http_task = asyncio.create_task(self._smartmeter_http_poll_loop())
+                    _LOGGER.info("SmartMeter HTTP polling enabled (interval=%ds)", entry.options.get("smartmeter_poll_interval", 10))
+                self._subscribed = True
+            except (Exception, asyncio.CancelledError):
+                await self._async_release_resources()
+                raise
 
     async def async_stop(self) -> None:
-        """停止协调器."""
-        if self._data_task and not self._data_task.done():
-            self._data_task.cancel()
+        """Release only this coordinator's resources, once, even after a partial start."""
+        async with self._lifecycle_lock:
+            await self._async_release_resources()
+        _LOGGER.debug("Coordinator stopped for entry %s", self.config_entry_id)
+
+    async def _async_release_resources(self) -> None:
+        """Attempt all cleanup before reporting errors; caller holds lifecycle lock."""
+        self._subscribed = False
+        unsubscribers, self._mqtt_unsubscribers = self._mqtt_unsubscribers, []
+        errors: list[Exception] = []
+        for unsubscribe in unsubscribers:
             try:
-                await self._data_task
-            except asyncio.CancelledError:
-                pass
-        if self._smartmeter_http_task and not self._smartmeter_http_task.done():
-            self._smartmeter_http_task.cancel()
-            try:
-                await self._smartmeter_http_task
-            except asyncio.CancelledError:
-                pass
-        _LOGGER.info("Coordinator stopped")
+                unsubscribe()
+            except Exception as error:
+                errors.append(error)
+        if unsubscribers:
+            _LOGGER.debug("MQTT subscription cleanup attempted for entry %s", self.config_entry_id)
+
+        tasks = [task for task in (self._data_task, self._smartmeter_http_task) if task and not task.done()]
+        for task in tasks:
+            task.cancel()
+        # Child-task cancellation is expected. Cancellation of the caller must
+        # still propagate; gather distinguishes it from the collected results.
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        errors.extend(result for result in results if isinstance(result, Exception))
+        if errors:
+            raise ExceptionGroup("Coordinator resource cleanup failed", errors)
 
     def _handle_message(self, msg) -> None:
         """处理接收到的 MQTT 消息."""

@@ -1,5 +1,9 @@
 # Responsibility and coupling map
 
+The subsequent [MQTT lifecycle fix](mqtt-lifecycle.md) retains subscription
+cleanup handles per coordinator and adds setup-failure/unload cleanup in place.
+Subscription ownership is now tested before any transport extraction.
+
 Follow-up [identity audit](multi-instance-identity.md): registry tests now reproduce
 the child identity/migration risks below, and a forced platform ordering test
 confirms controls can return before sensor setup creates their coordinator.
