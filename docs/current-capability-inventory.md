@@ -45,20 +45,42 @@ Writable main entities (`switch.py:28`, `number.py:20`, `select.py:39`, `button.
 
 ## Subdevices
 
-Arrays accepted: `plug/plugs/socket/sockets`, `ct/cts`, `collectors`. Each nonempty section merges by `deviceSn` or `sn`; missing entries and fields remain cached. Missing devType defaults to 6 in plug arrays and 2 in CT arrays. Type-102 point updates infer plug type from switch/energy fields or meter type from phase-power fields. The discovery classifier is separate from the point-update classifier (`sensor.py:1556,1626,1749`).
+Current child classification is centralized in the standard-library-only
+`devices/classification.py`. It returns one of expansion battery, CT,
+SmartMeter, collector, plug or unknown, plus the established HTO907A, Shelly Pro
+3EM and HTO910A subtype associations. Explicit contexts retain the existing
+route differences: missing `devType` defaults to 6 in plug arrays and 2 in CT
+arrays; collector arrays add no default; Type-102 point updates infer a plug
+from switch/energy fields before considering phase-power fields for a
+SmartMeter; Type-23 recognizes only `devType=1` as an expansion battery.
+
+Arrays accepted: `plug/plugs/socket/sockets`, `ct/cts`, `collectors`. Each nonempty section merges by `deviceSn` or `sn`; missing entries and fields remain cached. Classification does not choose the cache/source array. Consequently, contradictory explicit metadata retains its prior behavior: the family follows `devType`/`subType`, while later entity reads still use the established family source array. This is characterized rather than standardized in this extraction.
 
 | Class/model | devType / subType | Classification and measurements | Control / communications | Evidence |
 | --- | --- | --- | --- | --- |
 | BP2500 / expansion battery | 1 / sample 0 | Type-23 with non-system SN; separate `expansion_batteries[SN]`; `inEgy`, `outEgy` ×0.01 kWh. No individual instantaneous power or SOC entities. | Read-only; no commMode gate. | Explicit BP2500 upstream reports (README, changelog, calculation comment); synthetic type-23/null/availability tests. |
-| Jackery SmartMeter 3P HTO907A | 3 / 5 | All devType=3 selects `ct_3phase`, reads lowercase phase totals and per-phase power/energy directly; 19 entities. | Read-only MQTT; commMode 1=lan, 2=cloud and commState displayed. Optional HTTP below. | README explicitly hardware tested; generic type=3/subtype=5 routing and enum unit tests, no full model fixture. |
-| Shelly Pro 3EM through Jackery | 3 / 2 | Same 19-entity direct-field group, not legacy CT phase selection. | Jackery MQTT only; no Shelly RPC/HTTP transport. | README explicitly hardware tested; `d99b8ca` introduces all-devType=3 grouping. No explicit Shelly/subtype=2 regression test. |
-| Jackery D0 reader HTO910A | 4 / 7 | `collectors` → collector group; import/export W, commState, commMode, IP (5). First usable collector is grid fallback after CT. | Read-only; communications displayed, not enforced as measurement freshness. | Named in source/README; apparently untested in suite (collector merge/calculation lines uncovered). No explicit hardware-test certification found. |
-| Standard CT | 2 / 1–5 and others | `ct` group (power, energy): subtype 1 selects A, 2 B, 3 C with A+B fallback, else total; energy may fall back to sole nonzero phase. | Read-only; attributes include commState and diagnostic hardware label. | Synthetic type=2 routing only; transformation branches untested. |
+| Jackery SmartMeter 3P HTO907A | 3 / 5 | All devType=3 selects `ct_3phase`, reads lowercase phase totals and per-phase power/energy directly; 19 entities. | Read-only MQTT; commMode 1=lan, 2=cloud and commState displayed. Optional HTTP below. | README explicitly hardware tested; synthetic direct classifier and full discovery/entity snapshots cover this association. |
+| Shelly Pro 3EM through Jackery | 3 / 2 | Same 19-entity direct-field group, not legacy CT phase selection. | Jackery MQTT only; no Shelly RPC/HTTP transport. | README explicitly hardware tested; `d99b8ca` introduces all-devType=3 grouping. Synthetic direct classifier and full discovery/entity snapshots cover subtype 2. |
+| Jackery D0 reader HTO910A | 4 / 7 | `collectors` → collector group; import/export W, commState, commMode, IP (5). First usable collector is grid fallback after CT. | Read-only; communications displayed, not enforced as measurement freshness. | Named in source/README; synthetic direct classifier, discovery/entity and energy-source tests cover the software path. No explicit hardware-test certification found. |
+| Standard CT | 2 / 1–5 and others | `ct` group (power, energy): subtype 1 selects A, 2 B, 3 C with A+B fallback, else total; energy may fall back to sole nonzero phase. | Read-only; attributes include commState and diagnostic hardware label. | Synthetic direct classifier, routing and discovery/entity snapshots; no new hardware evidence. |
 | Other meter collector | 4 / not 7 | Legacy `ct` group in discovery, normally reads `cts`. | Read-only. | Synthetic devType=4 routing into cts, not real-device validation. |
-| Smart plug (unnamed model) | 6 / unspecified | Power `outPw` (fallback `power`), energy `totalEgy` ×0.01 and switch. | Type=103 `sysSwitch`; HA switch blocks cloud/unknown modes, only mode 1 allowed. Telemetry still displayed in any mode. | Synthetic array/point/helper coverage; full HA switch action/notification and wire encoding untested. |
-| Unknown subdevice types | unknown | Discovery falls through to plug sensors **and a switch**, whereas static switch setup only accepts type 6. | Not validated hardware support; direct coordinator command has no commMode guard. | Source observation, no regression coverage. |
+| Smart plug (unnamed model) | 6 / unspecified | Power `outPw` (fallback `power`), energy `totalEgy` ×0.01 and switch. | Type=103 `sysSwitch`; HA switch blocks cloud/unknown modes, only mode 1 allowed. Telemetry still displayed in any mode. | Synthetic direct classifier, array/point, full discovery/entity, command and helper coverage. |
+| Unknown subdevice types | unknown | Retained in accepted caches where applicable but do not create sensors or switches. Explicit unknown or string-valued types are not inferred from familiar fields. | Not treated as writable hardware. | Synthetic direct classifier, routing and discovery rejection coverage. |
 
-Diagnostic `CT_SUBTYPE_MAP` labels are **not a classifier**: 1 Shelly Single Phase, 2 Shelly Three Phase, 3 Shelly 63A, 4 Eastron Single Phase (4002), 5 Eastron Three Phase (4003), 6 Jackery Wireless Smart Meter (US L1/L2 4007), 7 Jackery Smart Meter 3P (UK 4008). These named mappings alone do not prove those devices work. In particular subtype=5's label differs from the HTO907A identity, and subtype=7 differs from HTO910A. Do not reconcile these meanings without device evidence (`sensor.py:1037`).
+Diagnostic `CT_SUBTYPE_MAP` labels are **not a classifier**: 1 Shelly Single Phase, 2 Shelly Three Phase, 3 Shelly 63A, 4 Eastron Single Phase (4002), 5 Eastron Three Phase (4003), 6 Jackery Wireless Smart Meter (US L1/L2 4007), 7 Jackery Smart Meter 3P (UK 4008). These named mappings alone do not prove those devices work. In particular subtype=5's diagnostic label differs from the HTO907A classification association, and subtype=7's label differs from HTO910A. This ambiguity is intentionally preserved pending device evidence.
+
+Classification is independent of physical identity. Child device identifiers
+remain scoped by SolarVault host plus child serial, and entity unique IDs also
+include their established family. A subtype change updates the same physical
+device association; identical child serials under different hosts remain
+separate. The classifier does not migrate registries, choose entities, decide
+availability, transform measurements or grant MQTT control.
+
+One malformed-metadata edge remains outside the classifier: the legacy static
+plug-switch setup checks `devType` with set membership, so an unhashable value
+could still raise if it reaches platform bootstrap. The classifier itself safely
+returns unknown for such values. Changing the adapter behavior belongs in a
+separate bugfix with an end-to-end regression.
 
 ## Availability and source behavior
 

@@ -1,5 +1,18 @@
 # Test coverage map
 
+The device-classification extraction adds direct cases in
+`test_device_classification.py` for every established family and known model,
+all route-specific missing-type rules, each Type-102 inference field, inference
+precedence, explicit unknown/malformed values, contradictory array metadata,
+non-mutation and the exact static plug-switch filter. Expanded
+`test_classification_contract.py` cases assert complete sensor-key snapshots,
+switch creation, host-scoped identity, missing-type discovery, subtype changes
+and identical child serials under different hosts. The fixtures are synthetic
+and do not add hardware-support claims. Routing, cache placement, identity and
+entity construction remain covered through their production call paths.
+Final extraction validation: **1,145 passed, 92.89% coverage**; the classifier
+has 100% statement coverage. No skips or xfails were introduced.
+
 The protocol-normalization extraction adds 18 direct cases in
 `test_protocol_normalization.py`. They cover all three established aliases,
 canonical zero precedence, canonical/alias null behavior, missing and unknown

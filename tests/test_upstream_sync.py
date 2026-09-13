@@ -9,12 +9,12 @@ from custom_components.jackery.calculations.energy_flow import (
     _safe_float,
     calculate_energy_flow,
 )
+from custom_components.jackery.devices.classification import CT_SUBTYPE_MAP
 from custom_components.jackery.protocol.normalization import (
     extract_flat_body,
     normalize_payload_fields,
 )
 from custom_components.jackery.sensor import (
-    CT_SUBTYPE_MAP,
     FUNC_ENABLE_BITS,
 )
 from tests.conftest import FakeMqttMsg

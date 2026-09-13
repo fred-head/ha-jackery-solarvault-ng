@@ -12,12 +12,12 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
+from .devices.classification import should_create_plug_switch
 from .identity import child_device_identifier, child_unique_id
 from .sensor import (
     COMM_MODE_LABELS,
     plug_comm_mode,
     plug_mqtt_control_allowed,
-    should_create_plug_switch,
 )
 
 if TYPE_CHECKING:
