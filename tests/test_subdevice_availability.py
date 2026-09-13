@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 from unittest.mock import MagicMock, patch
 
+from custom_components.jackery.coordinator_state import CoordinatorRuntimeState
 from custom_components.jackery.sensor import OFFLINE_TIMEOUT, JackeryDataCoordinator
 
 PLUG_SN = "PLUG001"
@@ -25,10 +26,11 @@ def make_coordinator() -> JackeryDataCoordinator:
     coord._known_plugs = set()
     coord._expansion_battery_sns = set()
     coord._subdevice_missing_since = {}
-    coord._subdevice_last_seen = {}
-    coord._start_time = time.time() - 200   # well past the 60s grace period
+    coord._runtime_state = CoordinatorRuntimeState(
+        last_update_time=time.time(),
+        start_time=time.time() - 200,  # well past the 60s grace period
+    )
     coord._sensors = {}
-    coord._data_cache = {}
     coord.add_entities_callback = None
     coord.add_switch_entities_callback = None
     return coord
@@ -140,7 +142,8 @@ def test_plug_deleted_after_offline_timeout():
 def test_startup_grace_period_suppresses_offline():
     """Within first OFFLINE_TIMEOUT seconds, never-seen devices are not marked offline."""
     coord = make_coordinator()
-    coord._start_time = time.time() - 30   # only 30s since start, within grace period
+    # Only 30s since start, within the startup grace period.
+    coord._runtime_state.start_time = time.time() - 30
     coord._known_plugs.add(PLUG_SN)
     coord._known_plugs.add(DUMMY_SN)
     # last_seen = 0 (never seen)

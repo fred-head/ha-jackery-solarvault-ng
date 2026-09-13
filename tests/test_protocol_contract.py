@@ -34,7 +34,7 @@ def protocol(hass, monkeypatch):
     ("HOST_A", False),
 ])
 def test_topic_routes_and_freshness(protocol, suffix, accepted):
-    protocol._last_update_time = 1
+    protocol._runtime_state.last_update_time = 1
     protocol._handle_message(FakeMqttMsg(f"lab.+/hb/device/{suffix}", '{"type":2,"body":{"batSoc":0}}'))
     assert (protocol._data_cache.get("batSoc") == 0) == accepted
     assert protocol._ever_received == accepted

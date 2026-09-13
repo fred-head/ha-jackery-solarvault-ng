@@ -38,6 +38,7 @@ from .calculations.energy_flow import (
     calculate_energy_flow,
     select_grid_source,
 )
+from .coordinator_state import CoordinatorRuntimeState
 from .devices.classification import (
     CT_SUBTYPE_MAP,
     ClassificationContext,
@@ -1172,22 +1173,17 @@ class JackeryDataCoordinator:
         self._subscribed = False
         self._mqtt_unsubscribers: list[CALLBACK_TYPE] = []
         self._lifecycle_lock = asyncio.Lock()
-        self._last_update_time = time.time()
-        self._start_time = time.time()
+        self._runtime_state = CoordinatorRuntimeState(
+            last_update_time=time.time(),
+            start_time=time.time(),
+        )
 
         self._known_plugs: set[str] = set()
         self._subdevice_missing_since: dict[str, float] = {}
-        self._subdevice_last_seen: dict[str, float] = {}
         self._expansion_battery_sns: set[str] = set()
         self._poll_105_counter: int = 2  # starts at threshold-1 so type-105 fires on first cycle
         self.add_entities_callback: Any = None
         self.add_switch_entities_callback: Any = None
-        self._data_cache: dict[str, Any] = {}
-        self._power_live_seen: dict[str, tuple[int, float]] = {}
-        # Bounded raw snapshot evidence, including samples suppressed by live priority.
-        self._power_106_samples: dict[str, tuple[Any, float]] = {}
-        self._energy_sources: dict[str, Any] = {}
-
         # Device meta — populated from first MQTT message, used to update device registry (Ü2/Ü3)
         self._device_type: int | None = None
         self._soft_ver: str | None = None
@@ -1195,7 +1191,6 @@ class JackeryDataCoordinator:
         # Re-Auth guard — prevents multiple simultaneous re-auth flows
         self._reauth_started: bool = False
         # True as soon as one valid message for this device SN was received (re-auth heuristic)
-        self._ever_received: bool = False
         self.config_entry_id: str = ""  # set by async_setup_entry
         self._child_migration: ChildMigrationResult | None = None
 
@@ -1207,6 +1202,38 @@ class JackeryDataCoordinator:
         topic_sn = device_sn or "+"
         self._topic_status = f"{self._topic_root}/device/{topic_sn}/status"
         self._topic_event = f"{self._topic_root}/device/{topic_sn}/event"
+
+    @property
+    def _data_cache(self) -> dict[str, Any]:
+        return self._runtime_state.data_cache
+
+    @property
+    def _power_live_seen(self) -> dict[str, tuple[int, float]]:
+        return self._runtime_state.power_live_seen
+
+    @property
+    def _power_106_samples(self) -> dict[str, tuple[Any, float]]:
+        return self._runtime_state.power_106_samples
+
+    @property
+    def _energy_sources(self) -> dict[str, Any]:
+        return self._runtime_state.energy_sources
+
+    @property
+    def _subdevice_last_seen(self) -> dict[str, float]:
+        return self._runtime_state.subdevice_last_seen
+
+    @property
+    def _last_update_time(self) -> float:
+        return self._runtime_state.last_update_time
+
+    @property
+    def _start_time(self) -> float:
+        return self._runtime_state.start_time
+
+    @property
+    def _ever_received(self) -> bool:
+        return self._runtime_state.ever_received
 
     def register_sensor(self, sensor_id: str, entity: Any) -> None:
         """Register an HA entity for its supported MQTT or HTTP update path."""
@@ -1297,8 +1324,7 @@ class JackeryDataCoordinator:
                 _LOGGER.info(f"Discovered device SN: {self._device_sn}")
             # The topic identifies the host; payload SNs may identify its children.
             # Invalid or foreign traffic must not postpone offline/reauth checks.
-            self._last_update_time = time.time()
-            self._ever_received = True
+            self._runtime_state.record_host_activity(time.time())
 
             decision = parsed.decision
             if decision.captures_host_metadata and is_host_message_body(
@@ -1313,7 +1339,7 @@ class JackeryDataCoordinator:
 
             # Enrich data with calculations using merged cache
             # operate on copy or direct? Direct is fine.
-            self._data_cache = self._calculate_energy_flow(self._data_cache)
+            self._calculate_energy_flow(self._data_cache)
 
             # Check for new plugs
             self._check_for_new_plugs(self._data_cache)
@@ -1365,7 +1391,10 @@ class JackeryDataCoordinator:
             for key, value in body.items():
                 if value is not None:
                     exp_bats[device_sn_in_body][key] = value
-            self._subdevice_last_seen[cast(str, device_sn_in_body)] = time.time()
+            self._runtime_state.record_child_activity(
+                cast(str, device_sn_in_body),
+                time.time(),
+            )
             self._check_for_new_expansion_batteries()
         else:
             # Existing type-23 search intentionally excludes collectors.
@@ -1378,23 +1407,20 @@ class JackeryDataCoordinator:
                             or item.get("deviceSn") == device_sn_in_body
                         ):
                             item.update(body)
-                            self._subdevice_last_seen[device_sn_in_body] = time.time()
+                            self._runtime_state.record_child_activity(
+                                device_sn_in_body,
+                                time.time(),
+                            )
                             break
 
     def _handle_type106(self, body: dict[str, Any]) -> None:
         """Apply a full-system snapshot with coordinator-owned live preference."""
         normalized = normalize_payload_fields(body)
-        for key, value in normalized.items():
-            if key in _TYPE106_LIVE_PREFERRED:
-                self._power_106_samples[key] = (value, self._last_update_time)
-                live = self._power_live_seen.get(key)
-                if (
-                    live is not None
-                    and self._last_update_time - live[1] <= OFFLINE_TIMEOUT
-                ):
-                    continue
-                self._power_live_seen.pop(key, None)
-            self._data_cache[key] = value
+        self._runtime_state.merge_type106_snapshot(
+            normalized,
+            live_preferred=_TYPE106_LIVE_PREFERRED,
+            live_timeout=OFFLINE_TIMEOUT,
+        )
         _LOGGER.debug("Received type-106 system state (%d fields)", len(body))
 
     def _refresh_generic_child_activity(self, body: dict[str, Any]) -> None:
@@ -1404,15 +1430,27 @@ class JackeryDataCoordinator:
             if isinstance(items, list):
                 for item in items:
                     if isinstance(item, dict) and (child_sn := _subdevice_sn(item)):
-                        self._subdevice_last_seen[child_sn] = self._last_update_time
+                        self._runtime_state.record_child_activity(
+                            child_sn,
+                            self._last_update_time,
+                        )
 
     def _merge_normalized_cache(self, payload: dict, msg_code: Any = None) -> None:
         """Normalize field aliases and merge a main-device payload into the cache."""
-        self._data_cache.update(normalize_payload_fields(payload))
-        for key in _TYPE106_LIVE_PREFERRED.intersection(payload):
-            self._power_live_seen.pop(key, None)
-            if msg_code in (2, 23, 25, 107) and _power_sample(payload[key]) is not None:
-                self._power_live_seen[key] = (msg_code, self._last_update_time)
+        normalized = normalize_payload_fields(payload)
+        live_type = msg_code if msg_code in (2, 23, 25, 107) else None
+        valid_live_fields = {
+            key
+            for key in _TYPE106_LIVE_PREFERRED.intersection(payload)
+            if live_type is not None and _power_sample(payload[key]) is not None
+        }
+        self._runtime_state.merge_main_payload(
+            normalized,
+            observed_keys=payload,
+            message_type=live_type,
+            live_preferred=_TYPE106_LIVE_PREFERRED,
+            valid_live_fields=valid_live_fields,
+        )
 
     def _merge_subdevice_arrays(self, body: dict) -> bool:
         """Merge plugs/cts/collectors arrays from a body into the cache.
@@ -1444,7 +1482,7 @@ class JackeryDataCoordinator:
                 new_plugs.append(item)
                 sn = _subdevice_sn(item)
                 if sn:
-                    self._subdevice_last_seen[sn] = now_ts
+                    self._runtime_state.record_child_activity(sn, now_ts)
             self._data_cache["plugs"] = _merge_subdevice_list(
                 self._data_cache.get("plugs"), new_plugs
             )
@@ -1462,7 +1500,7 @@ class JackeryDataCoordinator:
                 new_cts.append(item)
                 sn = _subdevice_sn(item)
                 if sn:
-                    self._subdevice_last_seen[sn] = now_ts
+                    self._runtime_state.record_child_activity(sn, now_ts)
             self._data_cache["cts"] = _merge_subdevice_list(
                 self._data_cache.get("cts"), new_cts
             )
@@ -1478,7 +1516,7 @@ class JackeryDataCoordinator:
                 new_collectors.append(item)
                 sn = _subdevice_sn(item)
                 if sn:
-                    self._subdevice_last_seen[sn] = now_ts
+                    self._runtime_state.record_child_activity(sn, now_ts)
             self._data_cache["collectors"] = _merge_subdevice_list(
                 self._data_cache.get("collectors"), new_collectors
             )
@@ -1497,7 +1535,7 @@ class JackeryDataCoordinator:
         if not sn or sn == self._device_sn or sn == "system":
             return False
 
-        self._subdevice_last_seen[sn] = time.time()
+        self._runtime_state.record_child_activity(sn, time.time())
 
         # 1. Known device → patch in place (skip null values, they carry no information)
         for key in ("plugs", "plug", "cts", "collectors"):
@@ -1879,7 +1917,7 @@ class JackeryDataCoordinator:
             selected = select_grid_source(data, freshness)
             calculate_energy_flow(data, selected)
             if self is not None:
-                self._energy_sources["grid"] = selected.metadata()
+                self._runtime_state.record_energy_source("grid", selected.metadata())
 
         except Exception as e:
             _LOGGER.error(f"Error calculating energy flow: {e}")
@@ -1888,12 +1926,12 @@ class JackeryDataCoordinator:
 
     def _subdevice_is_available(self, sn: str, now: float) -> bool:
         """Apply the existing per-child timeout and cumulative-energy exception."""
-        last_seen = self._subdevice_last_seen.get(sn, 0)
-        if last_seen == 0 and (now - self._start_time) < OFFLINE_TIMEOUT:
-            return True
-        if sn in self._expansion_battery_sns:
-            return last_seen > 0
-        return last_seen > 0 and (now - last_seen) <= OFFLINE_TIMEOUT
+        return self._runtime_state.child_is_available(
+            sn,
+            now,
+            timeout=OFFLINE_TIMEOUT,
+            retain_after_first_seen=sn in self._expansion_battery_sns,
+        )
 
     def _update_subdevice_availability(self) -> None:
         """Check child MQTT health independently of discovery and incoming traffic."""
@@ -1954,7 +1992,7 @@ class JackeryDataCoordinator:
         while True:
             try:
                 self._update_subdevice_availability()
-                if time.time() - self._last_update_time > OFFLINE_TIMEOUT:
+                if self._runtime_state.host_is_stale(time.time(), OFFLINE_TIMEOUT):
                     self._mark_all_offline()
                 elif self._data_cache:
                     # Child expiry can change the energy source between messages.

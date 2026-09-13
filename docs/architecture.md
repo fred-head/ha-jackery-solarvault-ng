@@ -8,7 +8,8 @@ incremental target and risk order remain in [refactoring-roadmap.md](refactoring
 ```text
 Home Assistant platform entities
              ↓
-sensor.py coordinator and runtime state
+sensor.py coordinator orchestration and HA effects
+             ├──→ coordinator_state.py ──→ Python standard library
              ├──→ protocol/routing.py ──→ protocol/normalization.py
              │                                  ↓
              │                         Python standard library
@@ -17,10 +18,29 @@ sensor.py coordinator and runtime state
              └──→ calculations/energy_flow.py ──→ Python standard library
 ```
 
-`sensor.py` still owns MQTT/HTTP interaction, route application, cache and
-freshness state, entity classes, discovery and coordinator lifecycle. Identity
-construction and registry migration already live in `identity.py` and
+`sensor.py` still owns MQTT/HTTP interaction, route application, entity classes,
+discovery, availability side effects and coordinator lifecycle. Ephemeral cache,
+freshness and source evidence live in `coordinator_state.py`. Identity
+construction and registry migration live in `identity.py` and
 `child_migration.py`.
+
+## Coordinator runtime state
+
+`custom_components/jackery/coordinator_state.py` provides one
+`CoordinatorRuntimeState` per coordinator. It owns the main/child protocol cache,
+host and child activity timestamps, Type-106 live/snapshot evidence and selected
+energy-source metadata. It applies main-payload and Type-106 cache transitions
+and answers host/child freshness questions. It imports only the Python standard
+library and holds no Home Assistant objects.
+
+The coordinator continues to decide when a route is applied and prepares
+normalized/validated values. It also owns discovery membership and missing-child
+timers because those transitions directly create or remove entities and registry
+objects. Entity availability writes, MQTT/HTTP lifecycle, reauth, device metadata,
+identity and migration stay outside runtime state. Existing private cache and
+freshness attributes are compatibility views of the same state, not duplicate
+storage. The complete field inventory and reset contract are in
+[coordinator-state.md](coordinator-state.md).
 
 ## Protocol routing package
 
@@ -35,7 +55,7 @@ refresh flags. `TopicInfo` and `ParsedEnvelope` carry the other validated values
 The module imports only the Python standard library and
 `protocol.normalization`.
 
-The coordinator consumes those decisions and still owns every runtime effect:
+The processing pipeline divides those decisions and effects as follows:
 
 | `_handle_message` responsibility | Current owner and category |
 | --- | --- |
@@ -44,14 +64,14 @@ The coordinator consumes those decisions and still owns every runtime effect:
 | 3. Payload decoding | `protocol.routing.parse_envelope`; protocol structure |
 | 4. Body reconstruction/normalization | Flat reconstruction is `protocol.normalization` via routing; field aliases remain applied at cache merge |
 | 5. Malformed-array sanitization | `protocol.routing`; pure copied structural validation |
-| 6. Host freshness | Coordinator state |
+| 6. Host freshness | `CoordinatorRuntimeState`; coordinator schedules availability effects |
 | 7. Device metadata capture | Routing supplies the eligibility decision; coordinator mutates metadata/registry state |
 | 8. Message-type routing | `protocol.routing.route_message_type`; pure routing |
-| 9. Main cache mutation | Coordinator state |
-| 10. Child cache mutation | Coordinator state, using `devices.classification` for family decisions |
-| 11. Type-106 live/snapshot arbitration | Coordinator state |
+| 9. Main cache mutation | Main and Type-106 transitions use `CoordinatorRuntimeState`; child placement remains coordinator logic |
+| 10. Child cache mutation | Storage is runtime state; coordinator owns route-specific merges using `devices.classification` |
+| 11. Type-106 live/snapshot arbitration | `CoordinatorRuntimeState`, supplied with coordinator policy constants and normalized values |
 | 12. Reauthentication | Routing recognizes Type 123; coordinator owns the HA action and guard |
-| 13. Energy calculation | Coordinator adapter calls `calculations.energy_flow` after route mutation |
+| 13. Energy calculation | Coordinator adapter calls `calculations.energy_flow`; source metadata is stored in runtime state |
 | 14. Discovery | Coordinator and platform lifecycle |
 | 15. Entity fan-out | Coordinator and entity lifecycle |
 | 16. Logging/error containment | Coordinator; JSON errors intentionally propagate to its topic-aware warning |
@@ -94,8 +114,8 @@ the Python standard library.
 The module does not parse JSON, validate topics or hosts, select a message route,
 classify devices, merge state, advance freshness, apply Type-106 live/snapshot
 precedence or build commands. Structural JSON/topic parsing and route selection
-are composed above it in `protocol.routing`; runtime effects remain in
-`sensor.py`.
+are composed above it in `protocol.routing`; cache/source evidence is stored in
+`coordinator_state.py`, while orchestration and HA effects remain in `sensor.py`.
 
 ## Energy calculation package
 
@@ -126,19 +146,20 @@ same object:
 
 When no explicit grid selection is supplied, it selects from the data without a
 runtime freshness constraint. This supports direct deterministic tests. The
-coordinator always supplies its freshness-aware selection during production
-message processing and timer reevaluation.
+coordinator always supplies the runtime state's freshness-aware selection during
+production message processing and timer reevaluation.
 
 The coordinator's `_calculate_energy_flow` method remains as a narrow adapter.
 It applies `normalize_payload_fields`, translates
 its child last-seen state into `SourceFreshness`, calls the pure calculation
-functions, stores source observability metadata and retains the existing error
-log/fallback boundary.
+functions, stores source observability metadata in runtime state and retains the
+existing error log/fallback boundary.
 
-Type-106 live/snapshot maps and receipt-time policy remain in `sensor.py` because
-they are cache/state-transition responsibilities. HTTP health, MQTT lifecycle,
-entity availability and state writes also remain there. The calculation package
-does not decide whether a Home Assistant entity is available.
+Type-106 live/snapshot maps and receipt-time transitions live in
+`coordinator_state.py`; the coordinator supplies the established field set,
+60-second window and accepted-message receipt time. HTTP health, MQTT lifecycle,
+entity availability and state writes remain in `sensor.py`. The calculation
+package does not decide whether a Home Assistant entity is available.
 
 ## Preserved contract
 
