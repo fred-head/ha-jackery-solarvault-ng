@@ -69,7 +69,6 @@ _PLUG_INFERENCE_FIELDS: frozenset[str] = frozenset(
 _METER_INFERENCE_FIELDS: frozenset[str] = frozenset(
     {"aPhasePw", "AphasePw", "tPhasePw", "TphasePw", "phasePw"}
 )
-_PLUG_DEV_TYPES: frozenset[int] = frozenset({6})
 
 
 def classify_device(
@@ -127,4 +126,4 @@ def classify_device(
 
 def should_create_plug_switch(payload: Mapping[str, Any]) -> bool:
     """Return whether existing static switch setup treats a payload as a plug."""
-    return payload.get("devType") in _PLUG_DEV_TYPES
+    return payload.get("devType") == 6
