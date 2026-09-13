@@ -18,12 +18,13 @@ returned to the coordinator's topic-aware warning boundary; unsupported
 top-level or body shapes are ignored. The routing module has no HA, MQTT,
 coordinator, calculation or device-classification dependency.
 
-All effects remain coordinator-owned: host adoption/rejection, freshness,
-metadata storage, cache and child merges, Type-106 live/snapshot arbitration,
-reauthentication, calculation, discovery and entity fan-out. Type 123 continues
-through calculation/discovery/fan-out after any reauth trigger, and generic
-routes continue their established child-activity refresh. The extraction does
-not change message or cache semantics.
+All effects remain coordinator-orchestrated. Its HA-independent runtime state
+owns cache storage, host/child activity, Type-106 live/snapshot transitions and
+source metadata; the coordinator retains host adoption/rejection, metadata
+updates, child merge placement, reauthentication, calculation, discovery and
+entity fan-out. Type 123 continues through calculation/discovery/fan-out after
+any reauth trigger, and generic routes continue their established child-activity
+refresh. The extraction does not change message or cache semantics.
 
 Static review exposed one pre-existing, unconfirmed Type-23 edge: expansion
 battery recognition accepts the fallback `sn` spelling, while the existing

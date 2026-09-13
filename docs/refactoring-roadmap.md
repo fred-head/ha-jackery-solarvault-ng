@@ -3,15 +3,17 @@
 Current progress: the pure normalization, energy calculation and device
 classification bundles described in phases 1 through 3 are implemented. The
 safe structural portion of phase 4 is also implemented in
-`protocol/routing.py`.
+`protocol/routing.py`, and the safe runtime-state portion of phase 5 is
+implemented in `coordinator_state.py`.
 Established aliases and flat-status body reconstruction live in
 `protocol/normalization.py`; formulas and source selection live in
 `calculations/energy_flow.py`; child family decisions live in
 `devices/classification.py`. Exact topic/envelope parsing and immutable route
 decisions now live in `protocol/routing.py`; coordinator-owned route application,
-cache mutation, entity construction, freshness and Type-106 precedence remain in
-`sensor.py`. See [architecture.md](architecture.md). Later rows remain future
-work.
+entity construction, discovery/deletion policy and availability side effects
+remain in `sensor.py`. Runtime cache, freshness, Type-106 evidence and source
+metadata live in `coordinator_state.py`. See [architecture.md](architecture.md).
+Later rows remain future work.
 
 Phase 0/1 stops with this documentation. The following work requires subsequent review. Baseline: 174 tests passing, translation/Ruff pass, CI-style lint-only mypy pass; combined HA+lint environment has 23 typing findings. The [test map](test-coverage-map.md) defines actual assertion limits.
 
@@ -25,7 +27,7 @@ Each row is one small PR, or a sequence of PRs when explicitly indicated. Do not
 | 2. Extract calculation bundle | **Completed:** `calculations/__init__.py`, `calculations/energy_flow.py`, sensor.py wrapper | Same dict mutation/return, derived keys, raw fields, battery stack formula, CT/collector/system precedence, sign/clamp/anomaly behavior. Direct calculation/helper/source tests. | Added collector, subtype2 Shelly, empty CT, source conflicts, total zero/phase contradiction and 50 W boundary scenarios. | **COMPLETED.** Standard-library-only calculation module; coordinator retains freshness and logging. No canonical-state redesign. |
 | 3. Centralize device classification | **Completed:** `devices/__init__.py`, `devices/classification.py`, sensor.py, switch.py | Same groups, models, route-specific missing-type defaults and point-field inference. Unknown types remain rejected; contradictory array metadata keeps its existing cache/source behavior. | Added direct family/model/context cases and discovery/entity snapshots for every supported group, missing inference, contradictions, subtype changes and identical child serials under two hosts. | **COMPLETED.** Standard-library-only classifier; no routing, cache placement, entity construction, identity, communication policy or capability redesign moved. |
 | 4. Extract structural protocol parsing | **Completed safe portion:** `protocol/routing.py`, protocol exports, sensor.py coordinator wrapper | Same type2/23/101/102/106/107/123 and generic routing decisions, exact topic matching, body/flat distinctions and malformed-shape handling. | Added direct routing cases and ordered cache/freshness/discovery/reauth/calculation/fan-out transitions. Duplicate/repeated-report policy remains existing behavior. | **COMPLETED as a partial extraction.** Pure topic/envelope/type decisions moved; cache, Type-106 arbitration, child merging, HA effects and outer containment remain coordinator-owned. No deletion/ack semantics added. |
-| 5. Isolate state transitions and availability ownership | coordinator.py; optional devices/state.py; sensor.py adapters | Preserve the now-characterized corrected behavior, energy policies, cumulative-battery exception and historical entity identities. Availability and migration tests. | Full timer/message/update/recovery, no-list, actual removal, all entity types, HTTP separate freshness. | HIGH. One state owner; values cannot silently override health decision. Any change to C's stale behavior was already isolated in 0a, not introduced here. Revert without persisted-state migration. |
+| 5. Isolate state transitions and availability ownership | **Completed safe portion:** `coordinator_state.py`, sensor.py adapters and state-transition tests | Same cache/list/null behavior, host/child 60-second boundaries, Type-106 receipt-time policy, cumulative-battery exception, source eligibility and entity identities. | Added focused host/child refresh, stale/recovery, deletion, expansion, Type-106/live expiry, source metadata, offline/recovery and reset characterization plus direct state tests. | **COMPLETED as a partial extraction.** Runtime data/freshness has one HA-independent owner. Discovery membership/deletion, entity writes, HTTP health, reauth and transport stay coordinator-owned because moving them would cross HA lifecycle boundaries. |
 | 6. Extract command builders | protocol/commands.py, coordinator/sensor methods, tests | Exact types, eventIds, cmd/rc, token presence, body=null, devType categories, QoS/retain; optimistic timing unchanged. Existing parameter tests only partial. | Every main control, all plug actions/modes, missing SN, publish failure; deterministic time/random golden payloads. | MEDIUM–HIGH. Compare decoded payloads excluding only generated fields; no new correlation/queue semantics. Compatibility delegates retained. |
 | 7. Separate MQTT transport lifecycle | transport/mqtt.py, coordinator.py, setup/unload | Same topics/poll sequence/cadence and event handling as post-bugfix baseline. Transport knows no entity classes. | Partial subscription failure, subscribe/unsubscribe exactly once, cancellation, reload, repeated start, two entries, request failures and startup timing. | HIGH. No pending tasks/subscriptions after unload; network callbacks stop. Correct missing-unsubscribe bug in its own tested prerequisite if not yet fixed. Revert extraction alone. |
 | 8. Separate HTTP polling | transport/smartmeter_http.py, coordinator.py, sensor.py | Same optional default/interval/timeout/endpoint and field scales; no meter-source promotion. | HTTP200, non200, network error, malformed JSON, missing fields/IP, third failure/recovery, identity changes, unload while waiting. | HIGH. One task per entry, explicit health channel and deterministic transitions; new threshold policy must be separate. Revert without option migration. |
@@ -40,11 +42,10 @@ The prerequisite HTTP/MQTT coexistence and related lifecycle, freshness and
 identity defects were handled in isolated bugfix work before these extractions.
 Their regression tests remain part of the acceptance suite.
 
-The next Phase 2 step may isolate coordinator state transitions and availability
-ownership (phase 5), now that routing order and malformed-shape recovery are
-explicitly characterized. That work needs a separate boundary/design review:
-cache mutation, child merging, Type-106 arbitration and HA side effects were
-deliberately not moved with structural routing.
+The next isolated Phase 2 step may extract pure command builders (phase 6).
+Further movement of discovery/deletion or entity availability would cross the
+HA lifecycle boundary and needs a separate redesign rather than an extension of
+runtime state.
 
 For risky freshness, unbinding and identity changes, preserve established behavior
 until evidence justifies an explicit change; a known defect is not permission to

@@ -1,5 +1,23 @@
 # Availability and freshness audit
 
+## Current state ownership
+
+The Phase 2 state extraction stores host/child activity in the per-coordinator,
+Home-Assistant-independent `CoordinatorRuntimeState`. It owns the exact
+60-second host/child freshness comparisons and the startup grace calculation.
+The coordinator supplies whether a child is a discovered expansion battery, so
+the existing once-seen cumulative-energy exception is unchanged.
+
+The state object returns decisions only. The coordinator still schedules timer
+checks, changes entity `_attr_available`, writes HA state, maintains discovery
+and missing/deletion sets, and removes registry objects. The calculation adapter
+uses the same state answer and activity age for grid-source eligibility. Raw
+cached values remain present when a source expires. HTTP health and failure
+counters remain entirely separate from MQTT runtime state.
+
+Reload creates a new runtime state; cache, activity timestamps, live/snapshot
+evidence and source metadata never persist across coordinator instances.
+
 The subsequent [energy/source policy](energy-source-policy.md) also applies the
 existing child timeout to CT/collector selection. Incoming MQTT and the existing
 timer reevaluate derived grid/home values; no remaining grid source makes the

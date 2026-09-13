@@ -174,12 +174,14 @@ Energy counter scaling and cumulative retention have not changed.
 
 ## Internal observability and lifecycle
 
-`_power_live_seen` stores accepted live type/receipt time for at most eleven
-keys. `_power_106_samples` retains the latest raw 106 value and receipt time for
+The coordinator-owned runtime state's `_power_live_seen` compatibility view
+stores accepted live type/receipt time for at most eleven keys.
+`_power_106_samples` retains the latest raw 106 value and receipt time for
 the same bounded set, including suppressed snapshots; it is not replayed later
 without a new message. These maps and the selected cache permit comparison of
 live versus snapshot power without exposing new HA entities.
-`_energy_sources['grid']` gives source label (`cts`, `collectors`, `system`,
+The runtime state's `_energy_sources['grid']` compatibility view gives source
+label (`cts`, `collectors`, `system`,
 `unavailable`), selected child activity age, counts skipped for stale/missing
 power and the selection reason. Unknown age is explicitly null, including
 host system candidates. The metadata is per coordinator, has no entity

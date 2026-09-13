@@ -1,5 +1,19 @@
 # Test coverage map
 
+The coordinator-state extraction adds 15 direct cases in
+`test_coordinator_state.py` and 12 coordinator-path characterizations in
+`test_coordinator_state_transitions.py`. Direct tests cover independent defaults,
+host/child activity, main/live merges, Type-106 suppression and zero/null expiry,
+exact host/child timeout boundaries, the expansion retention input and copied
+source metadata. Coordinator tests cover host and child refresh, stale/recovery,
+missing-child deletion, the expansion exception, repeated snapshots, Type-2/107
+live priority, receipt-time expiry, source eligibility, host offline/recovery and
+fresh state after reload. Synthetic clocks make every boundary deterministic.
+Entity references, registry effects, transport tasks, reauth and HTTP health
+remain outside the state object and retain their existing integration coverage.
+Final state-extraction validation: **1,254 passed, 93.59% coverage**; the runtime
+state module has 100% statement coverage. No skips or xfails were introduced.
+
 The structural-routing extraction adds 48 fast, HA-independent cases in
 `test_protocol_routing.py`. They cover every special and generic route, unknown,
 missing and malformed message types, exact escaped topic parsing, host-body and
