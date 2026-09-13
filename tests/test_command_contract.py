@@ -16,6 +16,7 @@ from custom_components.jackery import DOMAIN, button, number, select, switch
 from custom_components.jackery import sensor as sensor_module
 from custom_components.jackery.sensor import JackeryDataCoordinator
 from custom_components.jackery.switch import JackeryPlugSwitch
+from custom_components.jackery.transport import mqtt as mqtt_transport_module
 
 from .test_protocol_contract import receive
 
@@ -35,7 +36,7 @@ async def commands(hass, monkeypatch):
         if hasattr(entity, "_update_from_coordinator"):
             c.register_sensor(entity.unique_id, entity)
     publish = AsyncMock()
-    monkeypatch.setattr(sensor_module.ha_mqtt, "async_publish", publish)
+    monkeypatch.setattr(mqtt_transport_module.ha_mqtt, "async_publish", publish)
     # Replace module references rather than the global asyncio/time modules used by HA.
     monkeypatch.setattr(sensor_module, "time", SimpleNamespace(time=lambda: 1700000000.75))
     randint = Mock(return_value=4321)

@@ -16,11 +16,13 @@ sensor.py coordinator orchestration and HA effects
              │                         Python standard library
              ├──→ protocol/normalization.py ──→ Python standard library
              ├──→ devices/classification.py ──→ Python standard library
-             └──→ calculations/energy_flow.py ──→ Python standard library
+             ├──→ calculations/energy_flow.py ──→ Python standard library
+             └──→ transport/mqtt.py ──→ Home Assistant MQTT API
 ```
 
-`sensor.py` still owns MQTT/HTTP interaction, route application, entity classes,
-discovery, availability side effects and coordinator lifecycle. Ephemeral cache,
+`sensor.py` still owns HTTP interaction, route application, entity classes,
+discovery, availability side effects and coordinator lifecycle. Low-level MQTT
+interaction lives in `transport/mqtt.py`. Ephemeral cache,
 freshness and source evidence live in `coordinator_state.py`. Identity
 construction and registry migration live in `identity.py` and
 `child_migration.py`.
@@ -41,6 +43,24 @@ all optimistic cache behavior. The extraction adds no acknowledgement,
 correlation, retry or rollback semantics. Control tokens remain conditional on
 truthiness, while request envelopes always contain the token key, including for
 empty or null values.
+
+## MQTT transport
+
+Each coordinator creates one `JackeryMqttTransport`. It calls the Home Assistant
+MQTT API for QoS-1 subscriptions, retains each synchronous unsubscribe callback
+immediately, serializes outbound mappings with the existing `json.dumps`
+boundary and publishes with QoS 0/retain false. Partial subscribe failure removes
+already-created listeners. Stop detaches all handles before invoking them,
+attempts every callback and reports collected failures, making repeated stop
+idempotent and keeping config entries isolated.
+
+The coordinator still decides when to start and stop, supplies the exact status
+and event topics and raw-message callback, owns the lifecycle lock and
+`_subscribed` state, creates/cancels polling and HTTP tasks, builds commands,
+chooses action topics and preserves all log severities and error boundaries.
+Poll cadence/order/sleeps, routing, state, freshness, reauth and optimistic
+updates remain outside transport. The HTTP polling loop is still coordinator
+owned; no generic transport interface was introduced.
 
 ## Coordinator runtime state
 

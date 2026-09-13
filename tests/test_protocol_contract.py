@@ -9,6 +9,7 @@ import pytest
 
 from custom_components.jackery import sensor as sensor_module
 from custom_components.jackery.sensor import JackeryDataCoordinator
+from custom_components.jackery.transport import mqtt as mqtt_transport_module
 
 from .conftest import FakeMqttMsg
 
@@ -330,7 +331,7 @@ async def test_empty_host_subscription_fallback_remains_owned(hass, monkeypatch)
     from .test_mqtt_lifecycle import Subscriptions
 
     broker = Subscriptions()
-    monkeypatch.setattr(sensor_module.ha_mqtt, "async_subscribe", broker.subscribe)
+    monkeypatch.setattr(mqtt_transport_module.ha_mqtt, "async_subscribe", broker.subscribe)
     c = JackeryDataCoordinator(hass, "hb", "synthetic", "localhost", "")
     monkeypatch.setattr(c, "_periodic_data_request", AsyncMock())
     try:

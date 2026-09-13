@@ -7,7 +7,6 @@ import time
 from typing import TYPE_CHECKING, Any, cast
 
 import aiohttp
-from homeassistant.components import mqtt as ha_mqtt
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -68,6 +67,7 @@ from .protocol.routing import (
 from .protocol.routing import (
     subdevice_serial as _subdevice_sn,
 )
+from .transport.mqtt import JackeryMqttTransport
 
 if TYPE_CHECKING:
     from .child_migration import ChildMigrationResult
@@ -1180,7 +1180,7 @@ class JackeryDataCoordinator:
         self._sensors: dict[str, Any] = {}
         self._data_task: asyncio.Task[None] | None = None
         self._subscribed = False
-        self._mqtt_unsubscribers: list[CALLBACK_TYPE] = []
+        self._mqtt_transport = JackeryMqttTransport(hass)
         self._lifecycle_lock = asyncio.Lock()
         self._runtime_state = CoordinatorRuntimeState(
             last_update_time=time.time(),
@@ -1244,6 +1244,11 @@ class JackeryDataCoordinator:
     def _ever_received(self) -> bool:
         return self._runtime_state.ever_received
 
+    @property
+    def _mqtt_unsubscribers(self) -> list[CALLBACK_TYPE]:
+        """Compatibility view of transport-owned subscription handles."""
+        return self._mqtt_transport.unsubscribers
+
     def register_sensor(self, sensor_id: str, entity: Any) -> None:
         """Register an HA entity for its supported MQTT or HTTP update path."""
         self._sensors[sensor_id] = entity
@@ -1263,9 +1268,10 @@ class JackeryDataCoordinator:
                 def message_received(msg):
                     self._handle_message(msg)
 
-                for topic in (self._topic_status, self._topic_event):
-                    unsubscribe = await ha_mqtt.async_subscribe(self.hass, topic, message_received, 1)
-                    self._mqtt_unsubscribers.append(unsubscribe)
+                await self._mqtt_transport.async_subscribe(
+                    (self._topic_status, self._topic_event),
+                    message_received,
+                )
                 _LOGGER.debug("MQTT subscriptions created for entry %s", self.config_entry_id)
 
                 self._data_task = asyncio.create_task(self._periodic_data_request())
@@ -1288,14 +1294,13 @@ class JackeryDataCoordinator:
     async def _async_release_resources(self) -> None:
         """Attempt all cleanup before reporting errors; caller holds lifecycle lock."""
         self._subscribed = False
-        unsubscribers, self._mqtt_unsubscribers = self._mqtt_unsubscribers, []
         errors: list[Exception] = []
-        for unsubscribe in unsubscribers:
-            try:
-                unsubscribe()
-            except Exception as error:
-                errors.append(error)
-        if unsubscribers:
+        had_subscriptions = self._mqtt_transport.unsubscribe_count > 0
+        try:
+            await self._mqtt_transport.async_stop()
+        except ExceptionGroup as error:
+            errors.extend(error.exceptions)
+        if had_subscriptions:
             _LOGGER.debug("MQTT subscription cleanup attempted for entry %s", self.config_entry_id)
 
         tasks = [task for task in (self._data_task, self._smartmeter_http_task) if task and not task.done()]
@@ -1862,13 +1867,7 @@ class JackeryDataCoordinator:
             is_on=is_on,
         )
 
-        await ha_mqtt.async_publish(
-            self.hass,
-            topic,
-            json.dumps(payload),
-            0,
-            False
-        )
+        await self._mqtt_transport.async_publish(topic, payload)
 
     async def async_control_main_device(self, params: dict[str, Any]) -> None:
         """Control main device via type 1, cmd 5."""
@@ -1885,13 +1884,7 @@ class JackeryDataCoordinator:
             params=params,
         )
 
-        await ha_mqtt.async_publish(
-            self.hass,
-            topic,
-            json.dumps(payload),
-            0,
-            False
-        )
+        await self._mqtt_transport.async_publish(topic, payload)
 
     def _calculate_energy_flow(self, data: dict) -> dict:
         """Normalize/cache runtime inputs, then delegate pure energy calculation."""
@@ -2043,7 +2036,7 @@ class JackeryDataCoordinator:
             payload_25 = build_status_request(
                 message_id=random.randint(1000, 9999), timestamp=ts, token=self._token
             )
-            await ha_mqtt.async_publish(self.hass, topic, json.dumps(payload_25), 0, False)
+            await self._mqtt_transport.async_publish(topic, payload_25)
         except Exception as e:
             _LOGGER.warning("Error polling device status (type-25): %s", e)
 
@@ -2053,7 +2046,7 @@ class JackeryDataCoordinator:
             payload_2 = build_settings_request(
                 message_id=random.randint(1000, 9999), timestamp=ts, token=self._token
             )
-            await ha_mqtt.async_publish(self.hass, topic, json.dumps(payload_2), 0, False)
+            await self._mqtt_transport.async_publish(topic, payload_2)
         except Exception as e:
             _LOGGER.debug("Error sending read-all-settings request (type-2): %s", e)
 
@@ -2065,7 +2058,7 @@ class JackeryDataCoordinator:
                 payload_105 = build_full_state_request(
                     message_id=random.randint(1000, 9999), timestamp=ts, token=self._token
                 )
-                await ha_mqtt.async_publish(self.hass, topic, json.dumps(payload_105), 0, False)
+                await self._mqtt_transport.async_publish(topic, payload_105)
                 _LOGGER.debug("Sent type-105 poll (full system state)")
             except Exception as e:
                 _LOGGER.warning("Error polling full system state (type-105): %s", e)
@@ -2079,7 +2072,7 @@ class JackeryDataCoordinator:
                     token=self._token,
                     device_type=dev_type,
                 )
-                await ha_mqtt.async_publish(self.hass, topic, json.dumps(payload_100), 0, False)
+                await self._mqtt_transport.async_publish(topic, payload_100)
                 await asyncio.sleep(0.5)
         except Exception as e:
             _LOGGER.warning("Error polling sub-devices (type-100): %s", e)
