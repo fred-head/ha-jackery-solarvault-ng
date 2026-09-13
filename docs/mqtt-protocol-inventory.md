@@ -2,6 +2,36 @@
 
 ## Current executable contract
 
+Inbound structural routing now enters through
+`custom_components/jackery/protocol/routing.py`. Its pure API consists of
+`parse_topic`, `parse_envelope`, `route_message_type`, `is_host_message_body`
+and `subdevice_serial`, with immutable `TopicInfo`, `ParsedEnvelope` and
+`RoutingDecision` results. It recognizes dedicated routes for 23, 101, 102, 106,
+107 and 123; every other, missing or malformed JSON type retains the generic
+route. Numeric values with existing Python equality, such as `106.0`, preserve
+their former route behavior. The exact escaped topic match and `status`/`event`
+channel are retained.
+
+Envelope parsing preserves the existing Type-101 null-body drop, flat-body
+whitelist, metadata stripping and child-array sanitization. Invalid JSON is
+returned to the coordinator's topic-aware warning boundary; unsupported
+top-level or body shapes are ignored. The routing module has no HA, MQTT,
+coordinator, calculation or device-classification dependency.
+
+All effects remain coordinator-owned: host adoption/rejection, freshness,
+metadata storage, cache and child merges, Type-106 live/snapshot arbitration,
+reauthentication, calculation, discovery and entity fan-out. Type 123 continues
+through calculation/discovery/fan-out after any reauth trigger, and generic
+routes continue their established child-activity refresh. The extraction does
+not change message or cache semantics.
+
+Static review exposed one pre-existing, unconfirmed Type-23 edge: expansion
+battery recognition accepts the fallback `sn` spelling, while the existing
+cache/freshness write still uses `deviceSn`. A Type-23 expansion payload that
+contains only `sn` could therefore be stored under a null key. No captured
+payload establishes that shape, and this extraction deliberately leaves the
+behavior unchanged for a separate evidence-led bugfix if needed.
+
 The subsequent [energy-source contract](energy-source-policy.md) replaces the
 permanent Type-106 key guard with a per-field 60-second live preference. Repeated
 106 values, including zero/null, can update; current 2/23/25/107 host readings
