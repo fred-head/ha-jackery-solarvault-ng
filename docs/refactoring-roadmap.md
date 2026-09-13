@@ -7,6 +7,8 @@ safe structural portion of phase 4 is also implemented in
 implemented in `coordinator_state.py`.
 Pure outbound action-topic and envelope construction from phase 6 is implemented
 in `protocol/commands.py`.
+The low-level MQTT API and subscription-handle boundary from phase 7 is
+implemented in `transport/mqtt.py`; coordinator polling policy remains in place.
 Established aliases and flat-status body reconstruction live in
 `protocol/normalization.py`; formulas and source selection live in
 `calculations/energy_flow.py`; child family decisions live in
@@ -31,7 +33,7 @@ Each row is one small PR, or a sequence of PRs when explicitly indicated. Do not
 | 4. Extract structural protocol parsing | **Completed safe portion:** `protocol/routing.py`, protocol exports, sensor.py coordinator wrapper | Same type2/23/101/102/106/107/123 and generic routing decisions, exact topic matching, body/flat distinctions and malformed-shape handling. | Added direct routing cases and ordered cache/freshness/discovery/reauth/calculation/fan-out transitions. Duplicate/repeated-report policy remains existing behavior. | **COMPLETED as a partial extraction.** Pure topic/envelope/type decisions moved; cache, Type-106 arbitration, child merging, HA effects and outer containment remain coordinator-owned. No deletion/ack semantics added. |
 | 5. Isolate state transitions and availability ownership | **Completed safe portion:** `coordinator_state.py`, sensor.py adapters and state-transition tests | Same cache/list/null behavior, host/child 60-second boundaries, Type-106 receipt-time policy, cumulative-battery exception, source eligibility and entity identities. | Added focused host/child refresh, stale/recovery, deletion, expansion, Type-106/live expiry, source metadata, offline/recovery and reset characterization plus direct state tests. | **COMPLETED as a partial extraction.** Runtime data/freshness has one HA-independent owner. Discovery membership/deletion, entity writes, HTTP health, reauth and transport stay coordinator-owned because moving them would cross HA lifecycle boundaries. |
 | 6. Extract command builders | **Completed:** `protocol/commands.py`, coordinator callers and direct tests | Exact types, eventIds, cmd/rc, token presence, body=null and devType categories; coordinator QoS/retain, generation and optimistic timing unchanged. | Added exact direct cases for all builders, token variants, input non-mutation, deterministic values and merge precedence; existing entity/control contracts remain integration gates. | **COMPLETED.** Pure standard-library builders only. Publication, cadence, error handling and effects remain coordinator-owned; no correlation, acknowledgement, queue or retry semantics added. |
-| 7. Separate MQTT transport lifecycle | transport/mqtt.py, coordinator.py, setup/unload | Same topics/poll sequence/cadence and event handling as post-bugfix baseline. Transport knows no entity classes. | Partial subscription failure, subscribe/unsubscribe exactly once, cancellation, reload, repeated start, two entries, request failures and startup timing. | HIGH. No pending tasks/subscriptions after unload; network callbacks stop. Correct missing-unsubscribe bug in its own tested prerequisite if not yet fixed. Revert extraction alone. |
+| 7. Separate MQTT transport lifecycle | **Completed safe portion:** `transport/mqtt.py`, coordinator adapters and direct tests | Same topics, QoS/retain, JSON, poll sequence/cadence, callback delivery and lifecycle behavior. Transport knows no entity or protocol semantics. | Directly covers exact subscriptions/publication, callback delivery, partial failure, idempotent/all-handle cleanup and instance isolation; existing cancellation/reload/request-failure tests remain gates. | **COMPLETED as a partial extraction.** HA MQTT mechanics and handles moved. Coordinator retains tasks, locks, policy and error logging; HTTP and reconnect/ack/retry behavior are unchanged. |
 | 8. Separate HTTP polling | transport/smartmeter_http.py, coordinator.py, sensor.py | Same optional default/interval/timeout/endpoint and field scales; no meter-source promotion. | HTTP200, non200, network error, malformed JSON, missing fields/IP, third failure/recovery, identity changes, unload while waiting. | HIGH. One task per entry, explicit health channel and deterministic transitions; new threshold policy must be separate. Revert without option migration. |
 | 9. Simplify coordinator/setup/entities | __init__.py, coordinator.py, five platforms, optional entity.py | Runtime construction before platform use, same IDs/metadata/state/control actions; compatibility aliases retained as needed. Flow/migration/cache tests. | Options reload, successful transport setup, platform order, dynamic callbacks, full metadata snapshots and all legacy ID forms. | HIGH. Same entity registry snapshot, no extra/orphan entities, recorder metadata unchanged. No global coordinator or subscription cache. |
 | 10. Add diagnostics | diagnostics.py and snapshot/redaction tests | Runtime measurements/commands unchanged; new read-only endpoint only. | Redaction nested lists/dict keys/unknowns, multiple hosts, failure/recovery, empty cache, size limits. | MEDIUM privacy risk. Snapshot causes no network access; raw credential/customer identifiers absent. Remove endpoint to roll back. |
@@ -44,11 +46,10 @@ The prerequisite HTTP/MQTT coexistence and related lifecycle, freshness and
 identity defects were handled in isolated bugfix work before these extractions.
 Their regression tests remain part of the acceptance suite.
 
-The next isolated Phase 2 step is the planned MQTT transport extraction (phase
-7). Its lifecycle and sequencing risk requires a separate review; no transport
-work is included in the command-builder extraction. Further movement of
-discovery/deletion or entity availability would cross the HA lifecycle boundary
-and needs a separate redesign rather than an extension of runtime state.
+The next isolated Phase 2 step may extract SmartMeter HTTP polling (phase 8),
+with its independent task, health and failure semantics characterized first.
+Further movement of discovery/deletion or entity availability would cross the
+HA lifecycle boundary and needs a separate redesign.
 
 For risky freshness, unbinding and identity changes, preserve established behavior
 until evidence justifies an explicit change; a known defect is not permission to

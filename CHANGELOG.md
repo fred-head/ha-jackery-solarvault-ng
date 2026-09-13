@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Refactored
 
+- Isolate per-coordinator MQTT subscribe, publish, JSON serialization and
+  unsubscribe mechanics behind a dedicated transport module while preserving
+  lifecycle and polling policy.
 - Extract MQTT action-topic and command/poll payload construction into a pure
   protocol module while preserving publication, timing, token and optimistic
   state behavior.

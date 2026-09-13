@@ -14,6 +14,7 @@ from custom_components.jackery.sensor import (
     JackerySensor,
     JackerySmartMeterHttpSensor,
 )
+from custom_components.jackery.transport import mqtt as mqtt_transport_module
 
 from .conftest import FakeMqttMsg
 
@@ -146,7 +147,7 @@ async def test_http_poll_health_and_stop_survive_mqtt_updates(mixed_sensors, mon
     session = SimpleNamespace(get=Mock(return_value=request))
     monkeypatch.setattr(sensor_module, "async_get_clientsession", Mock(return_value=session))
     subscribe = AsyncMock(return_value=Mock())  # HA returns a synchronous unsubscribe callback.
-    monkeypatch.setattr(sensor_module.ha_mqtt, "async_subscribe", subscribe)
+    monkeypatch.setattr(mqtt_transport_module.ha_mqtt, "async_subscribe", subscribe)
     monkeypatch.setattr(coordinator, "_periodic_data_request", AsyncMock())
     create_task = Mock(wraps=asyncio.create_task)
     monkeypatch.setattr(sensor_module.asyncio, "create_task", create_task)

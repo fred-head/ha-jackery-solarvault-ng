@@ -1,9 +1,28 @@
 # MQTT subscription lifecycle
 
-Scope: `fix/mqtt-lifecycle-cleanup`, based on merged PR2B foundation `3006414`.
-Production changes stay in coordinator start/stop and integration setup/unload.
-No transport module extraction or protocol, command, identity/migration,
-energy-flow, source-priority or availability-policy changes are included.
+## Phase 2 transport boundary
+
+The current extraction moves the Home Assistant MQTT subscribe/publish calls,
+JSON publication serialization and per-instance unsubscribe-handle storage into
+`transport/mqtt.py`. The transport subscribes to the two coordinator-supplied
+topics at QoS 1, forwards raw messages to the supplied callback and publishes
+coordinator-built mappings at QoS 0 with retain false. Handles are retained as
+soon as each subscription succeeds; partial starts unwind acquired handles,
+stop detaches and attempts every handle exactly once, and cleanup errors remain
+visible.
+
+The coordinator retains the lifecycle lock, `_subscribed` application state,
+task creation/cancellation, setup/unload integration, topic selection, polling
+cadence/order/sleeps, command construction, error logging, routing, reauth,
+freshness and all entity effects. HTTP remains separate and coordinator-owned.
+The transport neither parses Jackery messages nor implements reconnect, retry,
+acknowledgement or command policy. Home Assistant continues to own broker-level
+connection and reconnection behavior.
+
+Historical prerequisite scope: `fix/mqtt-lifecycle-cleanup`, based on merged
+PR2B foundation `3006414`. That fix kept production changes in coordinator
+start/stop and integration setup/unload; the Phase 2 boundary above subsequently
+moved only the proven low-level MQTT mechanics.
 
 ## Audit and reproduced failures
 
@@ -37,10 +56,12 @@ Five further cases cover cancellation and errors during cleanup and actual reloa
 
 ## Ownership and successful lifecycle
 
-Each coordinator owns `_mqtt_unsubscribers` and an `asyncio.Lock` serializing
-start/stop. There is no global subscription state. Each cleanup handle is retained
-immediately after the corresponding subscribe completes, so zero, partial and
-full subscription sets are valid states.
+Each coordinator owns an `asyncio.Lock` serializing start/stop and one transport
+instance whose `_unsubscribers` list stores the handles. The coordinator's
+`_mqtt_unsubscribers` property is a transitional view of that same list, not a
+second owner. There is no global subscription state. Each cleanup handle is
+retained immediately after the corresponding subscribe completes, so zero,
+partial and full subscription sets are valid states.
 
 Configured entries subscribe to `{prefix}/device/{host}/status` and
 `{prefix}/device/{host}/event`, still with QoS 1 and default decoding. This matches

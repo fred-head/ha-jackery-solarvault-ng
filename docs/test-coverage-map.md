@@ -1,5 +1,16 @@
 # Test coverage map
 
+The MQTT transport extraction adds eight focused cases in
+`test_mqtt_transport.py`: exact two-topic QoS-1 subscription, raw callback
+delivery, JSON publication at QoS 0/retain false, publish error propagation,
+idempotent cleanup, partial-subscribe cleanup, all-handle cleanup after one
+failure and isolation between transport instances. Existing MQTT lifecycle,
+command and HTTP coexistence suites continue to exercise the full coordinator
+boundary. Poll scheduling, reconnect behavior and HTTP health were not moved.
+Final MQTT transport validation: **1,291 passed, 93.76% coverage**; the transport
+module has 100% statement coverage and 1,143 broad targeted regressions pass.
+No skips or xfails were introduced.
+
 The command-builder extraction adds direct exact-dictionary coverage in
 `test_protocol_commands.py` for the action topic and every type 1, 2, 25, 100,
 103 and 105 builder. Cases cover explicit timestamps/message IDs, truthy/empty/
