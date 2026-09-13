@@ -10,6 +10,7 @@ Home Assistant platform entities
              ↓
 sensor.py coordinator orchestration and HA effects
              ├──→ coordinator_state.py ──→ Python standard library
+             ├──→ protocol/commands.py ──→ Python standard library
              ├──→ protocol/routing.py ──→ protocol/normalization.py
              │                                  ↓
              │                         Python standard library
@@ -23,6 +24,23 @@ discovery, availability side effects and coordinator lifecycle. Ephemeral cache,
 freshness and source evidence live in `coordinator_state.py`. Identity
 construction and registry migration live in `identity.py` and
 `child_migration.py`.
+
+## Protocol command builders
+
+`custom_components/jackery/protocol/commands.py` builds the established action
+topic and plain Python envelopes for main controls, plug controls and type
+2/25/100/105 requests. Explicit timestamps and message IDs keep the builders
+deterministic. The module uses only the Python standard library and never calls
+Home Assistant, MQTT, coordinator, entity, calculation, classification or state
+APIs.
+
+The coordinator still checks for a host serial, generates wall-clock timestamps
+and random message IDs, serializes JSON, publishes with QoS 0/retain false and
+owns logging and error boundaries. It also retains poll cadence/order/sleeps and
+all optimistic cache behavior. The extraction adds no acknowledgement,
+correlation, retry or rollback semantics. Control tokens remain conditional on
+truthiness, while request envelopes always contain the token key, including for
+empty or null values.
 
 ## Coordinator runtime state
 

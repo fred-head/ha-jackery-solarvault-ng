@@ -1,5 +1,17 @@
 # Test coverage map
 
+The command-builder extraction adds direct exact-dictionary coverage in
+`test_protocol_commands.py` for the action topic and every type 1, 2, 25, 100,
+103 and 105 builder. Cases cover explicit timestamps/message IDs, truthy/empty/
+null token behavior, main parameter non-mutation and merge precedence, child
+serial/type values and boolean switch encoding. Existing command-contract tests
+remain the integration gate for JSON publication, QoS/retain, missing hosts,
+poll cadence/order/error boundaries, entity validation and optimistic behavior.
+The pure module has no Home Assistant or MQTT dependency.
+Final command-builder validation: **1,283 passed, 93.66% coverage**; the command
+module has 100% statement coverage and 1,105 broad targeted regressions pass.
+No skips or xfails were introduced.
+
 The coordinator-state extraction adds 15 direct cases in
 `test_coordinator_state.py` and 12 coordinator-path characterizations in
 `test_coordinator_state_transitions.py`. Direct tests cover independent defaults,

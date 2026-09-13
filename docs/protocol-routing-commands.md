@@ -95,6 +95,15 @@ remain under the existing retention policy; dynamic reclassification is deferred
 
 ## Outbound action matrix
 
+The current Phase 2 extraction moves the exact construction described below to
+`protocol.commands`. Its six pure builders cover main control, child control,
+status, settings, full-state and child-category requests; `action_topic` builds
+the existing host action path. They accept explicit timestamps/message IDs and
+return ordinary dictionaries. The coordinator retains JSON serialization,
+publication, QoS/retain, generation of runtime values, error handling, poll
+order/cadence/sleeps and optimistic cache changes. No acknowledgement, retry,
+correlation or command-manager behavior was introduced.
+
 There are six production `ha_mqtt.async_publish` sites, all in `sensor.py`: main
 control, child control and four request sites in `_send_poll_requests`. No other
 action publisher was found by repository-wide search. All publish to

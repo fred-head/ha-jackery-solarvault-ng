@@ -48,6 +48,15 @@ from .devices.classification import (
 )
 from .devices.classification import should_create_plug_switch as should_create_plug_switch
 from .identity import child_device_identifier, child_unique_id, http_unique_id
+from .protocol.commands import (
+    action_topic,
+    build_full_state_request,
+    build_main_control,
+    build_settings_request,
+    build_status_request,
+    build_subdevice_request,
+    build_subdevice_switch,
+)
 from .protocol.normalization import normalize_payload_fields
 from .protocol.routing import (
     MessageRoute,
@@ -1842,25 +1851,20 @@ class JackeryDataCoordinator:
             _LOGGER.warning("Cannot control sub-device: device SN not discovered")
             return
 
-        action_topic = f"{self._topic_root}/device/{self._device_sn}/action"
+        topic = action_topic(self._topic_root, self._device_sn)
         ts = int(time.time())
-        payload = {
-            "type": 103,
-            "eventId": 0,
-            "messageId": random.randint(1000, 9999),
-            "ts": ts,
-            "body": {
-                "deviceSn": plug_sn,
-                "devType": dev_type,
-                "sysSwitch": 1 if is_on else 0,
-            },
-        }
-        if self._token:
-            payload["token"] = self._token
+        payload = build_subdevice_switch(
+            message_id=random.randint(1000, 9999),
+            timestamp=ts,
+            token=self._token,
+            device_serial=plug_sn,
+            device_type=dev_type,
+            is_on=is_on,
+        )
 
         await ha_mqtt.async_publish(
             self.hass,
-            action_topic,
+            topic,
             json.dumps(payload),
             0,
             False
@@ -1872,23 +1876,18 @@ class JackeryDataCoordinator:
             _LOGGER.warning("Cannot control main device: device SN not discovered")
             return
 
-        action_topic = f"{self._topic_root}/device/{self._device_sn}/action"
+        topic = action_topic(self._topic_root, self._device_sn)
         ts = int(time.time())
-        body = {"cmd": 5, "rc": 1}
-        body.update(params)
-        payload = {
-            "type": 1,
-            "eventId": 3,
-            "messageId": random.randint(1000, 9999),
-            "ts": ts,
-            "body": body,
-        }
-        if self._token:
-            payload["token"] = self._token
+        payload = build_main_control(
+            message_id=random.randint(1000, 9999),
+            timestamp=ts,
+            token=self._token,
+            params=params,
+        )
 
         await ha_mqtt.async_publish(
             self.hass,
-            action_topic,
+            topic,
             json.dumps(payload),
             0,
             False
@@ -2036,29 +2035,25 @@ class JackeryDataCoordinator:
         """Send type-25, throttled type-105, and type-100 poll requests."""
         if not self._device_sn:
             return
-        action_topic = f"{self._topic_root}/device/{self._device_sn}/action"
+        topic = action_topic(self._topic_root, self._device_sn)
         ts = int(time.time())
 
         # 1. Poll device status (type-25)
         try:
-            payload_25 = {
-                "type": 25, "eventId": 0,
-                "messageId": random.randint(1000, 9999),
-                "ts": ts, "token": self._token, "body": None,
-            }
-            await ha_mqtt.async_publish(self.hass, action_topic, json.dumps(payload_25), 0, False)
+            payload_25 = build_status_request(
+                message_id=random.randint(1000, 9999), timestamp=ts, token=self._token
+            )
+            await ha_mqtt.async_publish(self.hass, topic, json.dumps(payload_25), 0, False)
         except Exception as e:
             _LOGGER.warning("Error polling device status (type-25): %s", e)
 
         # 1b. Read-all-settings request (type-2). Some firmware answers this with a
         # settings block that type-25 does not contain; harmless when unsupported.
         try:
-            payload_2 = {
-                "type": 2, "eventId": 0,
-                "messageId": random.randint(1000, 9999),
-                "ts": ts, "token": self._token, "body": None,
-            }
-            await ha_mqtt.async_publish(self.hass, action_topic, json.dumps(payload_2), 0, False)
+            payload_2 = build_settings_request(
+                message_id=random.randint(1000, 9999), timestamp=ts, token=self._token
+            )
+            await ha_mqtt.async_publish(self.hass, topic, json.dumps(payload_2), 0, False)
         except Exception as e:
             _LOGGER.debug("Error sending read-all-settings request (type-2): %s", e)
 
@@ -2067,12 +2062,10 @@ class JackeryDataCoordinator:
         if self._poll_105_counter >= 3:
             self._poll_105_counter = 0
             try:
-                payload_105 = {
-                    "type": 105, "eventId": 0,
-                    "messageId": random.randint(1000, 9999),
-                    "ts": ts, "token": self._token, "body": None,
-                }
-                await ha_mqtt.async_publish(self.hass, action_topic, json.dumps(payload_105), 0, False)
+                payload_105 = build_full_state_request(
+                    message_id=random.randint(1000, 9999), timestamp=ts, token=self._token
+                )
+                await ha_mqtt.async_publish(self.hass, topic, json.dumps(payload_105), 0, False)
                 _LOGGER.debug("Sent type-105 poll (full system state)")
             except Exception as e:
                 _LOGGER.warning("Error polling full system state (type-105): %s", e)
@@ -2080,18 +2073,18 @@ class JackeryDataCoordinator:
         # 3. Poll sub-devices (type-100): CTs (2), SmartMeter 3P (3), Plugs (6)
         try:
             for dev_type in [2, 3, 6]:
-                payload_100 = {
-                    "type": 100, "eventId": 0,
-                    "messageId": random.randint(1000, 9999),
-                    "ts": ts, "token": self._token,
-                    "body": {"devType": dev_type},
-                }
-                await ha_mqtt.async_publish(self.hass, action_topic, json.dumps(payload_100), 0, False)
+                payload_100 = build_subdevice_request(
+                    message_id=random.randint(1000, 9999),
+                    timestamp=ts,
+                    token=self._token,
+                    device_type=dev_type,
+                )
+                await ha_mqtt.async_publish(self.hass, topic, json.dumps(payload_100), 0, False)
                 await asyncio.sleep(0.5)
         except Exception as e:
             _LOGGER.warning("Error polling sub-devices (type-100): %s", e)
 
-        _LOGGER.debug("Sent poll requests to %s", action_topic)
+        _LOGGER.debug("Sent poll requests to %s", topic)
 
     def _find_smartmeter_ip_and_sn(self) -> tuple[str | None, str | None]:
         """Find SmartMeter HTO907A IP and SN from MQTT cache (cts list, devType=3, subType=5)."""
