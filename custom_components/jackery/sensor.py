@@ -3,9 +3,8 @@ import asyncio
 import json
 import logging
 import random
-import re
 import time
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 import aiohttp
 from homeassistant.components import mqtt as ha_mqtt
@@ -48,7 +47,17 @@ from .devices.classification import (
 )
 from .devices.classification import should_create_plug_switch as should_create_plug_switch
 from .identity import child_device_identifier, child_unique_id, http_unique_id
-from .protocol.normalization import extract_flat_body, normalize_payload_fields
+from .protocol.normalization import normalize_payload_fields
+from .protocol.routing import (
+    MessageRoute,
+    RoutingDecision,
+    is_host_message_body,
+    parse_envelope,
+    parse_topic,
+)
+from .protocol.routing import (
+    subdevice_serial as _subdevice_sn,
+)
 
 if TYPE_CHECKING:
     from .child_migration import ChildMigrationResult
@@ -1126,13 +1135,6 @@ def plug_mqtt_control_allowed(item: dict) -> tuple[bool, str]:
     )
 
 
-def _subdevice_sn(item: dict) -> str | None:
-    """Extract device serial number from a sub-device dict (Ü7)."""
-    sn = item.get("deviceSn") or item.get("sn")
-    # Serial spelling is identity: reject malformed values without coercion.
-    return sn if isinstance(sn, str) and sn else None
-
-
 def _merge_subdevice_list(
     existing: list[dict] | None,
     new_items: list[dict],
@@ -1274,155 +1276,40 @@ class JackeryDataCoordinator:
         """处理接收到的 MQTT 消息."""
         try:
             topic = msg.topic
-            payload = msg.payload
-            if isinstance(payload, bytes):
-                payload = payload.decode("utf-8")
-
-            # Extract device SN from topic: {prefix}/device/{sn}/status OR .../event
-            match = re.fullmatch(rf"{re.escape(self._topic_root)}/device/([^/]+)/(status|event)", topic)
-            if not match:
+            topic_info = parse_topic(self._topic_root, topic)
+            if topic_info is None:
                 return
-            sn = match.group(1)
+            sn = topic_info.device_sn
             if self._device_sn and self._device_sn != sn:
                 _LOGGER.debug(f"Ignoring data from another device: {sn}")
                 return
 
-            # Parse Payload
             try:
-                raw_data = json.loads(payload)
-                if not isinstance(raw_data, dict):
-                    return
-                msg_code = raw_data.get("type")
-                body = raw_data.get("body")
-
-                # No `body` wrapper: some firmware revisions send a flat status payload
-                # with all fields at the top level. Reconstruct the body from those.
-                if body is None:
-                     # If Type 101 and body is None, ignore.
-                     if msg_code == 101:
-                         return
-                     flat_body = extract_flat_body(raw_data)
-                     body = flat_body if flat_body else {}
-
-                if not isinstance(body, dict):
-                    return
-                # Generic status routes shallow-replace lists; validate members
-                # before calculation/discovery without changing that merge policy.
-                body = dict(body)
-                for key in ("plugs", "plug", "socket", "sockets", "cts", "ct", "collectors"):
-                    if isinstance(body.get(key), list):
-                        body[key] = [item for item in body[key]
-                                     if isinstance(item, dict)
-                                     and (not (item.get("deviceSn") or item.get("sn")) or _subdevice_sn(item))]
-                    elif body.get(key) is not None:
-                        # A scalar/dict here would poison the next list merge.
-                        del body[key]
-                if not self._device_sn:
-                    self._device_sn = sn
-                    _LOGGER.info(f"Discovered device SN: {self._device_sn}")
-                # The topic identifies the host; payload SNs may identify its children.
-                # Invalid or foreign traffic must not postpone offline/reauth checks.
-                self._last_update_time = time.time()
-                self._ever_received = True
-
-                # Capture device model/firmware from first message (Ü2)
-                body_sn = body.get("deviceSn")
-                if msg_code in (2, 23, 25, 106, 107) and body_sn in (None, "system", self._device_sn):
-                    self._capture_device_meta(raw_data, body)
-
-                # Merge logic
-                # Type 23: Statistical/Energy Data
-                if msg_code == 23 and isinstance(body, dict):
-                    device_sn_in_body = body.get("deviceSn")
-                    if device_sn_in_body in (None, "system", self._device_sn):
-                        # Merge into main device cache
-                        self._merge_normalized_cache(body, msg_code)
-                    elif (
-                        classify_device(
-                            body, ClassificationContext.TYPE23_CHILD
-                        ).family
-                        is DeviceFamily.EXPANSION_BATTERY
-                        and _subdevice_sn(body)
-                    ):
-                        # Expansion battery (e.g. BP2500) — not in type-101, store separately
-                        exp_bats = self._data_cache.setdefault("expansion_batteries", {})
-                        if device_sn_in_body not in exp_bats:
-                            exp_bats[device_sn_in_body] = {}
-                        # Only update with non-null values to preserve previously cached real data.
-                        # Devices occasionally send null for energy fields (e.g. during a restart);
-                        # overwriting with null would cause sensors to show "unknown" until the
-                        # next type-23 arrives (~10 min later).
-                        for k, v in body.items():
-                            if v is not None:
-                                exp_bats[device_sn_in_body][k] = v
-                        # Update last_seen so offline detection doesn't mark them unavailable
-                        self._subdevice_last_seen[device_sn_in_body] = time.time()
-                        self._check_for_new_expansion_batteries()
-                    else:
-                        # Find and update sub-device in cache (CTs, SmartMeter)
-                        for key in ["plugs", "plug", "cts"]:
-                            items = self._data_cache.get(key)
-                            if isinstance(items, list):
-                                for item in items:
-                                    if item.get("sn") == device_sn_in_body or item.get("deviceSn") == device_sn_in_body:
-                                        item.update(body)
-                                        self._subdevice_last_seen[device_sn_in_body] = time.time()
-                                        break
-
-                # Type 101: Sub-device full data
-                elif msg_code == 101 and isinstance(body, dict):
-                    self._merge_subdevice_arrays(body)
-
-                # Type 102: Sub-device incremental / point updates
-                # (plug switchSta/outPw, CT phase power, …). Not observed on the
-                # SolarVault 3 Pro Max, but sent by newer firmware / other models.
-                elif msg_code == 102 and isinstance(body, dict):
-                    if not self._merge_subdevice_arrays(body):
-                        self._merge_subdevice_point_update(body)
-
-                # Type 106: Full system state (response to type-105 poll)
-                elif msg_code == 106 and isinstance(body, dict):
-                    normalized = normalize_payload_fields(body)
-                    for k, v in normalized.items():
-                        if k in _TYPE106_LIVE_PREFERRED:
-                            self._power_106_samples[k] = (v, self._last_update_time)
-                            live = self._power_live_seen.get(k)
-                            if live is not None and self._last_update_time - live[1] <= OFFLINE_TIMEOUT:
-                                continue
-                            self._power_live_seen.pop(k, None)
-                        self._data_cache[k] = v
-                    _LOGGER.debug("Received type-106 system state (%d fields)", len(body))
-
-                # Type 107: Incremental system update (soc, workMode, …)
-                elif msg_code == 107 and isinstance(body, dict):
-                    self._merge_normalized_cache(body, msg_code)
-                    _LOGGER.debug("Received type-107 incremental update: %s", body)
-
-                # Type 123: Auth error from device
-                elif msg_code == 123 and isinstance(body, dict):
-                    error_code = body.get("errorCode")
-                    if error_code == 401:
-                        self._trigger_reauth("device reported token mismatch (type-123/401)")
-
-                # Type 25 or Status: Main device data
-                elif isinstance(body, dict):
-                    # Merge top-level keys into cache to preserve fields not present in current message
-                    self._merge_normalized_cache(body, msg_code)
-
-                # System/fallback messages also accept these arrays through their
-                # existing shallow merge. Refresh only members actually received,
-                # without changing those routes' list-replacement semantics.
-                if msg_code not in (23, 101, 102, 123):
-                    for key in ("plugs", "plug", "cts", "collectors"):
-                        items = body.get(key)
-                        if isinstance(items, list):
-                            for item in items:
-                                if isinstance(item, dict) and (child_sn := _subdevice_sn(item)):
-                                    self._subdevice_last_seen[child_sn] = self._last_update_time
-
+                parsed = parse_envelope(msg.payload)
             except json.JSONDecodeError:
                 _LOGGER.warning(f"Invalid JSON payload on {topic}")
                 return
+            if parsed is None:
+                return
+
+            if not self._device_sn:
+                self._device_sn = sn
+                _LOGGER.info(f"Discovered device SN: {self._device_sn}")
+            # The topic identifies the host; payload SNs may identify its children.
+            # Invalid or foreign traffic must not postpone offline/reauth checks.
+            self._last_update_time = time.time()
+            self._ever_received = True
+
+            decision = parsed.decision
+            if decision.captures_host_metadata and is_host_message_body(
+                parsed.body,
+                self._device_sn,
+            ):
+                self._capture_device_meta(parsed.raw_data, parsed.body)
+
+            self._apply_message_route(decision, parsed.body)
+            if decision.refreshes_generic_children:
+                self._refresh_generic_child_activity(parsed.body)
 
             # Enrich data with calculations using merged cache
             # operate on copy or direct? Direct is fine.
@@ -1435,6 +1322,89 @@ class JackeryDataCoordinator:
 
         except Exception as e:
             _LOGGER.error(f"Error handling message: {e}")
+
+    def _apply_message_route(
+        self,
+        decision: RoutingDecision,
+        body: dict[str, Any],
+    ) -> None:
+        """Apply one pure routing decision to coordinator-owned state."""
+        if decision.route is MessageRoute.TYPE_23:
+            self._handle_type23(body)
+        elif decision.route is MessageRoute.TYPE_101:
+            self._merge_subdevice_arrays(body)
+        elif decision.route is MessageRoute.TYPE_102:
+            if not self._merge_subdevice_arrays(body):
+                self._merge_subdevice_point_update(body)
+        elif decision.route is MessageRoute.TYPE_106:
+            self._handle_type106(body)
+        elif decision.route is MessageRoute.TYPE_107:
+            self._merge_normalized_cache(body, decision.message_type)
+            _LOGGER.debug("Received type-107 incremental update: %s", body)
+        elif decision.route is MessageRoute.TYPE_123:
+            if body.get("errorCode") == 401:
+                self._trigger_reauth("device reported token mismatch (type-123/401)")
+        else:
+            self._merge_normalized_cache(body, decision.message_type)
+
+    def _handle_type23(self, body: dict[str, Any]) -> None:
+        """Apply statistical host or child data to coordinator-owned state."""
+        device_sn_in_body = body.get("deviceSn")
+        if is_host_message_body(body, self._device_sn):
+            self._merge_normalized_cache(body, 23)
+        elif (
+            classify_device(body, ClassificationContext.TYPE23_CHILD).family
+            is DeviceFamily.EXPANSION_BATTERY
+            and _subdevice_sn(body)
+        ):
+            # Expansion battery (e.g. BP2500) — not in type-101.
+            exp_bats = self._data_cache.setdefault("expansion_batteries", {})
+            if device_sn_in_body not in exp_bats:
+                exp_bats[device_sn_in_body] = {}
+            # Null energy reports must not erase the last real long-cadence value.
+            for key, value in body.items():
+                if value is not None:
+                    exp_bats[device_sn_in_body][key] = value
+            self._subdevice_last_seen[cast(str, device_sn_in_body)] = time.time()
+            self._check_for_new_expansion_batteries()
+        else:
+            # Existing type-23 search intentionally excludes collectors.
+            for data_key in ("plugs", "plug", "cts"):
+                items = self._data_cache.get(data_key)
+                if isinstance(items, list):
+                    for item in items:
+                        if (
+                            item.get("sn") == device_sn_in_body
+                            or item.get("deviceSn") == device_sn_in_body
+                        ):
+                            item.update(body)
+                            self._subdevice_last_seen[device_sn_in_body] = time.time()
+                            break
+
+    def _handle_type106(self, body: dict[str, Any]) -> None:
+        """Apply a full-system snapshot with coordinator-owned live preference."""
+        normalized = normalize_payload_fields(body)
+        for key, value in normalized.items():
+            if key in _TYPE106_LIVE_PREFERRED:
+                self._power_106_samples[key] = (value, self._last_update_time)
+                live = self._power_live_seen.get(key)
+                if (
+                    live is not None
+                    and self._last_update_time - live[1] <= OFFLINE_TIMEOUT
+                ):
+                    continue
+                self._power_live_seen.pop(key, None)
+            self._data_cache[key] = value
+        _LOGGER.debug("Received type-106 system state (%d fields)", len(body))
+
+    def _refresh_generic_child_activity(self, body: dict[str, Any]) -> None:
+        """Refresh reported child activity for established generic routes."""
+        for key in ("plugs", "plug", "cts", "collectors"):
+            items = body.get(key)
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict) and (child_sn := _subdevice_sn(item)):
+                        self._subdevice_last_seen[child_sn] = self._last_update_time
 
     def _merge_normalized_cache(self, payload: dict, msg_code: Any = None) -> None:
         """Normalize field aliases and merge a main-device payload into the cache."""

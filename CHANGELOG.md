@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Refactored
 
+- Extract pure MQTT topic/envelope parsing and message-route decisions into a
+  standalone protocol module while retaining cache, freshness, Type-106,
+  reauthentication, discovery and entity-update state in the coordinator.
 - Extract child-device family and known-model classification into a standalone,
   Home-Assistant-independent module while preserving route-specific defaults,
   discovery output, identity and cache behavior.

@@ -1,10 +1,11 @@
 # Responsibility and coupling map
 
-Phase 2 now extracts pure payload normalization into
-`protocol/normalization.py`, the energy calculation bundle into
+Phase 2 now extracts pure topic/envelope routing into `protocol/routing.py`,
+payload normalization into `protocol/normalization.py`, the energy calculation bundle into
 `calculations/energy_flow.py` and child-device classification into
-`devices/classification.py`; see [architecture.md](architecture.md). All three
-modules use only the Python standard library. `sensor.py` retains routing, cache
+`devices/classification.py`; see [architecture.md](architecture.md). The routing
+module depends only on normalization and the standard library; the other three
+use only the standard library. `sensor.py` retains route application, cache
 mutation, runtime child-age ownership, source metadata and error logging.
 Type-106 live/snapshot state, timer/entity updates and all transport behavior
 remain in `sensor.py`. The extraction preserves the contract in
@@ -39,8 +40,8 @@ remains a custom class, not HA DataUpdateCoordinator.
 | `_field_present`, `_safe_float`, `_power_sample`, `_ct_power`, `_pick_best_power_net`, `_effective_ongrid_net`, `_grid_net_from_system`, `select_grid_source`, `calculate_energy_flow` | **Extracted:** `calculations/energy_flow.py`, imported by sensor coordinator adapter. Standard library only. | Pure selection plus established mutation/return contract for derived keys. Direct calculation/helper/source tests and full coordinator regressions. | **COMPLETED Phase 2.** Runtime normalization/freshness preparation and logging remain in `_calculate_energy_flow`; no semantic redesign. |
 | `normalize_payload_fields`, `extract_flat_body`, `_FLAT_*` | **Extracted:** `protocol/normalization.py`, imported by the sensor coordinator and calculation adapter. Standard library only. `_TYPE106_LIVE_PREFERRED` remains in sensor because its policy depends on cache age/state. | Pure shallow copies; explicit canonical/null/zero rules, alias and unknown-field retention, unchanged flat whitelist and metadata stripping. Direct normalization and route tests. | **COMPLETED Phase 2.** Routing, host/type acceptance, cache application, classification, freshness and Type-106 policy remain outside normalization. |
 | `should_create_plug_switch`; discovery and point-update type/subtype branches | **Extracted:** `devices/classification.py`, imported by sensor and switch. Contexts retain route-specific plug/CT defaults, Type-102 field inference and Type-23 expansion-battery recognition. `plug_comm_mode` and `plug_mqtt_control_allowed` remain in sensor as control policy. | Pure immutable result; direct family/model/context tests plus full discovery/entity snapshots, contradictory metadata, subtype changes and two-host identity coverage. | **COMPLETED Phase 2.** Classification only: routing, cache/source-array selection, entity construction, identity and communication policy remain with their existing owners. Diagnostic subtype labels are not used as the classifier. |
-| `_subdevice_sn`, `_merge_subdevice_list`, `_merge_subdevice_arrays`, `_merge_subdevice_point_update` | `_handle_message`; use normalization-independent wire keys, classifier, wall clock; point writes existing dict. | `_data_cache`, alias `plug is plugs`, `_subdevice_last_seen`; routing/upstream-sync tests. | Pure structural parsing into `protocol/parser.py`; cache application to `devices/state.py` only once transitions covered. HIGH: identity/aliasing/null/empty-list policy differs by route. |
-| `_handle_message` envelope parse/routing (1421–1550) | HA callback calls it; JSON/regex/time/meta capture; calculation, discovery, distribution chained. | `_last_update_time`, `_ever_received`, `_device_sn`, cache; route tests bypass constructor and often entity creation. | `protocol/parser.py` for validated structural decode; coordinator applies state. HIGH: preserve type/body.cmd distinctions and permissive unknown fallback until separate fixes approved. |
+| `_subdevice_sn`, `_merge_subdevice_list`, `_merge_subdevice_arrays`, `_merge_subdevice_point_update` | **Partly extracted:** pure serial validation is `protocol.routing.subdevice_serial`; coordinator merge helpers use it with classifier and wall clock. | `_data_cache`, alias `plug is plugs`, `_subdevice_last_seen`; direct routing and ordered transition tests. | Structural serial validation is **COMPLETED Phase 2**. Cache application remains coordinator-owned until a separate state-ownership design. HIGH: identity/aliasing/null/empty-list policy differs by route. |
+| `_handle_message` envelope parse/routing | **Extracted pure boundary:** `protocol.routing` parses exact topics, validates/reconstructs envelopes, sanitizes array shapes and returns immutable route decisions. Coordinator applies each route and retains the final pipeline. | `_last_update_time`, `_ever_received`, `_device_sn`, cache and side effects remain coordinator-owned; direct module tests plus explicit ordered transitions. | **COMPLETED Phase 2 partial extraction.** No state store/parser framework. Preserve type/body.cmd distinctions, generic fallback, Type-123 post-processing and exception containment. |
 | Main cache/derived state and listener dispatch (`_merge_normalized_cache`, `_distribute_data`, register/unregister) | All entity platforms share coordinator; controls patch private cache; HTTP registers in same map. | `_data_cache`, `_sensors`; optimistic tests, not full fan-out. | `coordinator.py` initially retains cache and updates; later minimal `devices/state.py` if needed. HIGH: HTTP callback mismatch and exception stopping remaining listeners. |
 | Subdevice discovery/lifecycle (`_check_for_new_plugs`, `_check_for_new_expansion_batteries`, get_subdevices/get_plug_item) | Message handling; creates Sensor and Switch HA classes; callbacks installed by different platform setups. | `_known_plugs`, `_expansion_battery_sns`, callbacks; current type23 tests do not exercise real entity creation. | Classification in devices; creation remains platform-side via coordinator discovery notifications. HIGH: startup ordering, duplicate callbacks and cached data before entity registration. |
 | Availability/removal (`_entity_keys_for_subdevice`, `_remove_subdevice_from_ha`, `_mark_all_offline`, child parts of `_check_for_new_plugs`) | Uses time and HA registry, sensor private availability/write methods; called during messages or periodic main timeout. | Missing-since/last-seen/start time/known sets, `_sensors`; isolated subdevice tests. | Explicit state transitions in coordinator initially; HA registry effects in adapter. HIGH: cached revival, deletion semantics, battery exception, child IDs. |
@@ -56,10 +57,10 @@ remains a custom class, not HA DataUpdateCoordinator.
 
 Today `__init__.py` forwards platforms; sensor setup stores the coordinator; other platform setups assume it already exists. `switch.py → sensor.py` for protocol helpers and `sensor.py → switch.py` dynamically for entities form a cycle. All platforms can reach `_data_cache`, `_device_sn` and `_sensors`. HTTP entities use a different update interface in the same listener map. Transport extraction alone will not resolve these ownership conflicts.
 
-Pure calculations, protocol normalization and device classification now have no
-operational HA dependency. `sensor.py` imports all three lower-level packages;
-none imports the coordinator or another extracted package. The remaining protocol parser and routing
-logic stays coupled to coordinator state and must be characterized before it is
-moved.
+Pure calculations, protocol normalization, structural routing and device
+classification now have no operational HA dependency. `sensor.py` imports all
+four lower-level packages; routing imports normalization, and none imports the
+coordinator. Route application and all runtime state remain coupled in the
+coordinator and require a separate state-ownership design before they move.
 
 Keep registry identifiers and unique-ID migration outside structural changes. Fix source-confirmed defects separately. Never replace raw keys with canonical names during a move; alias precedence and raw retention are part of the observed contract.
