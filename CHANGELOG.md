@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Refactored
 
+- Extract MQTT action-topic and command/poll payload construction into a pure
+  protocol module while preserving publication, timing, token and optimistic
+  state behavior.
 - Extract ephemeral protocol cache, host/child freshness, Type-106 evidence and
   energy-source metadata into a Home-Assistant-independent coordinator runtime
   state while preserving availability and discovery behavior.
