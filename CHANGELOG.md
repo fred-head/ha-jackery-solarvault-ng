@@ -18,6 +18,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Ignore malformed, unhashable child `devType` metadata during static plug-switch
+  filtering instead of interrupting platform setup or granting writable controls.
 - Allow repeated Type-106 power snapshots to update instead of freezing the first
   value, while protecting valid live host measurements for 60 seconds.
 - Fall back from expired or measurement-less CT/SmartMeter and collector sources,

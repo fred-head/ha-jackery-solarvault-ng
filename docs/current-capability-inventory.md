@@ -76,11 +76,9 @@ device association; identical child serials under different hosts remain
 separate. The classifier does not migrate registries, choose entities, decide
 availability, transform measurements or grant MQTT control.
 
-One malformed-metadata edge remains outside the classifier: the legacy static
-plug-switch setup checks `devType` with set membership, so an unhashable value
-could still raise if it reaches platform bootstrap. The classifier itself safely
-returns unknown for such values. Changing the adapter behavior belongs in a
-separate bugfix with an end-to-end regression.
+Malformed or unhashable `devType` values are classified as unknown and the
+static plug-switch filter rejects them without interrupting platform setup.
+Only the established numeric plug type can create a writable plug switch.
 
 ## Availability and source behavior
 
