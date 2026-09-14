@@ -12,6 +12,7 @@ Home Assistant platform entities
              ↓
 sensor.py coordinator orchestration, entities and HA effects
              ├──→ coordinator_state.py ──→ Python standard library
+             ├──→ discovery.py ──→ devices/classification.py
              ├──→ protocol/commands.py ──→ Python standard library
              ├──→ protocol/routing.py ──→ protocol/normalization.py
              │                                  ↓
@@ -24,7 +25,7 @@ sensor.py coordinator orchestration, entities and HA effects
 ```
 
 `sensor.py` still owns HTTP polling and health policy, route application, entity
-classes, discovery, availability side effects and coordinator lifecycle.
+classes, discovery orchestration, availability side effects and coordinator lifecycle.
 Low-level MQTT interaction lives in `transport/mqtt.py`; low-level SmartMeter
 request and response validation live in `transport/smartmeter_http.py`. Ephemeral cache,
 freshness and source evidence live in `coordinator_state.py`. Identity
@@ -36,8 +37,9 @@ construction and registry migration live in `identity.py` and
 Integration setup creates and stores the coordinator before forwarding all five
 platforms, then starts runtime transports only after the sensor and switch
 platforms install their dynamic-add callbacks. Platform modules retain static
-entity construction. Coordinator discovery retains the decision and current
-construction path for dynamic children and HTTP sensors. Entity lifecycle hooks
+entity construction. `discovery.py` owns child membership, missing-timer
+decisions and family-to-entity specifications. The coordinator applies those
+decisions and retains dynamic child and HTTP construction. Entity lifecycle hooks
 retain listener registration and removal.
 
 Declarative main, child and HTTP sensor metadata now lives in
@@ -110,13 +112,29 @@ and answers host/child freshness questions. It imports only the Python standard
 library and holds no Home Assistant objects.
 
 The coordinator continues to decide when a route is applied and prepares
-normalized/validated values. It also owns discovery membership and missing-child
-timers because those transitions directly create or remove entities and registry
-objects. Entity availability writes, MQTT/HTTP lifecycle, reauth, device metadata,
+normalized/validated values. Child membership and missing-child timers live in
+the HA-independent discovery state rather than runtime protocol state. Entity
+availability writes, MQTT/HTTP lifecycle, reauth, device metadata,
 identity and migration stay outside runtime state. Existing private cache and
 freshness attributes are compatibility views of the same state, not duplicate
 storage. The complete field inventory and reset contract are in
 [coordinator-state.md](coordinator-state.md).
+
+## Child discovery
+
+`custom_components/jackery/discovery.py` owns one `ChildDiscoveryState` per
+coordinator. It tracks known children, expansion-battery membership and
+missing-since timestamps, returning explicit reappearance, newly-missing and
+removal-due decisions. It also maps classifier results to the unchanged sensor
+group, cache key and plug-switch requirement. The module imports no Home
+Assistant APIs and holds no entities, registry handles, transports or cache.
+
+The coordinator still collects discovery arrays, checks migration eligibility,
+constructs sensors and switches, invokes platform callbacks and applies due
+removals to the HA registry. Registry ownership checks and listener cleanup stay
+at this HA boundary. Expansion batteries retain their Type-23 path,
+pre-initialization and deletion exemption. HTTP SmartMeter creation and physical
+device sharing remain unchanged.
 
 ## Protocol routing package
 
@@ -148,7 +166,7 @@ The processing pipeline divides those decisions and effects as follows:
 | 11. Type-106 live/snapshot arbitration | `CoordinatorRuntimeState`, supplied with coordinator policy constants and normalized values |
 | 12. Reauthentication | Routing recognizes Type 123; coordinator owns the HA action and guard |
 | 13. Energy calculation | Coordinator adapter calls `calculations.energy_flow`; source metadata is stored in runtime state |
-| 14. Discovery | Coordinator and platform lifecycle |
+| 14. Discovery | `discovery.py` decides membership/timers/specifications; coordinator applies HA lifecycle effects |
 | 15. Entity fan-out | Coordinator and entity lifecycle |
 | 16. Logging/error containment | Coordinator; JSON errors intentionally propagate to its topic-aware warning |
 

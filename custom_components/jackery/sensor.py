@@ -28,6 +28,7 @@ from .devices.classification import (
     classify_device,
 )
 from .devices.classification import should_create_plug_switch as should_create_plug_switch
+from .discovery import ChildDiscoveryState, child_entity_spec
 from .entities.sensor_definitions import CT_STATUS_MAP as CT_STATUS_MAP
 from .entities.sensor_definitions import DEVICE_STATUS_MAP as DEVICE_STATUS_MAP
 from .entities.sensor_definitions import (
@@ -140,9 +141,11 @@ class JackeryDataCoordinator:
             start_time=time.time(),
         )
 
-        self._known_plugs: set[str] = set()
-        self._subdevice_missing_since: dict[str, float] = {}
-        self._expansion_battery_sns: set[str] = set()
+        self._child_discovery_state = ChildDiscoveryState()
+        # Compatibility aliases retained for existing coordinator consumers.
+        self._known_plugs = self._child_discovery_state.known_children
+        self._subdevice_missing_since = self._child_discovery_state.missing_since
+        self._expansion_battery_sns = self._child_discovery_state.expansion_batteries
         self._poll_105_counter: int = 2  # starts at threshold-1 so type-105 fires on first cycle
         self.add_entities_callback: Any = None
         self.add_switch_entities_callback: Any = None
@@ -602,6 +605,23 @@ class JackeryDataCoordinator:
         migration = getattr(self, "_child_migration", None)
         return migration is None or migration.allows(sn)
 
+    def _child_membership(self) -> ChildDiscoveryState:
+        """Return discovery state, adapting minimal test coordinators if needed."""
+        state = getattr(self, "_child_discovery_state", None)
+        if (
+            state is None
+            or state.known_children is not self._known_plugs
+            or state.expansion_batteries is not self._expansion_battery_sns
+            or state.missing_since is not self._subdevice_missing_since
+        ):
+            state = ChildDiscoveryState(
+                known_children=self._known_plugs,
+                expansion_batteries=self._expansion_battery_sns,
+                missing_since=self._subdevice_missing_since,
+            )
+            self._child_discovery_state = state
+        return state
+
     def _remove_subdevice_from_ha(self, sn: str) -> None:
         """Remove an unbound sub-device and all its entities from Home Assistant.
 
@@ -628,9 +648,7 @@ class JackeryDataCoordinator:
             _LOGGER.warning("Could not remove sub-device %s from device registry: %s", sn, err)
 
         # Drop all in-memory references so the device can be re-discovered cleanly
-        self._known_plugs.discard(sn)
-        self._expansion_battery_sns.discard(sn)
-        self._subdevice_missing_since.pop(sn, None)
+        self._child_membership().remove(sn)
         self._subdevice_last_seen.pop(sn, None)
         for sensor_id in self._entity_keys_for_subdevice(sn):
             self.unregister_sensor(sensor_id)
@@ -653,38 +671,24 @@ class JackeryDataCoordinator:
             if sn:
                 current_sns.add(sn)
 
-        now = time.time()
-
-        # 1. 更新 missing 状态
-        for sn in current_sns:
-            if sn in self._subdevice_missing_since:
-                _LOGGER.info(f"Sub-device {sn} reappeared, cancelling deletion.")
-                del self._subdevice_missing_since[sn]
-
-        for sn in self._known_plugs:
-            if sn in self._expansion_battery_sns:
-                continue  # expansion batteries appear in type-23, not type-101 — never subject to deletion timer
-            if sn not in current_sns:
-                if sn not in self._subdevice_missing_since:
-                    self._subdevice_missing_since[sn] = now
-                    _LOGGER.info(f"Sub-device {sn} missing, starting {OFFLINE_TIMEOUT}s deletion timer...")
-
-        # 2. 执行真正的移除
-        for sn in list(self._subdevice_missing_since.keys()):
-            if sn not in self._known_plugs:
-                del self._subdevice_missing_since[sn]
-                continue
-            if sn in self._expansion_battery_sns:
-                del self._subdevice_missing_since[sn]
-                continue
-            if sn in current_sns:
-                del self._subdevice_missing_since[sn]
-                continue
-
-            missing_time = self._subdevice_missing_since[sn]
-            if now - missing_time > OFFLINE_TIMEOUT:
-                _LOGGER.info(f"Sub-device {sn} missing for >{OFFLINE_TIMEOUT}s. Removing.")
-                self._remove_subdevice_from_ha(sn)
+        changes = self._child_membership().reconcile(
+            current_sns,
+            now=time.time(),
+            deletion_timeout=OFFLINE_TIMEOUT,
+        )
+        for sn in changes.reappeared:
+            _LOGGER.info("Sub-device %s reappeared, cancelling deletion.", sn)
+        for sn in changes.newly_missing:
+            _LOGGER.info(
+                "Sub-device %s missing, starting %ss deletion timer...",
+                sn,
+                OFFLINE_TIMEOUT,
+            )
+        for sn in changes.due_for_removal:
+            _LOGGER.info(
+                "Sub-device %s missing for >%ss. Removing.", sn, OFFLINE_TIMEOUT
+            )
+            self._remove_subdevice_from_ha(sn)
 
         # 3. Add newly discovered devices
         new_entities = []
@@ -697,21 +701,18 @@ class JackeryDataCoordinator:
 
             # Match the supported point-update/static-switch types. Unknown
             # metadata remains cached but must not invent writable plug entities.
-            if classification.family is DeviceFamily.UNKNOWN:
+            entity_spec = child_entity_spec(classification)
+            if entity_spec is None:
                 continue
 
             if sn and sn not in self._known_plugs and self.child_identity_allowed(sn):
                 _LOGGER.info(f"Discovered new sub-device: {sn} (devType={dev_type}, subType={sub_type})")
-                self._known_plugs.add(sn)
+                self._child_membership().register(sn)
 
                 if hasattr(self, "config_entry_id"):
-                    # Determine sensor group and data source key
-                    sensor_group, data_key = {
-                        DeviceFamily.COLLECTOR: ("collector", "collectors"),
-                        DeviceFamily.SMARTMETER: ("ct_3phase", "cts"),
-                        DeviceFamily.CT: ("ct", "cts"),
-                        DeviceFamily.PLUG: ("plug", "plugs"),
-                    }[classification.family]
+                    sensor_group = entity_spec.sensor_group
+                    data_key = entity_spec.data_key
+                    assert data_key is not None
 
                     group_config = SUBDEVICE_SENSORS.get(sensor_group, {})
                     for sensor_key, sensor_cfg in group_config.items():
@@ -727,7 +728,7 @@ class JackeryDataCoordinator:
                         )
                         new_entities.append(entity)
 
-                    if classification.family is DeviceFamily.PLUG:
+                    if entity_spec.create_plug_switch:
                         from .switch import JackeryPlugSwitch
                         switch_entity = JackeryPlugSwitch(
                             plug_sn=sn,
@@ -750,8 +751,7 @@ class JackeryDataCoordinator:
         new_entities = []
         for sn in exp_bats:
             if sn not in self._known_plugs and self.child_identity_allowed(sn):
-                self._known_plugs.add(sn)
-                self._expansion_battery_sns.add(sn)
+                self._child_membership().register(sn, expansion_battery=True)
                 _LOGGER.info(f"Discovered expansion battery: {sn}")
                 group_config = SUBDEVICE_SENSORS.get("expansion_battery", {})
                 exp_data = exp_bats.get(sn, {})
