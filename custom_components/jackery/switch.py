@@ -42,7 +42,7 @@ async def async_setup_entry(
         async_add_entities(new_entities)
     coordinator.add_switch_entities_callback = add_switch_entities_callback
 
-    entities = []
+    entities: list[SwitchEntity] = []
 
     # Main device switches
     entities.extend(

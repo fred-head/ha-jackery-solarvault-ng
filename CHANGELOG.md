@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Refactored
 
+- Add precise typing to platform configuration, entity registration and
+  coordinator setup so the HA-aware mypy check passes without weakening runtime
+  validation or compatibility boundaries.
 - Extract child membership, missing-timer decisions and family-to-entity
   specifications into a Home-Assistant-independent discovery module while
   preserving identity, callbacks, registry removal and availability behavior.
