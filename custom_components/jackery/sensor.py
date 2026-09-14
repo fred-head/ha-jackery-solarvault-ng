@@ -4,7 +4,7 @@ import json
 import logging
 import random
 import time
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -346,23 +346,29 @@ class JackeryDataCoordinator:
     def _handle_type23(self, body: dict[str, Any]) -> None:
         """Apply statistical host or child data to coordinator-owned state."""
         device_sn_in_body = body.get("deviceSn")
-        if is_host_message_body(body, self._device_sn):
-            self._merge_normalized_cache(body, 23)
-        elif (
+        child_sn = _subdevice_sn(body)
+        is_expansion_battery = (
             classify_device(body, ClassificationContext.TYPE23_CHILD).family
             is DeviceFamily.EXPANSION_BATTERY
-            and _subdevice_sn(body)
-        ):
+        )
+        is_sn_only_expansion = (
+            device_sn_in_body is None
+            and child_sn is not None
+            and is_expansion_battery
+        )
+        if is_host_message_body(body, self._device_sn) and not is_sn_only_expansion:
+            self._merge_normalized_cache(body, 23)
+        elif is_expansion_battery and child_sn is not None:
             # Expansion battery (e.g. BP2500) — not in type-101.
             exp_bats = self._data_cache.setdefault("expansion_batteries", {})
-            if device_sn_in_body not in exp_bats:
-                exp_bats[device_sn_in_body] = {}
+            if child_sn not in exp_bats:
+                exp_bats[child_sn] = {}
             # Null energy reports must not erase the last real long-cadence value.
             for key, value in body.items():
                 if value is not None:
-                    exp_bats[device_sn_in_body][key] = value
+                    exp_bats[child_sn][key] = value
             self._runtime_state.record_child_activity(
-                cast(str, device_sn_in_body),
+                child_sn,
                 time.time(),
             )
             self._check_for_new_expansion_batteries()

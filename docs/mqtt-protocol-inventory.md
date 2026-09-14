@@ -26,12 +26,12 @@ entity fan-out. Type 123 continues through calculation/discovery/fan-out after
 any reauth trigger, and generic routes continue their established child-activity
 refresh. The extraction does not change message or cache semantics.
 
-Static review exposed one pre-existing, unconfirmed Type-23 edge: expansion
-battery recognition accepts the fallback `sn` spelling, while the existing
-cache/freshness write still uses `deviceSn`. A Type-23 expansion payload that
-contains only `sn` could therefore be stored under a null key. No captured
-payload establishes that shape, and this extraction deliberately leaves the
-behavior unchanged for a separate evidence-led bugfix if needed.
+The subsequent Type-23 hardening reproduces and closes the pre-existing
+expansion-battery serial edge. Cache, freshness and discovery now use the same
+validated canonical serial: a non-empty string `deviceSn` takes precedence,
+while a missing or empty `deviceSn` falls back to a valid `sn`. Conflicting host
+`deviceSn` plus child `sn` remains a host message, and malformed serials do not
+create child state.
 
 The subsequent [energy-source contract](energy-source-policy.md) replaces the
 permanent Type-106 key guard with a per-field 60-second live preference. Repeated
@@ -70,7 +70,7 @@ Every outbound publish goes to `{prefix}/device/{main_sn}/action`, QoS 0, retain
 | --- | --- | --- | --- | --- |
 | 1 | Sent (`/action`) | Main command: eventId=3, body `cmd=5,rc=1` plus writable field(s); reboot is `reboot=1`. | Method does not update cache; optimistic entities do so before calling it. Comments/changelog mention cmd=107 acknowledgement; no dedicated acknowledgement handler. | `sensor.py:1969`; button/switch/number/select call it. `test_switch_select_cache.py` verifies selected parameter dicts using fake coordinator, **not wire envelope**. |
 | 2 | Both | Outgoing read-all-settings body=null, eventId=0; incoming status/settings dict (including observed `cmd=106`). | Incoming generic normalization/cache update; nested arrays here are shallow-updated, not passed through dedicated array merging. No correlated response validation. | `sensor.py:1535,2251`; `test_mqtt_routing::test_type2_*`, `test_upstream_sync::test_type2_grid_buy_alias_normalized`. |
-| 23 | Received; parsed, not generated | Statistics: `deviceSn`, `devType`, energy fields. `system`/missing SN → main; devType=1 child → expansion battery. | Expansion drops null updates, timestamps child and creates sensors; other children patched only if already in plugs/plug/cts. Main's literal SN is **not** accepted as main by C. Collectors not searched. | `sensor.py:1468`; `test_type23_*`, `test_expansion_battery_null_values_do_not_overwrite_cache`. |
+| 23 | Received; parsed, not generated | Statistics: `deviceSn` or fallback `sn`, `devType`, energy fields. `system`/missing child SN/configured host SN → main; devType=1 child → expansion battery. | Expansion drops null updates, uses the canonical validated serial for cache/freshness/discovery and creates sensors; other children are patched only if already in plugs/plug/cts. Collectors are not searched. | `_handle_type23`; `test_type23_*`, `test_expansion_battery_null_values_do_not_overwrite_cache`. |
 | 25 | Both | Status poll body=null; response body contains main fields. | Incoming generic normalized merge. Poll-response relationship is documented, not tracked. | `sensor.py:1535,2240`; no outbound poll assertion; generic receive path/flat helper covered. |
 | 100 | Sent | Child poll body `devType=2`, `3`, `6`, eventId=0. | Intended response 101. Device category 4 collector is reported under category 2 per source comment, no explicit type=100/devType=4 request. | `sensor.py:2278`; untested publishing. |
 | 101 | Received; parsed, not generated | Full child data, arrays `plug/plugs/socket/sockets`, `ct/cts`, `collectors`; null body returns immediately. | Nonempty lists merge by SN; empty lists do not clear; missing fields retained, explicit null can overwrite. Defaults missing plug/CT type to 6/2. Sets child last-seen even for metadata-only entries. No main-SN exclusion in arrays. | `sensor.py:1497,1556`; routing tests cover CT/plug isolation, SN merge, defaults indirectly, null body. Collector branch untested. |

@@ -82,12 +82,16 @@ non-mutation.
 
 `test_protocol_routing_transitions.py` adds 20 order-sensitive coordinator cases.
 They cover 2→106, 106→2, 106→107, 101→102, 102→101, host/child Type-23 ordering,
-Type-23 child→101, malformed/foreign/unknown→valid recovery and Type-123 between
+the Type-23 `deviceSn`/`sn` precedence matrix, Type-23 child→101,
+malformed/foreign/unknown→valid recovery and Type-123 between
 ordinary messages. Assertions include main/child cache, deterministic freshness,
 discovery, reauth, derived energy and entity fan-out. The payloads are synthetic
 characterization fixtures and make no hardware-support claim. Route application,
 state ownership and the calculation/discovery/fan-out order remain exercised
 through the production coordinator path.
+The later hardening adds a Home Assistant registry regression proving that an
+`sn`-only expansion battery retains its scoped device and entity identities
+across repeated config-entry reloads.
 Final routing-extraction validation: **1,227 passed, 93.35% coverage**; the
 routing module has 100% statement coverage. No skips or xfails were introduced.
 

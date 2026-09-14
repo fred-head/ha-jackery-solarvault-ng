@@ -18,7 +18,8 @@ to Phase 0/1; this section supersedes its current-status implications.
 
 | Behavior | Current comparison classification | Decision / evidence |
 | --- | --- | --- |
-| Type23 actual host deviceSn | OFFICIAL_FIX_CANDIDATE → CURRENT_EQUIVALENT for this case | FIX_NOW: regression failed locally; Official 12c2e7c recognizes host SN. Local host branch corrected without losing expansion handling. Empty-string SN remains deferred. |
+| Type23 actual host deviceSn | OFFICIAL_FIX_CANDIDATE → CURRENT_EQUIVALENT for this case | FIX_NOW: regression failed locally; Official 12c2e7c recognizes host SN. Local host branch corrected without losing expansion handling. |
+| Type23 expansion fallback `sn` | LOCAL_HARDENING | FIX_NOW: regression proved that `sn`-only reports were misrouted as host data and empty `deviceSn` plus valid `sn` was stored under an empty key. Cache, freshness and discovery now share the established canonical serial helper; `deviceSn` precedence is unchanged. A lone empty serial remains unsupported. |
 | Child metadata contaminating host | OFFICIAL_FIX_CANDIDATE → CURRENT_EQUIVALENT for guard | FIX_NOW: Official d0e0c9f limits capture to host messages of selected types. Local adopts guard after failing tests. Top-level firmware and model-update behavior still differ. |
 | Aliases, main/plug action envelopes, standby/reboot values | CURRENT_EQUIVALENT | Exact payload tests, explicit canonical zero preserved, IDs sampled in same range. No execution correlation in either source. |
 | Host topic ownership | CURRENT_EQUIVALENT for topics | Local lifecycle/freshness fixes already merged; local strict parsing and unsubscribe retention exceed Official. No redesign here. |

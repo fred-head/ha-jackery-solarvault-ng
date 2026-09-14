@@ -298,6 +298,34 @@ async def test_reclassification_reuses_physical_device(hass, setup_hosts):
     assert {e.entity_id for e in records} >= {eid for eid, values in old.items() if values[2] == device.id}
 
 
+async def test_sn_only_expansion_battery_reuses_registry_identity_after_reload(
+    hass, setup_hosts
+):
+    entry = (await setup_hosts())[HOSTS[0]]
+
+    for _ in range(2):
+        coordinator = coordinator_for(hass, entry)
+        report(
+            coordinator,
+            {"sn": "BATTERY", "devType": 1, "subType": 0, "inEgy": 22},
+            23,
+        )
+        await hass.async_block_till_done()
+        device = dr.async_get(hass).async_get_device(
+            identifiers={(DOMAIN, child_device_identifier(HOSTS[0], "BATTERY"))}
+        )
+        assert device is not None
+        records = er.async_entries_for_device(
+            er.async_get(hass), device.id, include_disabled_entities=True
+        )
+        assert len(records) == len(SUBDEVICE_SENSORS["expansion_battery"])
+        snapshot = registry_snapshot(hass, entry)
+        assert await hass.config_entries.async_reload(entry.entry_id)
+        await hass.async_block_till_done()
+
+    assert registry_snapshot(hass, entry) == snapshot
+
+
 def child_entities(coordinator, serial, group, dev_type, data_key):
     return [JackerySubDeviceSensor(
         serial, dev_type, key, config, coordinator, coordinator.config_entry_id,
