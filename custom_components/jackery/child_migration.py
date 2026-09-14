@@ -109,7 +109,11 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
     All calls here are synchronous HA callbacks, so preflight/apply cannot yield
     to discovery or another entry's setup between validation and registry writes.
     """
-    from .sensor import SENSORS, SMARTMETER_HTTP_SENSOR_CONFIGS, SUBDEVICE_SENSORS
+    from .entities.sensor_definitions import (
+        SENSORS,
+        SMARTMETER_HTTP_SENSOR_CONFIGS,
+        SUBDEVICE_SENSORS,
+    )
 
     result = ChildMigrationResult()
     host = entry.data.get("device_sn")

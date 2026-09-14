@@ -41,7 +41,7 @@ async def _migrate_unique_ids(
     if not device_sn:
         return
 
-    from .sensor import SENSORS, SUBDEVICE_SENSORS
+    from .entities.sensor_definitions import SENSORS, SUBDEVICE_SENSORS
 
     entry_id = entry.entry_id
     new_prefix = f"jackery_{device_sn}_"

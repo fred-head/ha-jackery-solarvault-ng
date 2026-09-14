@@ -1,5 +1,14 @@
 # Test coverage map
 
+The coordinator/entity-boundary extraction adds 14 direct cases for definition
+compatibility exports, exact main/child/HTTP group counts, dependency direction,
+Smart Plug communication-mode conversion and unchanged MQTT-control eligibility.
+Existing setup, forwarding-order, start failure, reload/unload, dynamic discovery,
+identity, migration, entity and command suites remain the behavior gate. Final
+validation: **1,317 passed, 93.86% coverage**; both new entity modules have 100%
+statement coverage and 529 broad lifecycle/entity regressions pass. No skips or
+xfails were introduced.
+
 The SmartMeter HTTP transport extraction adds 12 direct cases for the exact URL
 and five-second timeout, valid numeric values, invalid JSON, non-dictionary and
 non-numeric bodies, non-200 responses, client failures, timeouts and response

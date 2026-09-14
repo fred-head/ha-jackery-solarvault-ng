@@ -13,12 +13,12 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
 from .devices.classification import should_create_plug_switch
-from .identity import child_device_identifier, child_unique_id
-from .sensor import (
+from .entities.transforms import (
     COMM_MODE_LABELS,
     plug_comm_mode,
     plug_mqtt_control_allowed,
 )
+from .identity import child_device_identifier, child_unique_id
 
 if TYPE_CHECKING:
     from .sensor import JackeryDataCoordinator

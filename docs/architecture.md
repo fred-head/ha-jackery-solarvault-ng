@@ -7,8 +7,10 @@ incremental target and risk order remain in [refactoring-roadmap.md](refactoring
 
 ```text
 Home Assistant platform entities
+             ├──→ entities/sensor_definitions.py ──→ HA metadata/constants
+             ├──→ entities/transforms.py ──→ Python standard library
              ↓
-sensor.py coordinator orchestration and HA effects
+sensor.py coordinator orchestration, entities and HA effects
              ├──→ coordinator_state.py ──→ Python standard library
              ├──→ protocol/commands.py ──→ Python standard library
              ├──→ protocol/routing.py ──→ protocol/normalization.py
@@ -28,6 +30,23 @@ request and response validation live in `transport/smartmeter_http.py`. Ephemera
 freshness and source evidence live in `coordinator_state.py`. Identity
 construction and registry migration live in `identity.py` and
 `child_migration.py`.
+
+## Setup and entity boundary
+
+Integration setup creates and stores the coordinator before forwarding all five
+platforms, then starts runtime transports only after the sensor and switch
+platforms install their dynamic-add callbacks. Platform modules retain static
+entity construction. Coordinator discovery retains the decision and current
+construction path for dynamic children and HTTP sensors. Entity lifecycle hooks
+retain listener registration and removal.
+
+Declarative main, child and HTTP sensor metadata now lives in
+`entities/sensor_definitions.py`. Migration reads those keys directly without
+loading `sensor.py`; historical imports from `sensor.py` remain compatibility
+re-exports. Pure Smart Plug communication-mode conversion lives in
+`entities/transforms.py` and is consumed directly by the switch platform. The
+complete ownership inventory and intentionally retained coupling are in
+[entity-boundaries.md](entity-boundaries.md).
 
 ## Protocol command builders
 
