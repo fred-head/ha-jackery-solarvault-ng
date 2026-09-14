@@ -39,6 +39,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Track created SmartMeter HTTP entity sets by meter serial so a replacement
+  meter receives its own sensors without duplicating a previously seen meter.
 - Ignore malformed, unhashable child `devType` metadata during static plug-switch
   filtering instead of interrupting platform setup or granting writable controls.
 - Allow repeated Type-106 power snapshots to update instead of freezing the first

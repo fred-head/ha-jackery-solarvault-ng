@@ -98,9 +98,10 @@ MQTT-cache target discovery, options, the polling task and cadence, the
 three-failure health threshold, recovery, replacement-meter handling, sensor
 creation and entity fan-out remain coordinator policy. The transport holds no HA
 entity or coordinator reference and never creates its own HTTP session. The
-single per-coordinator `_http_sm_sensors_created` flag still means a replacement
-meter does not automatically receive a second entity set; that existing limit is
-unchanged.
+coordinator tracks created HTTP entity sets by meter serial, allowing a
+replacement meter to receive its own entities while preventing duplicates when
+the same serial reappears. Existing entities for a previous meter are retained
+and marked unavailable; no removal policy is inferred.
 
 ## Coordinator runtime state
 

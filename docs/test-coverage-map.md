@@ -1,5 +1,14 @@
 # Test coverage map
 
+The SmartMeter replacement hardening adds a real polling-loop regression for a
+different meter serial, old-source retirement, per-serial entity creation,
+same-serial duplicate suppression, return recovery and distinct physical-device
+identity. Existing reload, migration and MQTT/HTTP grouping tests remain gates;
+old-meter entities retain the established no-removal policy.
+Final validation: **1,322 passed, 94.20% coverage**; the focused HTTP, identity,
+migration and lifecycle set passes all 246 cases. No skips or xfails were
+introduced.
+
 The child-discovery extraction adds direct cases for isolated state, duplicate
 registration, missing/reappearance transitions, the strict deletion boundary,
 stale timer cleanup, expansion exemption and every established family-to-entity
