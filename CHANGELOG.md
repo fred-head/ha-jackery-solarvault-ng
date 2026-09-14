@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Refactored
 
+- Move unchanged sensor metadata and pure Smart Plug communication-mode
+  transformations behind explicit HA entity modules while preserving setup,
+  discovery, identity and entity behavior.
 - Isolate SmartMeter HTTP URL, request, timeout, response decoding and numeric
   measurement validation behind a dedicated transport while preserving polling,
   health, replacement and entity policy in the coordinator.
