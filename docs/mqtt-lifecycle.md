@@ -128,7 +128,7 @@ This is not a live broker disconnect/reconnect or wire-level unsubscribe test.
 HA owns connection reconnection, retained delivery and broker subscription
 aggregation. No new retries, broker client or reconnection policy were introduced.
 Errors inside already-running polling loops retain their existing handling.
-HTTP replacement-meter creation, options-triggered reload policy, command
+HTTP old-meter removal policy, options-triggered reload policy, command
 confirmation, protocol/classification changes, energy/source/Type-106 work and
 architectural extraction remain separate tasks. MQTT 60-second freshness, HTTP's
 three-failure policy and PR2B's persistent identities/migrations are unchanged.

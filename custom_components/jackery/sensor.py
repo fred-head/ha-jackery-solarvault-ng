@@ -161,7 +161,7 @@ class JackeryDataCoordinator:
 
         # SmartMeter HTTP polling (optional feature, controlled via options flow)
         self._smartmeter_http_task: asyncio.Task[None] | None = None
-        self._http_sm_sensors_created: bool = False
+        self._http_sm_sensor_sns_created: set[str] = set()
 
         # Relayed child reports also arrive on the host's status/event topics.
         topic_sn = device_sn or "+"
@@ -1075,9 +1075,9 @@ class JackeryDataCoordinator:
                         data = result.data
                         success = data is not None
                         if data is not None:
-                            if not self._http_sm_sensors_created:
+                            if sm_sn not in self._http_sm_sensor_sns_created:
                                 await self._create_http_sensors(sm_sn)
-                                self._http_sm_sensors_created = True
+                                self._http_sm_sensor_sns_created.add(sm_sn)
                             self._distribute_http_data(sm_sn, data)
                         elif result.status != 200:
                             _LOGGER.debug(

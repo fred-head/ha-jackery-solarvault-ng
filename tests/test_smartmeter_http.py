@@ -140,7 +140,7 @@ async def test_http_poll_health_and_stop_survive_mqtt_updates(mixed_sensors, mon
         {"deviceSn": "METER", "devType": 3, "subType": 5, "wip": "192.0.2.1"}
     ]
     # Entities have already been added through their actual lifecycle hooks.
-    coordinator._http_sm_sensors_created = True
+    coordinator._http_sm_sensor_sns_created.add("METER")
     response = SimpleNamespace(status=200, json=AsyncMock(return_value={"freq": 50}))
     request = AsyncMock()
     request.__aenter__.return_value = response
@@ -206,7 +206,7 @@ async def http_poll(mixed_sensors, monkeypatch):
     coordinator.hass = SimpleNamespace(config_entries=SimpleNamespace(async_get_entry=Mock(return_value=entry)))
     meter = {"deviceSn": "METER", "devType": 3, "subType": 5, "wip": "192.0.2.1"}
     coordinator._data_cache["cts"] = [meter]
-    coordinator._http_sm_sensors_created = True
+    coordinator._http_sm_sensor_sns_created.add("METER")
     response = SimpleNamespace(status=200, json=AsyncMock(return_value={"freq": 50}))
     request = AsyncMock()
     request.__aenter__.return_value = response
@@ -339,3 +339,48 @@ async def test_http_meter_identity_change_retires_old_source_and_return_recovers
     p.response.json.return_value = {"freq": 51}
     await p.poll()
     assert p.http.available and p.http.native_value == 51
+
+
+async def test_http_meter_replacement_creates_one_entity_set_per_serial(
+    http_poll, monkeypatch
+):
+    """A replacement meter gets its own HTTP entities without duplicating either set."""
+    p = http_poll
+    created = []
+
+    def add_entities(entities):
+        for entity in entities:
+            monkeypatch.setattr(entity, "async_write_ha_state", Mock())
+            p.coordinator.register_sensor(
+                f"http_{entity._sm_sn}_{entity._sensor_key}", entity
+            )
+            created.append(entity)
+
+    p.coordinator.add_entities_callback = add_entities
+    p.meter["deviceSn"] = "REPLACEMENT"
+    p.response.json.return_value = {"freq": 51}
+
+    await p.poll()
+
+    replacement = [entity for entity in created if entity._sm_sn == "REPLACEMENT"]
+    assert len(replacement) == len(SMARTMETER_HTTP_SENSOR_CONFIGS)
+    frequency = next(
+        entity for entity in replacement if entity._sensor_key == "frequency"
+    )
+    assert frequency.available and frequency.native_value == 51
+    assert not p.http.available
+    assert frequency.device_info["identifiers"] != p.http.device_info["identifiers"]
+
+    await p.poll()
+    assert len(created) == len(SMARTMETER_HTTP_SENSOR_CONFIGS)
+
+    p.meter["deviceSn"] = "METER"
+    p.response.json.return_value = {"freq": 52}
+    await p.poll()
+    assert len(created) == len(SMARTMETER_HTTP_SENSOR_CONFIGS)
+    assert p.http.available and p.http.native_value == 52
+
+    for entity in replacement:
+        p.coordinator.unregister_sensor(
+            f"http_{entity._sm_sn}_{entity._sensor_key}"
+        )

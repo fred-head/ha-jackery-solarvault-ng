@@ -24,7 +24,7 @@ field being mutable does not by itself justify moving it.
 | `_device_type` | host metadata capture | device registry update | Coordinator lifetime; HA device metadata | Coordinator |
 | `_soft_ver` | host metadata capture | device registry update | Coordinator lifetime; HA device metadata | Coordinator |
 | `_reauth_started` | reauth trigger | reauth guard | Coordinator lifetime; HA config-flow state | Coordinator |
-| `_http_sm_sensors_created` | HTTP polling loop | HTTP polling loop | Coordinator lifetime; HTTP/entity lifecycle | Coordinator |
+| `_http_sm_sensor_sns_created` | HTTP polling loop | HTTP polling loop | Coordinator lifetime; one entry per successfully polled meter serial | Coordinator |
 | `_sensors` | entity registration/unregistration/removal | fan-out, availability and offline effects | HA entity lifetime | Coordinator; never runtime state |
 | `add_entities_callback` | sensor platform setup | discovery | HA platform lifetime | Coordinator |
 | `add_switch_entities_callback` | switch platform setup | discovery | HA platform lifetime | Coordinator |

@@ -145,11 +145,12 @@ handling and entity availability remain coordinator owned.
   gates. Follow-meter's work-mode restriction remains tested and unchanged.
 - The reboot button remains outside coordinator health registration. No new
   availability policy for command-only entities was invented.
-- Options-triggered reload and the global `_http_sm_sensors_created` flag remain
-  later lifecycle work. The latter still limits automatic entity creation for a
-  replacement meter; this fix only retires the previous source's health. Existing
-  registration/unregistration, duplicate-start prevention and HTTP cancellation
-  are tested, but a full HA reload/MQTT subscription cleanup is not claimed.
+- Options-triggered reload remains established lifecycle behavior. HTTP entity
+  creation is tracked per SmartMeter serial, so a replacement receives a new
+  entity set while a returning serial reuses its existing set. Previous-meter
+  entities are retained and marked unavailable; no automatic removal policy is
+  introduced. Registration/unregistration, duplicate-start prevention and HTTP
+  cancellation remain independently tested.
 - Existing wall-clock timestamps are retained; no monotonic-clock migration or
   comprehensive malformed-protocol schema validation is introduced.
 

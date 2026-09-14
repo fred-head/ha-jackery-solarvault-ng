@@ -256,7 +256,9 @@ MQTT unsubscribe callbacks are still not retained (pre-existing lifecycle issue)
 The new setup-order tests mock the broker and prove coordinator/polling/entity
 lifecycle, not broker subscription cleanup. Failed or partial MQTT subscription
 startup and the broader transport lifecycle refactor remain separate work.
-Existing replacement-meter HTTP discovery policy is also unchanged.
+Replacement-meter HTTP discovery was hardened later to create one entity set per
+meter serial; the host-scoped identity and old-meter retention policy remain
+unchanged.
 
 ### PR2A validation (2026-09-12 UTC)
 
@@ -529,7 +531,7 @@ Unresolved: historical devices already shared across entries; interrupted migrat
 and target reconciliation; actual recorder/statistics continuity; class changes
 for an unchanged child SN; malformed/restored config entries with ambiguous host
 SNs; substring-based listener cleanup; MQTT subscription retention after unload;
-HTTP's per-coordinator one-time entity creation flag for a replacement meter.
+automatic removal or transfer policy for HTTP entities belonging to a replaced meter.
 No automatic unpair/re-pair cleanup policy is invented. Existing availability,
 source-priority, energy and command behavior is untouched.
 
