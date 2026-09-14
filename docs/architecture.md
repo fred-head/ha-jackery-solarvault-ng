@@ -17,12 +17,14 @@ sensor.py coordinator orchestration and HA effects
              ├──→ protocol/normalization.py ──→ Python standard library
              ├──→ devices/classification.py ──→ Python standard library
              ├──→ calculations/energy_flow.py ──→ Python standard library
-             └──→ transport/mqtt.py ──→ Home Assistant MQTT API
+             ├──→ transport/mqtt.py ──→ Home Assistant MQTT API
+             └──→ transport/smartmeter_http.py ──→ aiohttp
 ```
 
-`sensor.py` still owns HTTP interaction, route application, entity classes,
-discovery, availability side effects and coordinator lifecycle. Low-level MQTT
-interaction lives in `transport/mqtt.py`. Ephemeral cache,
+`sensor.py` still owns HTTP polling and health policy, route application, entity
+classes, discovery, availability side effects and coordinator lifecycle.
+Low-level MQTT interaction lives in `transport/mqtt.py`; low-level SmartMeter
+request and response validation live in `transport/smartmeter_http.py`. Ephemeral cache,
 freshness and source evidence live in `coordinator_state.py`. Identity
 construction and registry migration live in `identity.py` and
 `child_migration.py`.
@@ -61,6 +63,23 @@ chooses action topics and preserves all log severities and error boundaries.
 Poll cadence/order/sleeps, routing, state, freshness, reauth and optimistic
 updates remain outside transport. The HTTP polling loop is still coordinator
 owned; no generic transport interface was introduced.
+
+## SmartMeter HTTP transport
+
+`SmartMeterHttpTransport` receives Home Assistant's shared aiohttp session and
+owns the exact `/api/measurement` URL, GET request, five-second timeout, status
+capture, JSON decoding and the existing minimum-success check. The coordinator
+passes the established measurement keys, so the transport does not import entity
+definitions. A successful body remains a dictionary containing at least one
+configured value accepted by `float()`.
+
+MQTT-cache target discovery, options, the polling task and cadence, the
+three-failure health threshold, recovery, replacement-meter handling, sensor
+creation and entity fan-out remain coordinator policy. The transport holds no HA
+entity or coordinator reference and never creates its own HTTP session. The
+single per-coordinator `_http_sm_sensors_created` flag still means a replacement
+meter does not automatically receive a second entity set; that existing limit is
+unchanged.
 
 ## Coordinator runtime state
 

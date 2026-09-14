@@ -120,6 +120,12 @@ to the interval. Address loss expires on the third missing-address check (two
 not create a failure warning or fresh state. The MQTT timer cadence and **120 s**
 reauthentication hint are unchanged.
 
+The low-level HTTP request is isolated in `transport/smartmeter_http.py`: it uses
+the injected shared session, builds the measurement URL, decodes status/JSON and
+accepts a response only when at least one coordinator-supplied measurement key is
+numeric. Target discovery, cadence, failure counting, recovery, replacement
+handling and entity availability remain coordinator owned.
+
 ## Ambiguities and intentionally deferred work
 
 - Freshness means communication/source activity, not per-field measurement age.
@@ -139,8 +145,7 @@ reauthentication hint are unchanged.
   gates. Follow-meter's work-mode restriction remains tested and unchanged.
 - The reboot button remains outside coordinator health registration. No new
   availability policy for command-only entities was invented.
-- MQTT unsubscribe handles, resetting `_subscribed`, options-triggered reload,
-  partial startup cleanup and the global `_http_sm_sensors_created` flag remain
+- Options-triggered reload and the global `_http_sm_sensors_created` flag remain
   later lifecycle work. The latter still limits automatic entity creation for a
   replacement meter; this fix only retires the previous source's health. Existing
   registration/unregistration, duplicate-start prevention and HTTP cancellation

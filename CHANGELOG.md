@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Refactored
 
+- Isolate SmartMeter HTTP URL, request, timeout, response decoding and numeric
+  measurement validation behind a dedicated transport while preserving polling,
+  health, replacement and entity policy in the coordinator.
 - Isolate per-coordinator MQTT subscribe, publish, JSON serialization and
   unsubscribe mechanics behind a dedicated transport module while preserving
   lifecycle and polling policy.
