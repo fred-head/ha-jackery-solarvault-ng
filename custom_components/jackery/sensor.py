@@ -6,7 +6,6 @@ import random
 import time
 from typing import TYPE_CHECKING, Any, cast
 
-import aiohttp
 from homeassistant.components.sensor import (
     SensorDeviceClass,
     SensorEntity,
@@ -68,6 +67,10 @@ from .protocol.routing import (
     subdevice_serial as _subdevice_sn,
 )
 from .transport.mqtt import JackeryMqttTransport
+from .transport.smartmeter_http import (
+    SmartMeterHttpRequestError,
+    SmartMeterHttpTransport,
+)
 
 if TYPE_CHECKING:
     from .child_migration import ChildMigrationResult
@@ -2097,7 +2100,10 @@ class JackeryDataCoordinator:
         """Poll SmartMeter HTO907A HTTP API for additional sensor data (voltage, current, etc.)."""
         entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
         poll_interval: int = entry.options.get("smartmeter_poll_interval", 10) if entry else 10
-        session = async_get_clientsession(self.hass)
+        transport = SmartMeterHttpTransport(async_get_clientsession(self.hass))
+        measurement_keys = tuple(
+            config["key"] for config in SMARTMETER_HTTP_SENSOR_CONFIGS.values()
+        )
         # Mark unavailable after this many consecutive failures (~3 × poll_interval without data)
         _FAILURE_THRESHOLD = 3
         consecutive_failures = 0
@@ -2114,34 +2120,22 @@ class JackeryDataCoordinator:
                         self._mark_http_sensors_unavailable(last_sm_sn)
                         consecutive_failures = 0
                     last_sm_sn = sm_sn
-                    url = f"http://{ip}/api/measurement"
                     try:
-                        async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                            if resp.status == 200:
-                                try:
-                                    data = await resp.json(content_type=None)
-                                except ValueError:
-                                    data = None
-                                # An HTTP 200 alone is not a successful measurement.
-                                if isinstance(data, dict):
-                                    for config in SMARTMETER_HTTP_SENSOR_CONFIGS.values():
-                                        value = data.get(config["key"])
-                                        if value is None:
-                                            continue
-                                        try:
-                                            float(value)
-                                        except (TypeError, ValueError):
-                                            continue
-                                        success = True
-                                        break
-                                if success:
-                                    if not self._http_sm_sensors_created:
-                                        await self._create_http_sensors(sm_sn)
-                                        self._http_sm_sensors_created = True
-                                    self._distribute_http_data(sm_sn, data)
-                            else:
-                                _LOGGER.debug("SmartMeter HTTP %d from %s", resp.status, url)
-                    except (aiohttp.ClientError, TimeoutError) as e:
+                        result = await transport.fetch_measurement(ip, measurement_keys)
+                        data = result.data
+                        success = data is not None
+                        if data is not None:
+                            if not self._http_sm_sensors_created:
+                                await self._create_http_sensors(sm_sn)
+                                self._http_sm_sensors_created = True
+                            self._distribute_http_data(sm_sn, data)
+                        elif result.status != 200:
+                            _LOGGER.debug(
+                                "SmartMeter HTTP %d from %s",
+                                result.status,
+                                result.url,
+                            )
+                    except SmartMeterHttpRequestError as e:
                         _LOGGER.debug("SmartMeter HTTP poll failed (%s): %s", ip, e)
 
                 if success:

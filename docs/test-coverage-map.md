@@ -1,5 +1,16 @@
 # Test coverage map
 
+The SmartMeter HTTP transport extraction adds 12 direct cases for the exact URL
+and five-second timeout, valid numeric values, invalid JSON, non-dictionary and
+non-numeric bodies, non-200 responses, client failures, timeouts and response
+non-mutation. Existing loop tests retain the coordinator policy gate for target
+discovery, configured/no-target cadence, third-failure unavailability, recovery,
+meter replacement, cancellation and MQTT/HTTP isolation. Polling, health and HA
+entity effects were not moved. Final HTTP transport validation: **1,303 passed,
+93.82% coverage**; the transport module has 100% statement coverage and 456
+targeted HTTP/state/routing/lifecycle regressions pass. No skips or xfails were
+introduced.
+
 The MQTT transport extraction adds eight focused cases in
 `test_mqtt_transport.py`: exact two-topic QoS-1 subscription, raw callback
 delivery, JSON publication at QoS 0/retain false, publish error propagation,
