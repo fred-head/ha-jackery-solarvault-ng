@@ -1,5 +1,12 @@
 # Test coverage map
 
+The child-discovery extraction adds direct cases for isolated state, duplicate
+registration, missing/reappearance transitions, the strict deletion boundary,
+stale timer cleanup, expansion exemption and every established family-to-entity
+specification. Existing dynamic discovery, availability, routing, identity,
+migration, HTTP sharing and unload/reload tests remain the integration gate.
+Registry effects, entity construction and callbacks stay coordinator-owned.
+
 The coordinator/entity-boundary extraction adds 14 direct cases for definition
 compatibility exports, exact main/child/HTTP group counts, dependency direction,
 Smart Plug communication-mode conversion and unchanged MQTT-control eligibility.

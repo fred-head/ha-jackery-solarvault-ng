@@ -7,6 +7,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Refactored
 
+- Extract child membership, missing-timer decisions and family-to-entity
+  specifications into a Home-Assistant-independent discovery module while
+  preserving identity, callbacks, registry removal and availability behavior.
 - Move unchanged sensor metadata and pure Smart Plug communication-mode
   transformations behind explicit HA entity modules while preserving setup,
   discovery, identity and entity behavior.
