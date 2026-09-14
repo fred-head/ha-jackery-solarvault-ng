@@ -142,6 +142,67 @@ def test_type23_host_then_type23_child(routing_state):
     assert routing_state.listener._update_from_coordinator.call_count == 2
 
 
+@pytest.mark.parametrize(
+    ("serial_fields", "expected_serial"),
+    [
+        ({"deviceSn": "DEVICE"}, "DEVICE"),
+        ({"sn": "FALLBACK"}, "FALLBACK"),
+        ({"deviceSn": "SAME", "sn": "SAME"}, "SAME"),
+        ({"deviceSn": "DEVICE", "sn": "FALLBACK"}, "DEVICE"),
+        ({"deviceSn": "", "sn": "FALLBACK"}, "FALLBACK"),
+        ({"deviceSn": 17, "sn": "FALLBACK"}, None),
+        ({"sn": {"bad": "serial"}}, None),
+    ],
+)
+def test_type23_expansion_uses_canonical_serial(
+    routing_state, serial_fields, expected_serial
+):
+    receive(
+        routing_state,
+        23,
+        {**serial_fields, "devType": 1, "subType": 0, "inEgy": 22},
+    )
+
+    coordinator = routing_state.coordinator
+    if expected_serial is None:
+        assert not coordinator._data_cache.get("expansion_batteries")
+        assert not coordinator._subdevice_last_seen
+        assert not coordinator._expansion_battery_sns
+        coordinator.add_entities_callback.assert_not_called()
+        return
+
+    assert coordinator._data_cache["expansion_batteries"] == {
+        expected_serial: {
+            **serial_fields,
+            "devType": 1,
+            "subType": 0,
+            "inEgy": 22,
+        }
+    }
+    assert coordinator._subdevice_last_seen == {expected_serial: 1001.0}
+    assert coordinator._known_plugs == {expected_serial}
+    assert coordinator._expansion_battery_sns == {expected_serial}
+    entities = coordinator.add_entities_callback.call_args.args[0]
+    assert len(entities) == 2
+    assert {entity._plug_sn for entity in entities} == {expected_serial}
+    charge = next(entity for entity in entities if entity._sensor_key == "charge_energy")
+    assert charge.native_value == 0.22
+
+
+def test_type23_conflicting_host_device_serial_remains_host_message(routing_state):
+    receive(
+        routing_state,
+        23,
+        {"deviceSn": "HOST", "sn": "BATTERY", "devType": 1, "inEgy": 22},
+    )
+
+    coordinator = routing_state.coordinator
+    assert coordinator._data_cache["inEgy"] == 22
+    assert "expansion_batteries" not in coordinator._data_cache
+    assert not coordinator._subdevice_last_seen
+    coordinator.add_entities_callback.assert_not_called()
+
+
 def test_type23_child_then_type101(routing_state):
     receive(
         routing_state,

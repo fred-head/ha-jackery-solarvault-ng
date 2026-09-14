@@ -39,6 +39,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Use the canonical Type-23 child serial for expansion-battery cache, freshness
+  and discovery state so payloads with only `sn`, or an empty `deviceSn` plus a
+  valid `sn`, retain one stable child identity across reloads.
 - Track created SmartMeter HTTP entity sets by meter serial so a replacement
   meter receives its own sensors without duplicating a previously seen meter.
 - Ignore malformed, unhashable child `devType` metadata during static plug-switch
