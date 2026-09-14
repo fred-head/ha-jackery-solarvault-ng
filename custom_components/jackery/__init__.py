@@ -183,8 +183,11 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     config = entry.data
     coordinator = JackeryDataCoordinator(
-        hass, config.get("topic_prefix", "hb"), config.get("token"),
-        config.get("mqtt_host"), config.get("device_sn"),
+        hass,
+        cast(str, config.get("topic_prefix", "hb")),
+        cast(str, config.get("token")),
+        cast(str, config.get("mqtt_host")),
+        cast(str, config.get("device_sn")),
     )
     coordinator.config_entry_id = entry.entry_id
     coordinator._child_migration = child_migration

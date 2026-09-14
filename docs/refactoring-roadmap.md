@@ -47,6 +47,11 @@ The prerequisite HTTP/MQTT coexistence and related lifecycle, freshness and
 identity defects were handled in isolated bugfix work before these extractions.
 Their regression tests remain part of the acceptance suite.
 
+Foundation hardening subsequently resolved the 23 HA-aware mypy diagnostics
+with local container annotations and narrow casts at existing Home Assistant
+configuration boundaries. The CI-compatible mypy result remains green; no
+runtime validation or public identity contract was weakened.
+
 The safe child-discovery portion of phase 9 is now extracted and documented.
 Further entity construction should wait until child sensor classes can move
 without a circular import or platform setup rewrite.
