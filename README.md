@@ -1,22 +1,78 @@
-## Jackery SolarVault – Home Assistant Integration (Fork)
+# Jackery SolarVault NG for Home Assistant
 
-[![hacs_badge](https://img.shields.io/badge/HACS-Custom-orange.svg)](https://github.com/hacs/integration)
-[![GitHub Release](https://img.shields.io/github/release/csoscd/ha-solarvault.svg)](https://github.com/csoscd/ha-solarvault/releases)
-[![License](https://img.shields.io/github/license/csoscd/ha-solarvault.svg)](LICENSE)
+[![Validate](https://github.com/fred-head/ha-jackery-solarvault-ng/actions/workflows/validate.yml/badge.svg)](https://github.com/fred-head/ha-jackery-solarvault-ng/actions/workflows/validate.yml)
+[![License](https://img.shields.io/github/license/fred-head/ha-jackery-solarvault-ng.svg)](LICENSE)
 
-> **⚠️ This is a fork of the original [Jackery-Official/jackery](https://github.com/Jackery-Official/jackery) integration.**
-> 
-> This fork adds fixes and additional sensors specifically tested with the **Jackery SolarVault 3 Pro Max**, the **Jackery SmartMeter 3P (HTO907A)** and the **Shelly Pro 3EM** (as Jackery CT sub-device). All credits for the original implementation go to the original authors.
+Jackery SolarVault NG (Next Generation) is a community-driven Home Assistant integration for Jackery SolarVault systems. It focuses on robust local integration, careful protocol handling and understanding, and the long-term goal of operation with as little cloud dependency as practical.
+
+> [!WARNING]
+> **Active development / experimental**
 >
-> Changes in this fork are tracked in the [commit history](https://github.com/csoscd/ha-solarvault/commits/main). Bug reports and improvements relating to this fork can be filed [here](https://github.com/csoscd/ha-solarvault/issues); for general Jackery integration issues please use the [original repository](https://github.com/Jackery-Official/jackery/issues).
+> SolarVault NG is building and stabilizing its v3 architecture and is not currently recommended for production installations. The project has an extensive automated regression suite, but it still needs broader validation on real hardware. The maintainer does not yet run this fork in production. Interested users are welcome to test it, but should expect bugs, changes and possible regressions; no production-stability guarantee is made at this stage.
 
----
+## Project lineage and credits
 
-## Support me
+SolarVault NG is a distinct next-generation project built on strong upstream and community foundations:
 
-[![ko-fi](https://ko-fi.com/img/githubbutton_sm.svg)](https://ko-fi.com/O5O21U13R9)
+- [Jackery-Official/jackery](https://github.com/Jackery-Official/jackery) created the original Home Assistant integration and remains an important authoritative reference for Jackery protocol behavior.
+- [csoscd/ha-solarvault](https://github.com/csoscd/ha-solarvault) is the community fork on which SolarVault NG directly builds. Its extensive community work, bug fixes, expanded device support and protocol research form a substantial part of this project's foundation.
 
----
+SolarVault NG gratefully acknowledges the authors, contributors and testers of both projects. Their work remains visible in the repository history and in the historical release notes below.
+
+## About SolarVault NG
+
+The project is evolving the integration incrementally: established behavior is characterized with tests, cohesive protocol and transport responsibilities are extracted, and Home Assistant compatibility is preserved. The current implementation is local-first and uses the MQTT connection configured for the SolarVault.
+
+Complete cloud-independent provisioning is not implemented or guaranteed. Provisioning still uses the Jackery app today, and some device functions remain cloud-dependent.
+
+## Current capabilities
+
+- Home Assistant config and options flows; no YAML entity definitions required
+- Local MQTT telemetry with normalized protocol routing and periodic state requests
+- Power, energy, battery, status and diagnostic entities for the currently supported device paths
+- Controls for established SolarVault and Smart Plug commands, with communication-mode safeguards
+- SmartMeter and child-device discovery, host-scoped identity and migration handling
+- Optional local HTTP measurements from the Jackery SmartMeter 3P
+- Tested availability, freshness, reload/unload and multi-instance behavior
+- Automated pytest coverage plus Ruff, mypy, translation, HACS and Hassfest validation in CI
+
+## Project direction
+
+### Current foundation
+
+- Stabilize and harden the v3 architecture through incremental, behavior-preserving refactoring
+- Maintain robust MQTT and protocol handling
+- Preserve SmartMeter and child-device support
+- Expand automated regression coverage around known device and lifecycle behavior
+
+### Next
+
+- Add useful, privacy-conscious Home Assistant diagnostics
+- Add opt-in protocol-discovery tooling for maintainers and testers
+- Continue stability work and broader real-hardware validation
+- Review and selectively port relevant public changes from the upstream and community projects
+
+### Long term
+
+- Investigate local provisioning and Bluetooth-based provisioning/bootstrap
+- Reduce cloud dependencies where verified device behavior allows it
+- Work toward the most practical cloud-independent operation possible without claiming that it is available today
+
+## Supported hardware
+
+Support claims distinguish reported hardware use from synthetic regression coverage. Generic field-based compatibility does not by itself establish support for every model.
+
+| Device | Current support | Validation status |
+|---|---|---|
+| Jackery SolarVault 3 Pro Max | Main-device telemetry and established controls | Reported as hardware-tested in the inherited community project; covered by extensive synthetic regressions here |
+| Jackery SolarVault 3 | Selected behavior, including reported SOC-limit behavior | Partial reported hardware evidence; not an all-feature certification |
+| Jackery SmartMeter 3P (HTO907A) | MQTT phase measurements and optional local HTTP measurements | Reported as hardware-tested in the inherited community project; regression-tested here |
+| Shelly Pro 3EM through Jackery | Jackery MQTT CT/SmartMeter measurement path | Reported as hardware-tested in the inherited community project; no direct Shelly RPC/HTTP transport |
+| Jackery Smart Meter D0 Reader (HTO910A) | Collector import/export and communication telemetry | Software path covered by synthetic tests; no current hardware certification claimed |
+| BP2500 expansion battery | Cumulative charge/discharge energy | Software path covered; no instantaneous per-battery power or SOC entities |
+| Jackery Smart Plug | Power, energy and guarded switching | Software path covered by synthetic routing, entity and command tests |
+
+See the [current capability inventory](docs/current-capability-inventory.md) for the evidence and limitations behind these entries.
 
 ## Entity Reference
 
@@ -31,9 +87,9 @@ Example: SN `HS2C12600262HH4` → `sensor.jackery_hs2c12600262hh4_solar_power`
 
 ---
 
-### Changes vs. the original
+## Detailed integration capabilities
 
-#### New sensors (SolarVault 3 Pro Max)
+### Main-device sensors (SolarVault 3 Pro Max)
 
 | Sensor | MQTT field | Description |
 |---|---|---|
@@ -59,7 +115,7 @@ Example: SN `HS2C12600262HH4` → `sensor.jackery_hs2c12600262hh4_solar_power`
 | Grid Meter Link | `gridSate` | Grid meter link health: not_linked / linked |
 | Max Feed Grid Power | `maxFeedGrid` | Maximum grid feed-in power reported by the device (from type-106 status) — also writable, see control entities |
 
-#### New control entities (SolarVault 3 Pro Max)
+### Main-device controls (SolarVault 3 Pro Max)
 
 | Entity type | Entity | MQTT field | Range / Options | Description |
 |---|---|---|---|---|
@@ -77,11 +133,11 @@ Example: SN `HS2C12600262HH4` → `sensor.jackery_hs2c12600262hh4_solar_power`
 | Switch | Follow Meter Power (Zähler folgen) | `isFollowMeterPw` | on / off | Sub-mode within Benutzerdefiniert (workModel=4): device tracks the SmartMeter to achieve net-zero grid exchange. **Only available when Work Mode = Benutzerdefiniert.** |
 | Button | Reboot | – | – | Sends a restart command to the SolarVault (type=1, cmd=5, reboot=1). Useful to restore SmartMeter LAN mode without touching the device or app. |
 
-#### SmartMeter 3P / devType=3 CT devices (HTO907A, Shelly Pro 3EM, and others)
+### SmartMeter 3P / devType=3 CT devices (HTO907A, Shelly Pro 3EM, and others)
 
-The original integration incorrectly classified devType=3 CT devices as smart plugs instead of CT meters (see [issue #18](https://github.com/Jackery-Official/jackery/issues/18)). This caused the energy flow calculation to receive no CT data at all.
+SolarVault NG classifies devType=3 CT devices as meters rather than smart plugs, addressing the behavior documented in [Jackery-Official/jackery issue #18](https://github.com/Jackery-Official/jackery/issues/18). This allows the energy-flow calculation to receive their CT data.
 
-This fork fixes the classification for **all devType=3 devices**, regardless of manufacturer or subType:
+The current classification applies to **all devType=3 devices**, regardless of manufacturer or subType:
 
 | Device | subType | Tested |
 |---|---|---|
@@ -106,7 +162,7 @@ Both devices send identical MQTT field names and expose the same **19 sensors**:
 
 ---
 
-### Features
+## Integration capabilities
 
 - **Custom Home Assistant integration** (no YAML entities required)
 - **MQTT-based data flow** with a shared `JackeryDataCoordinator`
@@ -114,6 +170,10 @@ Both devices send identical MQTT field names and expose the same **19 sensors**:
 - Real-time **power sensors** (W) and cumulative **energy sensors** (kWh)
 - **Battery SoC** in percent with proper scaling
 - Ready-to-use example configuration for **Energy Flow Card Plus**
+
+## Installation
+
+SolarVault NG is currently an experimental development project rather than a stable HACS release. Install it as a custom repository only if you are comfortable testing an evolving integration and recovering from possible regressions.
 
 ### Prerequisites
 
@@ -132,11 +192,11 @@ Before the integration can receive data, **two things must be in place**:
 
 ---
 
-### Installation via HACS
+### Installation through HACS as a custom repository
 
 1. Open HACS → **Integrations** → three dots → **Custom repositories**
-2. Add URL: `https://github.com/csoscd/ha-solarvault`, Category: `Integration`
-3. Search for **"Jackery SolarVault"** and install
+2. Add URL: `https://github.com/fred-head/ha-jackery-solarvault-ng`, Category: `Integration`
+3. Search for **"Jackery"** and install the custom integration
 4. Restart Home Assistant
 5. Go to **Settings → Devices & Services → Add Integration** → search **"Jackery"**
 6. Enter:
@@ -146,7 +206,7 @@ Before the integration can receive data, **two things must be in place**:
 
 ---
 
-### Dashboard Cards
+## Dashboard cards
 
 ![ha-freeflow card](img/ha-freeflow-solarvault.jpg)
 
@@ -158,9 +218,9 @@ Before the integration can receive data, **two things must be in place**:
 
 ---
 
-### Troubleshooting
+## Troubleshooting
 
-#### SmartMeter 3P: no measurement data (all sensors show 0 W / unavailable)
+### SmartMeter 3P: no measurement data (all sensors show 0 W / unavailable)
 
 **Symptom:** SmartMeter power sensors (L1–L3 Import/Export, Grid Import/Export Power) suddenly stop delivering values or show 0 W permanently, even though the SmartMeter appears as available in Home Assistant.
 
@@ -186,9 +246,13 @@ Restarting the SolarVault (via the Jackery app or directly on the device) causes
 
 ---
 
-### Links
+## Related projects and documentation
 
-- **Original integration**: https://github.com/Jackery-Official/jackery
+- **Implemented architecture**: [docs/architecture.md](docs/architecture.md)
+- **Entity reference**: [docs/entity-reference.md](docs/entity-reference.md)
+- **Current capability inventory**: [docs/current-capability-inventory.md](docs/current-capability-inventory.md)
+- **Jackery original integration**: https://github.com/Jackery-Official/jackery
+- **Community foundation**: https://github.com/csoscd/ha-solarvault
 - **ha-freeflow** (custom flow card): https://github.com/csoscd/ha-freeflow
 - **Energy Flow Card Plus**: https://github.com/flixlix/energy-flow-card-plus
 - **Power Flow Card Plus**: https://github.com/flixlix/power-flow-card-plus
@@ -196,18 +260,18 @@ Restarting the SolarVault (via the Jackery app or directly on the device) causes
 
 ---
 
-### Development
+## Development and testing
 
-#### Running the tests
+### Running the tests
 
 ```bash
 uv sync --group test
 uv run pytest tests/ -v
 ```
 
-Tests cover energy-flow calculation logic, MQTT message routing (regression tests for the CT-cache bug), sensor value transforms, and config flow integration tests (using the real HA test framework). Coverage is reported after every run; the minimum threshold is 30 %.
+Tests cover calculations, normalization and routing, coordinator state, MQTT and HTTP transports, child discovery, availability, identity and migration, entity behavior, commands, and config flows using the Home Assistant test framework. Coverage is reported after every run; the configured minimum threshold is 50%.
 
-#### Linting & type checking
+### Linting and type checking
 
 ```bash
 uv sync --group lint
@@ -216,7 +280,7 @@ uv run mypy custom_components/jackery/         # type checker
 python tools/check_translations.py            # translation completeness
 ```
 
-#### CI pipeline
+### CI pipeline
 
 Every push and pull request runs three GitHub Actions jobs automatically:
 
@@ -229,6 +293,10 @@ Every push and pull request runs three GitHub Actions jobs automatically:
 [Dependabot](https://docs.github.com/en/code-security/dependabot) is configured to keep GitHub Actions versions up to date (weekly, Mondays).
 
 ---
+
+## Historical community version history
+
+The following v2.x notes preserve useful development history inherited from [csoscd/ha-solarvault](https://github.com/csoscd/ha-solarvault). They provide context for established behavior but do not define the current SolarVault NG roadmap. See [CHANGELOG.md](CHANGELOG.md) for the maintained project changelog.
 
 ### What's new in v2.4.0
 
@@ -436,6 +504,6 @@ If a smart plug switches to cloud-relay mode (`commMode=2`) — which can happen
 
 ---
 
-### License
+## License
 
 MIT License – see [LICENSE](LICENSE)
