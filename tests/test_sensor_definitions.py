@@ -37,4 +37,4 @@ def test_sensor_definitions_depend_only_on_ha_metadata() -> None:
         for node in ast.walk(ast.parse(path.read_text()))
         if isinstance(node, ast.ImportFrom)
     }
-    assert imports == {"homeassistant.components.sensor", "homeassistant.const"}
+    assert imports == {"typing", "homeassistant.components.sensor", "homeassistant.const"}

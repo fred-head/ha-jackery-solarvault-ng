@@ -7,6 +7,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Refactored
 
+- Declare sensor/number metadata schemas and entity-ID invariants for accurate
+  HA-aware type checking.
 - Extract child membership, missing-timer decisions and family-to-entity
   specifications into a Home-Assistant-independent discovery module while
   preserving identity, callbacks, registry removal and availability behavior.
@@ -39,6 +41,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Reject malformed restored configuration field types before migration or
+  subscriptions, preserving optional legacy fields and missing-host adoption.
 - Use the canonical Type-23 child serial for expansion-battery cache, freshness
   and discovery state so payloads with only `sn`, or an empty `deviceSn` plus a
   valid `sn`, retain one stable child identity across reloads.

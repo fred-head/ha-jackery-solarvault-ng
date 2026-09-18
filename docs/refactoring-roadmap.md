@@ -47,6 +47,12 @@ The prerequisite HTTP/MQTT coexistence and related lifecycle, freshness and
 identity defects were handled in isolated bugfix work before these extractions.
 Their regression tests remain part of the acceptance suite.
 
+Foundation hardening subsequently resolved the 23 HA-aware mypy diagnostics
+with declared metadata schemas, constructor invariants and runtime checks at
+the ConfigEntry boundary. See the [per-finding audit](ha-aware-typing-audit.md).
+Malformed restored configuration is rejected before migration; valid values
+and the existing missing-host adoption behavior retain their exact semantics.
+
 The safe child-discovery portion of phase 9 is now extracted and documented.
 Further entity construction should wait until child sensor classes can move
 without a circular import or platform setup rewrite.

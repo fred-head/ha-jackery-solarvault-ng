@@ -1,6 +1,6 @@
 """Jackery Number Platform."""
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
@@ -16,7 +16,25 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-NUMBERS = {
+class NumberBounds(TypedDict, total=False):
+    """Optional telemetry fields for live number bounds."""
+
+    min_key: str
+    max_key: str
+
+
+class NumberConfig(NumberBounds):
+    """Static number metadata; numeric bounds are checked where declared."""
+
+    translation_key: str
+    min: float
+    max: float
+    step: float
+    unit: str
+    optimistic: NotRequired[bool]
+
+
+NUMBERS: dict[str, NumberConfig] = {
     "socChgLimit": {
         "translation_key": "soc_charge_limit",
         "min": 50, "max": 100, "step": 1,
@@ -144,7 +162,7 @@ class JackeryMainNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     def _update_from_coordinator(self, data: dict) -> None:
-        cfg = NUMBERS.get(self._key, {})
+        cfg: NumberBounds = NUMBERS.get(self._key, {})
         changed = False
 
         min_key = cfg.get("min_key")

@@ -36,6 +36,7 @@ from .entities.sensor_definitions import (
     SENSORS,
     SMARTMETER_HTTP_SENSOR_CONFIGS,
     SUBDEVICE_SENSORS,
+    ChildSensorConfig,
 )
 from .entities.sensor_definitions import GRID_METER_LINK_MAP as GRID_METER_LINK_MAP
 from .entities.sensor_definitions import ONGRID_STATUS_MAP as ONGRID_STATUS_MAP
@@ -123,7 +124,7 @@ def _merge_subdevice_list(
 class JackeryDataCoordinator:
     """协调器：管理MQTT订阅和数据获取，供所有传感器实体共享使用."""
 
-    def __init__(self, hass: HomeAssistant, topic_prefix: str, token: str, mqtt_host: str, device_sn: str) -> None:
+    def __init__(self, hass: HomeAssistant, topic_prefix: str, token: str | None, mqtt_host: str | None, device_sn: str | None) -> None:
         self.hass = hass
         self._topic_prefix = topic_prefix
         self._token = token
@@ -1183,6 +1184,8 @@ async def async_setup_entry(
 
 class JackerySensor(SensorEntity):
     """Jackery Sensor."""
+    # These entities expose numeric measurements and textual/enum states.
+    _attr_native_value: float | str | None
     # ... (Existing JackerySensor Code) ...
     def __init__(
         self,
@@ -1268,7 +1271,7 @@ class JackerySensor(SensorEntity):
             elif "power" in value:
                 self._attr_native_value = value["power"]
             else:
-                self._attr_native_value = str(value)  # type: ignore[assignment]
+                self._attr_native_value = str(value)
         else:
             value_map = self._config.get("value_map")
             if value_map is not None:
@@ -1276,7 +1279,7 @@ class JackerySensor(SensorEntity):
                 try:
                     self._attr_native_value = value_map.get(int(value), str(value))
                 except (TypeError, ValueError):
-                    self._attr_native_value = str(value)  # type: ignore[assignment]
+                    self._attr_native_value = str(value)
             else:
                 scale = self._config.get("scale", 1)
                 try:
@@ -1314,12 +1317,16 @@ class JackerySensor(SensorEntity):
 class JackerySubDeviceSensor(SensorEntity):
     """Jackery Smart Plug / CT Sub-device Sensor."""
 
+    _attr_native_value: float | str | None
+    # Every constructor path assigns the string returned by child_unique_id.
+    _attr_unique_id: str
+
     def __init__(
         self,
         plug_sn: str,
         dev_type: int,
         sensor_key: str,
-        sensor_config: dict,
+        sensor_config: ChildSensorConfig,
         coordinator: JackeryDataCoordinator,
         config_entry_id: str,
         data_key: str = "plugs",
@@ -1605,7 +1612,7 @@ class JackerySmartMeterHttpSensor(SensorEntity):
         self,
         sm_sn: str,
         sensor_key: str,
-        sensor_config: dict,
+        sensor_config: ChildSensorConfig,
         coordinator: JackeryDataCoordinator,
         config_entry_id: str,
     ) -> None:

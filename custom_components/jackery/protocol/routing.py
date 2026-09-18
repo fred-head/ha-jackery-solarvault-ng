@@ -108,7 +108,7 @@ def route_message_type(message_type: Any) -> RoutingDecision:
     )
 
 
-def is_host_message_body(body: Mapping[str, Any], host_serial: str) -> bool:
+def is_host_message_body(body: Mapping[str, Any], host_serial: str | None) -> bool:
     """Return whether body metadata identifies the host rather than a child."""
     return body.get("deviceSn") in (None, "system", host_serial)
 
