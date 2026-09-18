@@ -34,7 +34,7 @@ Complete cloud-independent provisioning is not implemented or guaranteed. Provis
 - SmartMeter and child-device discovery, host-scoped identity and migration handling
 - Optional local HTTP measurements from the Jackery SmartMeter 3P
 - Tested availability, freshness, reload/unload and multi-instance behavior
-- Automated pytest coverage plus Ruff, mypy, translation, HACS and Hassfest validation in CI
+- Extensive automated pytest regression coverage plus Ruff, mypy and translation validation
 
 ## Project direction
 
@@ -282,14 +282,12 @@ python tools/check_translations.py            # translation completeness
 
 ### CI pipeline
 
-Every push and pull request runs three GitHub Actions jobs automatically:
+The configured GitHub Actions jobs run on every push and pull request:
 
 | Job | Checks |
 |-----|--------|
 | **Lint** | Ruff, mypy, translation completeness (`tools/check_translations.py`) |
 | **Tests** | pytest with coverage (`--cov-fail-under=50`) |
-| **Validate** | HACS validation, Hassfest validation |
-
 [Dependabot](https://docs.github.com/en/code-security/dependabot) is configured to keep GitHub Actions versions up to date (weekly, Mondays).
 
 ---
