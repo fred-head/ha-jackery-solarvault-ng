@@ -159,6 +159,23 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Jackery from a config entry."""
     _LOGGER.info("Setting up Jackery integration")
 
+    # Restored ConfigEntry data does not pass through the config-flow schema.
+    # Reject malformed values before migration or any entity/transport effects.
+    config = entry.data
+    topic_prefix: object = config.get("topic_prefix", "hb")
+    device_sn: object = config.get("device_sn")
+    token: object = config.get("token")
+    mqtt_host: object = config.get("mqtt_host")
+    if (
+        not isinstance(topic_prefix, str)
+        or (device_sn is not None and not isinstance(device_sn, str))
+        or ("device_sn" in config and device_sn is None)
+        or (token is not None and not isinstance(token, str))
+        or (mqtt_host is not None and not isinstance(mqtt_host, str))
+    ):
+        _LOGGER.error("Invalid Jackery configuration field types; setup aborted")
+        return False
+
     if not await mqtt.async_wait_for_mqtt_client(hass):
         _LOGGER.error(
             "MQTT integration is not available or not configured. "
@@ -181,13 +198,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # All platforms need the same runtime object, regardless of forwarding order.
     from .sensor import JackeryDataCoordinator
 
-    config = entry.data
     coordinator = JackeryDataCoordinator(
         hass,
-        cast(str, config.get("topic_prefix", "hb")),
-        cast(str, config.get("token")),
-        cast(str, config.get("mqtt_host")),
-        cast(str, config.get("device_sn")),
+        topic_prefix,
+        token,
+        mqtt_host,
+        device_sn,
     )
     coordinator.config_entry_id = entry.entry_id
     coordinator._child_migration = child_migration

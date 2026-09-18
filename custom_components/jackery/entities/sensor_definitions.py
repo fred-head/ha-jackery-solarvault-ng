@@ -1,5 +1,7 @@
 """Declarative sensor metadata for Jackery Home Assistant entities."""
 
+from typing import NotRequired, TypedDict
+
 from homeassistant.components.sensor import SensorDeviceClass, SensorStateClass
 from homeassistant.const import (
     PERCENTAGE,
@@ -34,8 +36,36 @@ ONGRID_STATUS_MAP: dict[int, str] = {0: "disconnected", 1: "connected"}
 CT_STATUS_MAP: dict[int, str] = {0: "disconnected", 1: "connected"}
 GRID_METER_LINK_MAP: dict[int, str] = {0: "not_linked", 1: "linked"}
 
+class MainSensorConfig(TypedDict):
+    """Repository-owned main sensor metadata, checked at its declaration."""
+
+    json_key: str | None
+    name: str
+    unit: str | None
+    icon: str
+    device_class: SensorDeviceClass | None
+    state_class: SensorStateClass | None
+    scale: NotRequired[float]
+    options: NotRequired[list[str]]
+    value_map: NotRequired[dict[int, str]]
+
+
+class ChildSensorConfig(TypedDict, total=False):
+    """Optional metadata used by child and HTTP sensors."""
+
+    key: str
+    name: str
+    unit: str | None
+    icon: str
+    device_class: SensorDeviceClass | None
+    state_class: SensorStateClass | None
+    scale: float
+    options: list[str]
+    options_offset: int
+
+
 # 传感器配置
-SENSORS = {
+SENSORS: dict[str, MainSensorConfig] = {
     # 电池相关
     "battery_soc": {
         "json_key": "batSoc",
@@ -719,7 +749,7 @@ SENSORS = {
 }
 
 # 子设备传感器配置
-SUBDEVICE_SENSORS = {
+SUBDEVICE_SENSORS: dict[str, dict[str, ChildSensorConfig]] = {
     # 智能插座 (devType=6 or 1)
     "plug": {
         "power": {
@@ -1013,7 +1043,7 @@ FUNC_ENABLE_BITS: dict[int, str] = {
     11: "smart_plug_first",  # bit11 smart plug priority
 }
 
-SMARTMETER_HTTP_SENSOR_CONFIGS: dict[str, dict] = {
+SMARTMETER_HTTP_SENSOR_CONFIGS: dict[str, ChildSensorConfig] = {
     "voltage_l1":        {"key": "volt1", "unit": UnitOfElectricPotential.VOLT,           "device_class": SensorDeviceClass.VOLTAGE,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:lightning-bolt"},
     "voltage_l2":        {"key": "volt2", "unit": UnitOfElectricPotential.VOLT,           "device_class": SensorDeviceClass.VOLTAGE,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:lightning-bolt"},
     "voltage_l3":        {"key": "volt3", "unit": UnitOfElectricPotential.VOLT,           "device_class": SensorDeviceClass.VOLTAGE,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:lightning-bolt"},

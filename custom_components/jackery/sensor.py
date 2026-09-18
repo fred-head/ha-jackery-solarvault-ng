@@ -4,7 +4,7 @@ import json
 import logging
 import random
 import time
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, Any
 
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
@@ -36,6 +36,7 @@ from .entities.sensor_definitions import (
     SENSORS,
     SMARTMETER_HTTP_SENSOR_CONFIGS,
     SUBDEVICE_SENSORS,
+    ChildSensorConfig,
 )
 from .entities.sensor_definitions import GRID_METER_LINK_MAP as GRID_METER_LINK_MAP
 from .entities.sensor_definitions import ONGRID_STATUS_MAP as ONGRID_STATUS_MAP
@@ -123,7 +124,7 @@ def _merge_subdevice_list(
 class JackeryDataCoordinator:
     """协调器：管理MQTT订阅和数据获取，供所有传感器实体共享使用."""
 
-    def __init__(self, hass: HomeAssistant, topic_prefix: str, token: str, mqtt_host: str, device_sn: str) -> None:
+    def __init__(self, hass: HomeAssistant, topic_prefix: str, token: str | None, mqtt_host: str | None, device_sn: str | None) -> None:
         self.hass = hass
         self._topic_prefix = topic_prefix
         self._token = token
@@ -720,7 +721,7 @@ class JackeryDataCoordinator:
                     data_key = entity_spec.data_key
                     assert data_key is not None
 
-                    group_config = cast(dict[str, dict[str, Any]], SUBDEVICE_SENSORS.get(sensor_group, {}))
+                    group_config = SUBDEVICE_SENSORS.get(sensor_group, {})
                     for sensor_key, sensor_cfg in group_config.items():
                         entity = JackerySubDeviceSensor(
                             plug_sn=sn,
@@ -759,10 +760,7 @@ class JackeryDataCoordinator:
             if sn not in self._known_plugs and self.child_identity_allowed(sn):
                 self._child_membership().register(sn, expansion_battery=True)
                 _LOGGER.info(f"Discovered expansion battery: {sn}")
-                group_config = cast(
-                    dict[str, dict[str, Any]],
-                    SUBDEVICE_SENSORS.get("expansion_battery", {}),
-                )
+                group_config = SUBDEVICE_SENSORS.get("expansion_battery", {})
                 exp_data = exp_bats.get(sn, {})
                 for sensor_key, sensor_cfg in group_config.items():
                     entity = JackerySubDeviceSensor(
@@ -1171,7 +1169,6 @@ async def async_setup_entry(
 
     entities = []
     for sensor_id, sensor_config in SENSORS.items():
-        sensor_config = cast(dict[str, Any], sensor_config)
         if sensor_config.get("json_key") is None:
             continue
 
@@ -1187,6 +1184,8 @@ async def async_setup_entry(
 
 class JackerySensor(SensorEntity):
     """Jackery Sensor."""
+    # These entities expose numeric measurements and textual/enum states.
+    _attr_native_value: float | str | None
     # ... (Existing JackerySensor Code) ...
     def __init__(
         self,
@@ -1197,7 +1196,7 @@ class JackerySensor(SensorEntity):
         """Initialize."""
         self._sensor_id = sensor_id
         self._coordinator = coordinator
-        self._config = cast(dict[str, Any], SENSORS[sensor_id])
+        self._config = SENSORS[sensor_id]
 
         self._attr_translation_key = sensor_id
         self._attr_native_unit_of_measurement = self._config["unit"]
@@ -1272,7 +1271,7 @@ class JackerySensor(SensorEntity):
             elif "power" in value:
                 self._attr_native_value = value["power"]
             else:
-                self._attr_native_value = str(value)  # type: ignore[assignment]
+                self._attr_native_value = str(value)
         else:
             value_map = self._config.get("value_map")
             if value_map is not None:
@@ -1280,7 +1279,7 @@ class JackerySensor(SensorEntity):
                 try:
                     self._attr_native_value = value_map.get(int(value), str(value))
                 except (TypeError, ValueError):
-                    self._attr_native_value = str(value)  # type: ignore[assignment]
+                    self._attr_native_value = str(value)
             else:
                 scale = self._config.get("scale", 1)
                 try:
@@ -1318,12 +1317,16 @@ class JackerySensor(SensorEntity):
 class JackerySubDeviceSensor(SensorEntity):
     """Jackery Smart Plug / CT Sub-device Sensor."""
 
+    _attr_native_value: float | str | None
+    # Every constructor path assigns the string returned by child_unique_id.
+    _attr_unique_id: str
+
     def __init__(
         self,
         plug_sn: str,
         dev_type: int,
         sensor_key: str,
-        sensor_config: dict,
+        sensor_config: ChildSensorConfig,
         coordinator: JackeryDataCoordinator,
         config_entry_id: str,
         data_key: str = "plugs",
@@ -1335,7 +1338,7 @@ class JackerySubDeviceSensor(SensorEntity):
         self._plug_sn = plug_sn
         self._dev_type = dev_type
         self._sensor_key = sensor_key
-        self._sensor_config = cast(dict[str, Any], sensor_config)
+        self._sensor_config = sensor_config
         self._coordinator = coordinator
         self._use_expansion = use_expansion
         # data_key determines which cache entry to read sub-device data from.
@@ -1386,12 +1389,10 @@ class JackerySubDeviceSensor(SensorEntity):
     async def async_added_to_hass(self) -> None:
         await super().async_added_to_hass()
         # Register with coordinator using a unique ID format
-        if self._attr_unique_id is not None:
-            self._coordinator.register_sensor(self._attr_unique_id, self)
+        self._coordinator.register_sensor(self._attr_unique_id, self)
 
     async def async_will_remove_from_hass(self) -> None:
-        if self._attr_unique_id is not None:
-            self._coordinator.unregister_sensor(self._attr_unique_id)
+        self._coordinator.unregister_sensor(self._attr_unique_id)
         await super().async_will_remove_from_hass()
 
     def _update_from_coordinator(self, data: dict) -> None:
@@ -1611,7 +1612,7 @@ class JackerySmartMeterHttpSensor(SensorEntity):
         self,
         sm_sn: str,
         sensor_key: str,
-        sensor_config: dict,
+        sensor_config: ChildSensorConfig,
         coordinator: JackeryDataCoordinator,
         config_entry_id: str,
     ) -> None:
