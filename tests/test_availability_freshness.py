@@ -212,6 +212,107 @@ async def test_child_stale_fanout_isolation_and_recovery(runtime, case):
     assert c._subdevice_missing_since == {}
 
 
+@pytest.mark.parametrize(
+    "malformed",
+    [
+        pytest.param("bad", id="non-numeric-string"),
+        pytest.param([1], id="non-numeric-container"),
+        pytest.param(10**4000, id="overflowing-integer"),
+    ],
+)
+@pytest.mark.parametrize(
+    ("sensor_key", "a_key", "b_key", "initial_value", "recovered_value"),
+    [
+        pytest.param("power", "AphasePw", "BphasePw", 5, 4, id="power"),
+        pytest.param("energy", "AphaseEgy", "BphaseEgy", 0.05, 0.04, id="energy"),
+    ],
+)
+async def test_malformed_subtype3_phase_sum_does_not_interrupt_fanout(
+    runtime,
+    malformed,
+    sensor_key,
+    a_key,
+    b_key,
+    initial_value,
+    recovered_value,
+    caplog,
+):
+    coordinator = runtime.coordinator
+    power = await runtime.add(
+        JackerySubDeviceSensor(
+            "CT",
+            2,
+            sensor_key,
+            SUBDEVICE_SENSORS["ct"][sensor_key],
+            coordinator,
+            "ENTRY",
+            data_key="cts",
+            sensor_group="ct",
+        )
+    )
+    receive(
+        coordinator,
+        {
+            "cts": [
+                {
+                    "deviceSn": "CT",
+                    "devType": 2,
+                    "subType": 3,
+                    a_key: 2,
+                    b_key: 3,
+                }
+            ]
+        },
+        code=101,
+    )
+    assert power.native_value == initial_value
+
+    later_update = Mock()
+    coordinator.register_sensor(
+        "later",
+        SimpleNamespace(_update_from_coordinator=later_update),
+    )
+    try:
+        receive(
+            coordinator,
+            {
+                "cts": [
+                    {
+                        "deviceSn": "CT",
+                        "devType": 2,
+                        "subType": 3,
+                        a_key: malformed,
+                        b_key: 1,
+                    }
+                ]
+            },
+            code=101,
+        )
+        assert power.native_value == initial_value
+        later_update.assert_called_once_with(coordinator._data_cache)
+        assert "Error handling message" not in caplog.text
+
+        receive(
+            coordinator,
+            {
+                "cts": [
+                    {
+                        "deviceSn": "CT",
+                        "devType": 2,
+                        "subType": 3,
+                        a_key: "2.5",
+                        b_key: "1.5",
+                    }
+                ]
+            },
+            code=101,
+        )
+        assert power.native_value == recovered_value
+        assert later_update.call_count == 2
+    finally:
+        coordinator.unregister_sensor("later")
+
+
 @pytest.mark.parametrize("case", CHILD_CASES)
 async def test_child_expires_on_timer_without_new_messages(runtime, mqtt_tick, case):
     child, item = await add_child(runtime, case, "CHILD")
