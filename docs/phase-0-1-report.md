@@ -17,7 +17,7 @@
 | [refactor-map.md](refactor-map.md) | Responsibilities, callers, shared state, tests and extraction risk |
 | [architecture-plan.md](architecture-plan.md) | Minimal staged target modules and data ownership |
 | [refactoring-roadmap.md](refactoring-roadmap.md) | Small phases, invariants, tests, acceptance and rollback |
-| [diagnostics-plan.md](diagnostics-plan.md) | Snapshot fields, missing instrumentation, privacy and redaction |
+| [diagnostics-plan.md](diagnostics-plan.md) | Historical Phase 0/1 proposal; now redirects to the binding [Phase 3 diagnostics architecture](diagnostics-architecture.md) |
 | [logging-plan.md](logging-plan.md) | Existing weaknesses, levels, context and noise control |
 | [phase-0-1-report.md](phase-0-1-report.md) | This review entry point |
 
