@@ -1,5 +1,14 @@
 # Test coverage map
 
+The P3.1 diagnostics snapshot layer adds 24 direct, Home-Assistant-independent
+tests for the exact nine-section contract, neutral future-observation fields,
+JSON serialization, deterministic shared aliases, raw-identity exclusion,
+allowlist canaries, input/output copy isolation, firmware and numeric boundaries,
+health derivation, deterministic truncation, the 64 KiB ceiling and dependency
+direction. The pure builder has 100% statement coverage and no runtime caller or
+HA endpoint. Final validation: **1,374 passed, 95.45% coverage**; no skips or
+xfails were introduced.
+
 The SmartMeter replacement hardening adds a real polling-loop regression for a
 different meter serial, old-source retirement, per-serial entity creation,
 same-serial duplicate suppression, return recovery and distinct physical-device

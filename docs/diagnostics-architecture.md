@@ -307,6 +307,39 @@ The input model is intentionally separate from the output schema. It may reflect
 current owners, while the output remains stable if private runtime fields move or
 are renamed later.
 
+#### P3.1 concrete contract decisions
+
+P3.1 implements the pure boundary in
+`custom_components/jackery/diagnostics_snapshot.py`. The module uses only the
+Python standard library and exposes frozen, typed input records plus
+`build_diagnostics_snapshot(inputs, *, now)`. It has no coordinator, transport,
+protocol or Home Assistant runtime import. The returned dictionary has exactly
+the nine sections in section 4.1; fields that require P3.2 observation remain
+`unknown`, `null` or an empty fixed counter mapping.
+
+The firmware/version validator accepts 1 to 32 ASCII characters from
+`A-Z`, `a-z`, `0-9`, `.`, `+` and `-`, requires the first character to be
+alphanumeric, at least one digit and at least one version separator (`.`, `+` or
+`-`). Values outside that deliberately narrow token form become `null` with
+`firmware_valid: false`; a missing value uses `null` for both fields. This rejects
+spaces, paths, URLs and undelimited serial-like strings without introducing a
+general string sanitizer.
+
+The alias universe is the union of validated identifiers supplied through child
+summaries, child freshness, MQTT SmartMeter membership and HTTP target/created
+state. The host identifier is removed from that universe. Remaining raw values
+are sorted only in local memory and assigned `child_001`, `child_002`, ... in one
+shared namespace, including SmartMeters. Duplicate identities therefore reuse
+one alias across all sections. No raw-to-alias mapping is returned or retained.
+
+P3.1 retains at most 100 aliases in ascending alias order and enforces a 64 KiB
+compact UTF-8 JSON limit. Protocol observation detail is currently the mandated
+empty/neutral P3.2 placeholder, so there is no observation detail to discard.
+If the fixed child cap is still too large, aliases are removed deterministically
+from the end; per-platform entity and listener detail is removed next. Aggregate
+counts and truncation metadata remain. The builder fails closed rather than
+returning an over-budget object if the fixed core alone cannot fit.
+
 ### 6.2 Runtime collection
 
 Snapshot collection runs on Home Assistant's event-loop thread and makes a
@@ -592,11 +625,9 @@ off; unload/reload clears observations.
 ## 11. Open decisions and assumptions
 
 The following decisions must be resolved in their named PR, with tests, before
-expanding scope:
+expanding scope. The former P3.1 firmware and truncation decisions are resolved
+in section 6.1.
 
-- **P3.1:** finalize the exact conservative firmware-token validator and the
-  priority order used if the serialized result still exceeds 64 KiB after fixed
-  collection limits.
 - **P3.2:** choose whether passive protocol counters are fields on
   `CoordinatorRuntimeState` or a composed `DiagnosticsObservationState`. They may
   not enter `data_cache` or the routing package.
