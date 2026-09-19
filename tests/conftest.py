@@ -4,6 +4,7 @@ import time
 import pytest
 
 from custom_components.jackery.coordinator_state import CoordinatorRuntimeState
+from custom_components.jackery.diagnostics_observation import DiagnosticsObservationState
 from custom_components.jackery.sensor import JackeryDataCoordinator
 
 
@@ -24,6 +25,7 @@ def coordinator():
         last_update_time=time.time(),
         start_time=time.time(),
     )
+    coord._diagnostics_observation = DiagnosticsObservationState()
     coord._known_plugs = set()
     coord._subdevice_missing_since = {}
     coord._expansion_battery_sns = set()

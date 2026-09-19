@@ -137,6 +137,42 @@ _MIGRATION_CATEGORIES: Final = frozenset(
         "unresolved-entity-identity",
     }
 )
+_PROTOCOL_ROUTE_COUNTERS: Final = (
+    "generic_known",
+    "generic_unknown",
+    "type_23",
+    "type_101",
+    "type_102",
+    "type_106",
+    "type_107",
+    "type_123",
+)
+_PROTOCOL_ERROR_COUNTERS: Final = (
+    "foreign_host",
+    "handler_error",
+    "invalid_envelope",
+    "invalid_json",
+    "invalid_topic",
+)
+_HTTP_OUTCOMES: Final = frozenset(
+    {
+        "client_error",
+        "http_status_error",
+        "invalid_json",
+        "invalid_payload",
+        "no_target",
+        "success",
+        "timeout",
+        "unexpected_error",
+        "unknown",
+    }
+)
+_HTTP_REPLACEMENT_STATES: Final = frozenset(
+    {"initial", "replaced", "unchanged", "unknown"}
+)
+_HTTP_HEALTH_STATES: Final = frozenset(
+    {"degraded", "healthy", "unavailable", "unknown"}
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -210,6 +246,9 @@ class ProtocolDiagnosticsInput:
     child_container_counts: Mapping[str, Any] = field(default_factory=dict)
     type106_evidence: Sequence[Type106EvidenceInput] = ()
     grid_source: EnergySourceDiagnosticsInput | None = None
+    route_counters: Mapping[str, Any] = field(default_factory=dict)
+    error_counters: Mapping[str, Any] = field(default_factory=dict)
+    unknown_message_count: int | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -263,6 +302,12 @@ class SmartMeterDiagnosticsInput:
     poll_interval_seconds: int | None = None
     request_timeout_seconds: int | None = None
     failure_threshold: int | None = 3
+    last_attempt_at: float | None = None
+    last_success_at: float | None = None
+    consecutive_failures: int | None = None
+    last_outcome: str = "unknown"
+    source_replacement_state: str = "unknown"
+    health: str = "unknown"
 
 
 @dataclass(frozen=True, slots=True)
@@ -732,9 +777,23 @@ def _protocol_section(
         "type106_evidence": _type106_evidence(source.type106_evidence, now),
         "energy_sources": {"grid": _energy_source(source.grid_source)},
         "observation": {
-            "route_counters": {},
-            "error_counters": {},
-            "unknown_message_count": None,
+            "route_counters": {
+                key: count
+                for key in _PROTOCOL_ROUTE_COUNTERS
+                if (count := _optional_count(source.route_counters.get(key)))
+                is not None
+                and count > 0
+            },
+            "error_counters": {
+                key: count
+                for key in _PROTOCOL_ERROR_COUNTERS
+                if (count := _optional_count(source.error_counters.get(key)))
+                is not None
+                and count > 0
+            },
+            "unknown_message_count": _optional_count(
+                source.unknown_message_count
+            ),
         },
     }
 
@@ -877,6 +936,7 @@ def _aliases_for(
 def _smartmeter_section(
     inputs: DiagnosticsSnapshotInput,
     *,
+    now: float,
     aliases: Mapping[str, str],
     included_aliases: set[str],
 ) -> SmartMeterSection:
@@ -913,12 +973,28 @@ def _smartmeter_section(
                 source.request_timeout_seconds
             ),
             "failure_threshold": _optional_count(source.failure_threshold),
-            "last_attempt_age_seconds": None,
-            "last_success_age_seconds": None,
-            "consecutive_failures": None,
-            "last_outcome": "unknown",
-            "source_replacement_state": "unknown",
-            "health": "unknown" if enabled else "disabled",
+            "last_attempt_age_seconds": _age(now, source.last_attempt_at),
+            "last_success_age_seconds": _age(now, source.last_success_at),
+            "consecutive_failures": _optional_count(
+                source.consecutive_failures
+            ),
+            "last_outcome": _closed_string(
+                source.last_outcome,
+                _HTTP_OUTCOMES,
+                "unknown",
+            ),
+            "source_replacement_state": _closed_string(
+                source.source_replacement_state,
+                _HTTP_REPLACEMENT_STATES,
+                "unknown",
+            ),
+            "health": "disabled"
+            if not enabled
+            else _closed_string(
+                source.health,
+                _HTTP_HEALTH_STATES,
+                "unknown",
+            ),
         },
     }
 
@@ -1084,6 +1160,7 @@ def build_diagnostics_snapshot(
         ),
         "smartmeter": _smartmeter_section(
             inputs,
+            now=snapshot_now,
             aliases=aliases,
             included_aliases=included_aliases,
         ),

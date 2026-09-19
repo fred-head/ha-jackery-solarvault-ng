@@ -5,6 +5,7 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
+import aiohttp
 import pytest
 
 from custom_components.jackery import sensor as sensor_module
@@ -238,13 +239,30 @@ async def http_poll(mixed_sensors, monkeypatch):
         assert task.done()
 
 
-@pytest.mark.parametrize("failure", ["status", "timeout", "json", "list", "empty", "nonnumeric"])
-async def test_http_invalid_polls_use_failure_threshold_and_recover(http_poll, failure):
+@pytest.mark.parametrize(
+    ("failure", "expected_outcome"),
+    [
+        ("status", "http_status_error"),
+        ("timeout", "timeout"),
+        ("client", "client_error"),
+        ("json", "invalid_json"),
+        ("list", "invalid_payload"),
+        ("empty", "invalid_payload"),
+        ("nonnumeric", "invalid_payload"),
+    ],
+)
+async def test_http_invalid_polls_use_failure_threshold_and_recover(
+    http_poll,
+    failure,
+    expected_outcome,
+):
     p = http_poll
     if failure == "status":
         p.response.status = 503
     elif failure == "timeout":
         p.request.__aenter__.side_effect = TimeoutError()
+    elif failure == "client":
+        p.request.__aenter__.side_effect = aiohttp.ClientError("PRIVATE_ERROR")
     elif failure == "json":
         p.response.json.side_effect = ValueError("invalid JSON")
     else:
@@ -253,12 +271,26 @@ async def test_http_invalid_polls_use_failure_threshold_and_recover(http_poll, f
         assert await p.poll() == 10
         assert p.http.available is (attempt < 3)
         assert p.http.native_value == 50
+        observation = p.coordinator.diagnostics_observation().http
+        assert observation.last_outcome == expected_outcome
+        assert observation.consecutive_failures == attempt
+        assert observation.health == (
+            "unavailable" if attempt >= 3 else "degraded"
+        )
+        assert "PRIVATE_ERROR" not in repr(observation)
+        assert "192.0.2.1" not in repr(observation)
     p.response.status = 200
     p.request.__aenter__.side_effect = None
     p.response.json.side_effect = None
     p.response.json.return_value = {"freq": 0}
     await p.poll()
     assert p.http.available and p.http.native_value == 0
+    recovered = p.coordinator.diagnostics_observation().http
+    assert recovered.last_outcome == "success"
+    assert recovered.consecutive_failures == 0
+    assert recovered.health == "healthy"
+    assert recovered.last_attempt_at is not None
+    assert recovered.last_success_at is not None
     assert p.session.get.call_args.kwargs["timeout"].total == 5
 
 
@@ -268,9 +300,11 @@ async def test_http_success_resets_consecutive_failures(http_poll):
         p.response.status = status
         await p.poll()
         assert p.http.available
+    assert p.coordinator.diagnostics_observation().http.consecutive_failures == 2
     p.response.status = 503
     await p.poll()
     assert not p.http.available
+    assert p.coordinator.diagnostics_observation().http.consecutive_failures == 3
 
 
 async def test_http_lost_address_expires_and_recovers_without_new_entities(http_poll):
@@ -280,11 +314,16 @@ async def test_http_lost_address_expires_and_recovers_without_new_entities(http_
     for attempt in range(1, 4):
         assert await p.poll() == 30
         assert p.http.available is (attempt < 3)
+        observation = p.coordinator.diagnostics_observation().http
+        assert observation.target_identifier is None
+        assert observation.last_outcome == "no_target"
+        assert observation.consecutive_failures == attempt
     assert p.session.get.call_count == 1
     p.meter["wip"] = "192.0.2.1"
     assert await p.poll() == 10
     assert p.http.available
     assert p.coordinator._sensors == registered
+    assert p.coordinator.diagnostics_observation().http.target_identifier == "METER"
 
 
 async def test_http_stop_while_request_pending_marks_unavailable(http_poll):
@@ -315,6 +354,7 @@ async def test_http_stop_during_unexpected_error_backoff_marks_unavailable(http_
     # cancellation during that path must still execute health cleanup.
     monkeypatch.setattr(p.coordinator, "_distribute_http_data", Mock(side_effect=RuntimeError("callback error")))
     await p.poll()
+    assert p.coordinator.diagnostics_observation().http.last_outcome == "unexpected_error"
     await p.coordinator.async_stop()
     assert not p.http.available
 
@@ -335,10 +375,16 @@ async def test_http_meter_identity_change_retires_old_source_and_return_recovers
     await p.poll()
     assert not p.http.available
     assert p.http.native_value == 50
+    replacement = p.coordinator.diagnostics_observation().http
+    assert replacement.target_identifier == "REPLACEMENT"
+    assert replacement.replacement_state == "replaced"
     p.meter["deviceSn"] = "METER"
     p.response.json.return_value = {"freq": 51}
     await p.poll()
     assert p.http.available and p.http.native_value == 51
+    returned = p.coordinator.diagnostics_observation().http
+    assert returned.target_identifier == "METER"
+    assert returned.replacement_state == "replaced"
 
 
 async def test_http_meter_replacement_creates_one_entity_set_per_serial(
