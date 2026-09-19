@@ -41,6 +41,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Ignore malformed numeric values in the legacy subtype-3 CT phase-sum
+  fallback, preserving the entity's last valid value and allowing later MQTT
+  listeners to receive the same update.
 - Keep the singular `plug` and plural `plugs` cache aliases on the same
   canonical list when generic MQTT payloads replace plug data, preventing fresh
   child activity from being paired with stale entity values.

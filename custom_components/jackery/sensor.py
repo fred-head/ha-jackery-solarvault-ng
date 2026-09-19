@@ -1486,7 +1486,10 @@ class JackerySubDeviceSensor(SensorEntity):
                         a_pw = my_plug.get("AphasePw") or my_plug.get("aPhasePw") or 0
                         b_pw = my_plug.get("BphasePw") or my_plug.get("bPhasePw") or 0
                         if any(v is not None for v in [a_pw, b_pw]):
-                            val = float(a_pw) + float(b_pw)
+                            try:
+                                val = float(a_pw) + float(b_pw)
+                            except (TypeError, ValueError, OverflowError):
+                                return
                 else:
                     val = my_plug.get("TphasePw") or my_plug.get("tPhasePw")
             else:
@@ -1501,7 +1504,10 @@ class JackerySubDeviceSensor(SensorEntity):
                         a_egy = my_plug.get("AphaseEgy") or my_plug.get("aPhaseEgy") or 0
                         b_egy = my_plug.get("BphaseEgy") or my_plug.get("bPhaseEgy") or 0
                         if any(v is not None for v in [a_egy, b_egy]):
-                            val = float(a_egy) + float(b_egy)
+                            try:
+                                val = float(a_egy) + float(b_egy)
+                            except (TypeError, ValueError, OverflowError):
+                                return
                 else:
                     val = my_plug.get("TphaseEgy") or my_plug.get("tPhaseEgy")
                 # If subtype energy is zero/None but total is non-zero, fall back to the single non-zero phase
