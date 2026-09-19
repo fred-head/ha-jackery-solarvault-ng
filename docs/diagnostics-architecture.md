@@ -7,10 +7,11 @@ against `refactor/v3-foundation` at
 `ccaa100bbbea88d3d01904d7548aaf934c1b9a07`. The accepted Phase 2/2.5
 architecture is a constraint, not a subject of this phase.
 
-The foundation has no `diagnostics.py` and no diagnostics endpoint. It does
-already have distinct owners for protocol/runtime state, child membership,
-transport mechanics and Home Assistant effects. Diagnostics must observe those
-owners without consolidating or moving their state.
+P3.3 adds a config-entry-only `diagnostics.py` endpoint on top of the P3.1
+snapshot builder and P3.2 observation record. The integration retains distinct
+owners for protocol/runtime state, child membership, transport mechanics and
+Home Assistant effects. Diagnostics observes those owners without consolidating
+or moving their state.
 
 The Home Assistant integration currently stores entry runtime data in
 `hass.data[DOMAIN][entry_id]`, not `ConfigEntry.runtime_data`. A later
@@ -80,7 +81,7 @@ physical state.
 | Coordinator HTTP creation state | `_http_sm_sensor_sns_created` | Set of meter serials whose HTTP entity sets were created | Export alias count/list and duplicate-prevention state | Serial values require the same child alias map |
 | MQTT transport | Per-instance unsubscribe callbacks and their count | Authoritative ownership of active HA MQTT listener handles | Export owned-handle count only | Handles are not connectivity, broker health or successful subscription delivery |
 | SmartMeter HTTP transport | Injected session and one call's URL/status/data result | Request-local mechanics only | No transport object or response is exported | URL/status are not persistently observable; never retain or export URL/IP/raw data |
-| SmartMeter HTTP poll loop locals | Selected serial, consecutive failures, request success and threshold | Current HTTP health policy, but most values exist only inside the coroutine | Desired diagnostics fields cannot be read reliably today | A later passive observation record is required; it must mirror existing transitions without changing them |
+| P3.2 diagnostics observation state | Selected HTTP target, attempt/success times, consecutive failures, bounded outcome/replacement/health and bounded protocol counters | Passive per-coordinator mirror of existing transitions with no operational authority | Copy the immutable observation snapshot into explicit P3.1 inputs | Never export request data, exception text, raw message types or identities; the target identifier enters only the shared alias relation |
 | Config entry | Configuration data/options, entry state, source and title | HA configuration truth | Export only schema-derived booleans, bounded interval and safe entry-state enum | Never copy `entry.data`/`entry.options`; omit title, IDs and all raw strings |
 | HA entity registry/state machine | Entry-owned entity records, disabled status and current HA states | Authoritative HA registration/state view | Aggregate counts by fixed platform and availability bucket | IDs, unique IDs, names, areas, state attributes and values are not exported |
 | HA device registry | Entry-owned main/child device records and relationships | Authoritative HA device registration view | Aggregate device counts/roles only | Never export device IDs, identifiers, names, areas or `via_device` identifiers |
@@ -106,10 +107,10 @@ these current facts:
 - HTTP replacement serials receive distinct entity sets and old meter entities
   remain registered but unavailable;
 - child freshness is communication freshness, not field-level measurement age;
-- the HTTP failure counter, selected meter and last result are still loop-local,
-  so the old plan's proposed HTTP fields are not all currently observable;
-- no message-type counters, parse-error history, command outcome history or
-  broker-connection state currently exists.
+- P3.2 passively mirrors the HTTP failure counter, selected meter and bounded
+  outcome/health transitions without changing the poll loop's authority;
+- P3.2 provides fixed-cardinality route/error counters and an unknown-message
+  count; command outcome history and broker-connection state remain unavailable.
 
 ## 4. Diagnostics data contract
 
@@ -176,20 +177,21 @@ The current energy-source record permits only:
 Arbitrary mappings added to `energy_sources` in the future do not automatically
 become diagnostics fields.
 
-### 4.4 Currently unavailable contract fields
+### 4.4 Observation availability
 
-The schema may reserve fields that return `unknown`/`null` until passive
-instrumentation exists, but the endpoint must not synthesize them:
+P3.2 supplies bounded passive observations to the P3.3 adapter. Fields without
+an authoritative owner remain `unknown`/`null`; the endpoint does not synthesize
+them:
 
-| Desired field | Why unavailable now | Later observation owner |
-| --- | --- | --- |
-| HTTP last attempt/success age | Timestamps are not stored | Coordinator HTTP-health observation record |
-| HTTP consecutive failures and last outcome | Counter and success are coroutine locals | Coordinator HTTP-health observation record |
-| HTTP last status category | Result status is request-local | Coordinator HTTP-health observation record, as a bounded category only |
-| Accepted route/error counters | No counters exist | HA-independent protocol observation record updated by coordinator orchestration |
-| Unknown-message count | Generic routing is not counted | Protocol observation record; no raw type string |
-| MQTT broker connectivity | Integration owns no public connection state | `unknown` unless a stable read-only HA API is explicitly verified in the implementation PR |
-| Publish/command outcome history | Transport retains no outcome state or correlation | Omitted; a future command-observability design, not diagnostics inference |
+| Desired field | P3.3 status and source |
+| --- | --- |
+| HTTP last attempt/success age | Available from the coordinator HTTP-observation record |
+| HTTP consecutive failures and last outcome | Available from the coordinator HTTP-observation record |
+| HTTP last status category | Available as the bounded P3.2 outcome category |
+| Accepted route/error counters | Available from the HA-independent protocol-observation record |
+| Unknown-message count | Available as a count from the protocol-observation record; no raw type string |
+| MQTT broker connectivity | `unknown`; the integration owns no stable public connection state |
+| Publish/command outcome history | Omitted; the transport retains no outcome state or correlation |
 
 ## 5. Privacy, redaction and aliasing
 
@@ -456,6 +458,55 @@ because setup did not complete or the entry is unloaded, it returns a minimal
 safe snapshot with fixed `runtime_unavailable` health, not a stack trace or raw
 entry data.
 
+### 7.1 P3.3 Home Assistant adapter decisions
+
+P3.3 implements Home Assistant's current config-entry diagnostics signature:
+
+```python
+async_get_config_entry_diagnostics(hass: HomeAssistant, entry: ConfigEntry)
+```
+
+The public function in `diagnostics.py` loads only the integration manifest
+version, resolves the entry-scoped coordinator through the repository's existing
+`hass.data[DOMAIN][entry_id]` boundary, reads one snapshot clock and invokes
+`build_diagnostics_snapshot()` exactly once. The larger explicit owner mapping
+lives in `diagnostics_adapter.py`; it is read-only Home Assistant adapter code,
+not a state owner or a second serialization layer. The completed P3.1 dictionary
+receives Home Assistant's key-based redaction helper only as a final defense.
+
+The adapter copies fixed fields from `CoordinatorRuntimeState`,
+`ChildDiscoveryState` and the P3.2 immutable observation snapshot. It supplies
+only the P3.1 semantic measurement allowlist, fixed cache/container counts,
+Type-106 evidence, grid-source metadata, child summaries and freshness inputs.
+The internal host, child and selected HTTP target identifiers are passed only as
+P3.1 input relations; P3.1 remains the sole aliasing boundary. The raw cache,
+complete child dictionaries, topics, network addresses, HTTP data, exception
+text and entity attributes are never inputs.
+
+Entity and device registry reads use the current entry-scoped Home Assistant
+helpers. Output contains only total and fixed-platform entity counts, disabled
+count, normalized `available`/`unavailable`/`unknown` counts, host/child device
+counts, fixed runtime-listener capability counts and the sensor registration
+mismatch count. Entity IDs are used transiently only to retrieve a state; the
+adapter reads only its normalized state string and never reads attributes,
+including `raw_data`. Registry IDs, identities, names, labels and areas are not
+passed to P3.1.
+
+Coordinator application state is normalized from the config-entry state and
+the existing `_subscribed` application flag. MQTT and HTTP tasks become only
+`absent`, `cancelled`, `done` or `running`; task/coroutine representations,
+exception objects and function names are never inspected. MQTT owned-handle
+count remains transport-owned evidence and is not broker connectivity. Broker
+connectivity therefore remains `unknown`.
+
+Runtime receipt and freshness values use the foundation's wall-clock
+`time.time()` basis. The endpoint reads that clock once after manifest loading
+and supplies the same value to every age decision and the P3.1 builder. An
+unloaded or partially initialized entry uses explicit neutral inputs and
+`runtime_unavailable` without catching unexpected programming errors. P3.3 adds
+no polling, refresh, discovery, registry mutation, task creation, device-specific
+endpoint or protocol-discovery behavior.
+
 ## 8. Diagnostics versus protocol discovery
 
 ### 8.1 Standard diagnostics
@@ -624,6 +675,10 @@ integration, polls/requests, registry writes, raw state values and attributes.
 canaries appear in the full serialized endpoint output; no side-effect boundary
 is called; official function signature matches the supported HA test version.
 
+**Status:** completed by the config-entry endpoint and read-only HA adapter
+described in section 7.1. Device diagnostics, broker-connectivity inference and
+protocol discovery remain out of scope.
+
 **Dependency:** P3.1 and P3.2.
 
 ### P3.4 - Diagnostics adversarial hardening
@@ -671,15 +726,12 @@ off; unload/reload clears observations.
 ## 11. Open decisions and assumptions
 
 The following decisions must be resolved in their named PR, with tests, before
-expanding scope. The former P3.1 decisions are resolved in section 6.1, and the
-P3.2 ownership, counter and HTTP-outcome decisions are resolved in section 6.4.
+expanding scope. The P3.1 decisions are resolved in section 6.1, the P3.2
+ownership, counter and HTTP-outcome decisions in section 6.4, and the P3.3
+adapter decisions in section 7.1. P3.3 deliberately leaves broker connectivity
+`unknown` and exposes config-entry diagnostics only; subscription handles are
+not connectivity evidence and no device-specific contract was justified.
 
-- **P3.3:** verify whether the supported HA version exposes a stable, read-only
-  broker-connectivity API. Until proven, the field remains `unknown`; subscription
-  handles are never a substitute.
-- **P3.3:** config-entry diagnostics is the initial endpoint. A device-specific
-  endpoint is deferred unless support evidence shows that filtering the same
-  contract materially improves troubleshooting.
 - **P3.5:** the exact user-facing opt-in and reload behavior must follow the
   existing options lifecycle; protocol discovery must remain disabled by default
   and memory-only.
