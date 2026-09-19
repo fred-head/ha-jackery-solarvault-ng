@@ -428,6 +428,13 @@ class JackeryDataCoordinator:
             live_preferred=_TYPE106_LIVE_PREFERRED,
             valid_live_fields=valid_live_fields,
         )
+        plug_items = normalized.get("plug")
+        if not isinstance(plug_items, list):
+            plug_items = normalized.get("plugs")
+        if isinstance(plug_items, list):
+            # Both aliases are one canonical cache view, including generic routes.
+            self._data_cache["plugs"] = plug_items
+            self._data_cache["plug"] = self._data_cache["plugs"]
 
     def _merge_subdevice_arrays(self, body: dict) -> bool:
         """Merge plugs/cts/collectors arrays from a body into the cache.
