@@ -1,5 +1,15 @@
 # Test coverage map
 
+The P3.2 passive-observability layer adds nine direct/coordinator-path tests plus
+expanded HTTP transport and polling cases. They cover neutral state, immutable
+copies, counter saturation and fixed cardinality, accepted/error routing
+boundaries, unknown messages, per-coordinator isolation, stop/reset behavior,
+all fixed HTTP outcomes, the unchanged three-failure threshold, recovery and
+meter replacement. Existing broad HTTP/MQTT/routing/coordinator/lifecycle tests
+remain the behavior gate. Final validation: **1,385 passed, 95.78% coverage**;
+the snapshot and HTTP transport modules have 100% statement coverage and the
+observation module has 100% direct coverage. No skips or xfails were introduced.
+
 The P3.1 diagnostics snapshot layer adds 24 direct, Home-Assistant-independent
 tests for the exact nine-section contract, neutral future-observation fields,
 JSON serialization, deterministic shared aliases, raw-identity exclusion,

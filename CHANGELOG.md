@@ -11,6 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   builder with explicit semantic allowlists, snapshot-local device aliases,
   deterministic bounds and neutral placeholders for later runtime observation.
   No Home Assistant diagnostics endpoint is exposed yet.
+- Add per-coordinator passive diagnostics observations for fixed protocol
+  route/error counters and SmartMeter HTTP outcomes, health, failure/recovery and
+  target replacement. Observations are ephemeral and read-only and do not alter
+  routing, polling, availability or transport behavior.
 
 ### Refactored
 

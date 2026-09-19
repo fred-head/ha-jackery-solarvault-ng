@@ -526,6 +526,54 @@ def test_type106_energy_source_and_age_contracts_are_allowlisted() -> None:
     assert snapshot["freshness"]["host"]["activity_age_seconds"] == 3.0
 
 
+def test_passive_observation_inputs_use_fixed_allowlists_and_ages() -> None:
+    inputs = _populated_input()
+    snapshot = build_diagnostics_snapshot(
+        replace(
+            inputs,
+            protocol=replace(
+                inputs.protocol,
+                route_counters={
+                    "type_101": 2,
+                    "generic_unknown": 1,
+                    "PRIVATE_ROUTE_CANARY": 99,
+                },
+                error_counters={
+                    "invalid_json": 3,
+                    "PRIVATE_ERROR_CANARY": 99,
+                },
+                unknown_message_count=1,
+            ),
+            smartmeter=replace(
+                inputs.smartmeter,
+                last_attempt_at=9_998.0,
+                last_success_at=9_997.0,
+                consecutive_failures=2,
+                last_outcome="timeout",
+                source_replacement_state="replaced",
+                health="degraded",
+            ),
+        ),
+        now=NOW,
+    )
+
+    assert snapshot["protocol"]["observation"] == {
+        "route_counters": {"generic_unknown": 1, "type_101": 2},
+        "error_counters": {"invalid_json": 3},
+        "unknown_message_count": 1,
+    }
+    assert snapshot["smartmeter"]["http"]["last_attempt_age_seconds"] == 2.0
+    assert snapshot["smartmeter"]["http"]["last_success_age_seconds"] == 3.0
+    assert snapshot["smartmeter"]["http"]["consecutive_failures"] == 2
+    assert snapshot["smartmeter"]["http"]["last_outcome"] == "timeout"
+    assert snapshot["smartmeter"]["http"]["source_replacement_state"] == "replaced"
+    assert snapshot["smartmeter"]["http"]["health"] == "degraded"
+    serialized = _compact_json(snapshot)
+    assert "PRIVATE_ROUTE_CANARY" not in serialized
+    assert "PRIVATE_ERROR_CANARY" not in serialized
+    assert "METER-Z" not in serialized
+
+
 def test_health_uses_fixed_reasons_and_precedence() -> None:
     inputs = _populated_input()
     snapshot = build_diagnostics_snapshot(

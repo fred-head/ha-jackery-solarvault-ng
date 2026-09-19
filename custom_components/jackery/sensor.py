@@ -28,6 +28,13 @@ from .devices.classification import (
     classify_device,
 )
 from .devices.classification import should_create_plug_switch as should_create_plug_switch
+from .diagnostics_observation import (
+    DiagnosticsObservationSnapshot,
+    DiagnosticsObservationState,
+    HttpOutcome,
+    ProtocolErrorBucket,
+    ProtocolRouteBucket,
+)
 from .discovery import ChildDiscoveryState, child_entity_spec
 from .entities.sensor_definitions import CT_STATUS_MAP as CT_STATUS_MAP
 from .entities.sensor_definitions import DEVICE_STATUS_MAP as DEVICE_STATUS_MAP
@@ -82,6 +89,7 @@ OFFLINE_TIMEOUT = 60  # seconds without any message → mark entities unavailabl
 # If the device never answers within this window after setup the token is most likely rejected
 # (the device stays silent on a bad token instead of replying with an error).
 REAUTH_HINT_TIMEOUT = 120
+HTTP_FAILURE_THRESHOLD = 3
 
 # Device model lookup from deviceType field in MQTT payload
 DEVICE_TYPE_MODEL_MAP: dict[int, str] = {
@@ -98,6 +106,27 @@ _TYPE106_LIVE_PREFERRED: frozenset[str] = frozenset({
     "swEpsInPw", "swEpsOutPw",
     "stackInPw", "stackOutPw",
 })
+
+
+def _protocol_observation_bucket(
+    decision: RoutingDecision,
+) -> tuple[ProtocolRouteBucket, bool]:
+    """Map an accepted route to one fixed diagnostics bucket."""
+    if decision.route is MessageRoute.TYPE_23:
+        return ProtocolRouteBucket.TYPE_23, False
+    if decision.route is MessageRoute.TYPE_101:
+        return ProtocolRouteBucket.TYPE_101, False
+    if decision.route is MessageRoute.TYPE_102:
+        return ProtocolRouteBucket.TYPE_102, False
+    if decision.route is MessageRoute.TYPE_106:
+        return ProtocolRouteBucket.TYPE_106, False
+    if decision.route is MessageRoute.TYPE_107:
+        return ProtocolRouteBucket.TYPE_107, False
+    if decision.route is MessageRoute.TYPE_123:
+        return ProtocolRouteBucket.TYPE_123, False
+    if decision.message_type in (2, 25):
+        return ProtocolRouteBucket.GENERIC_KNOWN, False
+    return ProtocolRouteBucket.GENERIC_UNKNOWN, True
 
 
 def _merge_subdevice_list(
@@ -141,6 +170,7 @@ class JackeryDataCoordinator:
             last_update_time=time.time(),
             start_time=time.time(),
         )
+        self._diagnostics_observation = DiagnosticsObservationState()
 
         self._child_discovery_state = ChildDiscoveryState()
         # Compatibility aliases retained for existing coordinator consumers.
@@ -205,6 +235,10 @@ class JackeryDataCoordinator:
     def _mqtt_unsubscribers(self) -> list[CALLBACK_TYPE]:
         """Compatibility view of transport-owned subscription handles."""
         return self._mqtt_transport.unsubscribers
+
+    def diagnostics_observation(self) -> DiagnosticsObservationSnapshot:
+        """Return an immutable copy of passive per-coordinator observations."""
+        return self._diagnostics_observation.snapshot()
 
     def register_sensor(self, sensor_id: str, entity: Any) -> None:
         """Register an HA entity for its supported MQTT or HTTP update path."""
@@ -276,18 +310,30 @@ class JackeryDataCoordinator:
             topic = msg.topic
             topic_info = parse_topic(self._topic_root, topic)
             if topic_info is None:
+                self._diagnostics_observation.record_protocol_error(
+                    ProtocolErrorBucket.INVALID_TOPIC
+                )
                 return
             sn = topic_info.device_sn
             if self._device_sn and self._device_sn != sn:
+                self._diagnostics_observation.record_protocol_error(
+                    ProtocolErrorBucket.FOREIGN_HOST
+                )
                 _LOGGER.debug(f"Ignoring data from another device: {sn}")
                 return
 
             try:
                 parsed = parse_envelope(msg.payload)
             except json.JSONDecodeError:
+                self._diagnostics_observation.record_protocol_error(
+                    ProtocolErrorBucket.INVALID_JSON
+                )
                 _LOGGER.warning(f"Invalid JSON payload on {topic}")
                 return
             if parsed is None:
+                self._diagnostics_observation.record_protocol_error(
+                    ProtocolErrorBucket.INVALID_ENVELOPE
+                )
                 return
 
             if not self._device_sn:
@@ -317,7 +363,18 @@ class JackeryDataCoordinator:
 
             self._distribute_data(self._data_cache)
 
+            route_bucket, unknown_message_type = _protocol_observation_bucket(
+                decision
+            )
+            self._diagnostics_observation.record_protocol_route(
+                route_bucket,
+                unknown_message_type=unknown_message_type,
+            )
+
         except Exception as e:
+            self._diagnostics_observation.record_protocol_error(
+                ProtocolErrorBucket.HANDLER_ERROR
+            )
             _LOGGER.error(f"Error handling message: {e}")
 
     def _apply_message_route(
@@ -1068,8 +1125,6 @@ class JackeryDataCoordinator:
         measurement_keys = tuple(
             config["key"] for config in SMARTMETER_HTTP_SENSOR_CONFIGS.values()
         )
-        # Mark unavailable after this many consecutive failures (~3 × poll_interval without data)
-        _FAILURE_THRESHOLD = 3
         consecutive_failures = 0
         last_sm_sn: str | None = None
 
@@ -1078,15 +1133,21 @@ class JackeryDataCoordinator:
         while True:
             try:
                 ip, sm_sn = self._find_smartmeter_ip_and_sn()
+                self._diagnostics_observation.observe_http_target(sm_sn)
                 success = False
+                outcome = HttpOutcome.NO_TARGET
                 if ip and sm_sn:
                     if last_sm_sn and last_sm_sn != sm_sn:
                         self._mark_http_sensors_unavailable(last_sm_sn)
                         consecutive_failures = 0
                     last_sm_sn = sm_sn
                     try:
+                        self._diagnostics_observation.record_http_attempt(
+                            time.time()
+                        )
                         result = await transport.fetch_measurement(ip, measurement_keys)
                         data = result.data
+                        outcome = result.outcome
                         success = data is not None
                         if data is not None:
                             if sm_sn not in self._http_sm_sensor_sns_created:
@@ -1100,24 +1161,38 @@ class JackeryDataCoordinator:
                                 result.url,
                             )
                     except SmartMeterHttpRequestError as e:
+                        outcome = e.outcome
                         _LOGGER.debug("SmartMeter HTTP poll failed (%s): %s", ip, e)
 
                 if success:
                     consecutive_failures = 0
                 elif last_sm_sn:
                     consecutive_failures += 1
-                    if consecutive_failures == _FAILURE_THRESHOLD:
+                    if consecutive_failures == HTTP_FAILURE_THRESHOLD:
                         _LOGGER.warning(
                             "SmartMeter HTTP unreachable for %d polls — marking sensors unavailable",
-                            _FAILURE_THRESHOLD,
+                            HTTP_FAILURE_THRESHOLD,
                         )
                         self._mark_http_sensors_unavailable(last_sm_sn)
+
+                self._diagnostics_observation.record_http_outcome(
+                    outcome,
+                    now=time.time(),
+                    consecutive_failures=consecutive_failures,
+                    failure_threshold=HTTP_FAILURE_THRESHOLD,
+                )
 
                 await asyncio.sleep(poll_interval if ip and sm_sn else 30)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                self._diagnostics_observation.record_http_outcome(
+                    HttpOutcome.UNEXPECTED_ERROR,
+                    now=time.time(),
+                    consecutive_failures=consecutive_failures,
+                    failure_threshold=HTTP_FAILURE_THRESHOLD,
+                )
                 _LOGGER.error("SmartMeter HTTP poll loop error: %s", e)
                 try:
                     await asyncio.sleep(poll_interval)

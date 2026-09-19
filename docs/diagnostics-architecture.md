@@ -372,6 +372,52 @@ handle count remains transport-owned. Protocol route/error counters may live in
 a small Home-Assistant-independent observation record; they do not belong in
 the raw cache and must not turn routing into a diagnostics concern.
 
+### 6.4 P3.2 passive observability decisions
+
+P3.2 composes one standard-library-only `DiagnosticsObservationState` into each
+`JackeryDataCoordinator`. It is separate from `CoordinatorRuntimeState`, because
+cache, freshness and source evidence remain operational runtime truths while the
+new record contains only diagnostic history. The state is created and discarded
+with its coordinator; there is no module-global state, persistence or transfer on
+reload. Stop/unload does not synthesize HTTP or protocol observations.
+
+The coordinator exposes `diagnostics_observation()`, which returns frozen records
+and sorted tuples copied from all mutable counter mappings. P3.3 may translate
+that view into the P3.1 input records without reaching into private dictionaries.
+The HTTP target identifier in this internal view exists only to join the selected
+meter to P3.1's snapshot-local alias map. It is not export-safe and must never be
+returned directly by a Home Assistant diagnostics endpoint.
+
+SmartMeter HTTP request outcomes are classified at the transport result boundary
+as `success`, `timeout`, `client_error`, `http_status_error`, `invalid_json` or
+`invalid_payload`. The coordinator additionally records `no_target` and
+`unexpected_error`; the initial value is `unknown`. Only the fixed code is stored.
+URLs, IP addresses, response bodies and exception text remain request-local. The
+observation mirrors the poll loop's existing consecutive-failure counter after
+each iteration, its current target, last attempt/success receipt timestamps and
+the last target-selection transition (`initial`, `unchanged` or `replaced`).
+`healthy`, `degraded`, `unavailable` and `unknown` are diagnostic summaries of
+that mirrored counter and outcome. The operative three-failure threshold remains
+the unchanged local poll-loop decision and never reads observation state.
+
+Protocol counters use only these fixed accepted-route buckets:
+`type_23`, `type_101`, `type_102`, `type_106`, `type_107`, `type_123`,
+`generic_known` (currently types 2 and 25), and `generic_unknown`. An accepted
+route increments only after route application, calculations, discovery and
+entity fan-out complete. `unknown_message_count` increments with a successfully
+handled `generic_unknown` route and never stores the raw message type. Fixed
+error buckets are `invalid_topic`, `foreign_host`, `invalid_json`,
+`invalid_envelope` and `handler_error`; each is recorded at the existing
+rejection/failure boundary. Counters saturate at 2,147,483,647 and their key
+cardinality cannot grow.
+
+P3.1 now accepts these fixed counter and HTTP-observation values through explicit
+allowlisted input fields and converts receipt timestamps to ages using the one
+supplied snapshot clock. No production code invokes the snapshot builder yet;
+P3.3 remains responsible for constructing the complete input and exposing the HA
+endpoint. MQTT broker connectivity remains `unknown`: subscription ownership,
+application lifecycle and `_subscribed` are still not connectivity evidence.
+
 ## 7. Home Assistant integration boundary
 
 The later `diagnostics.py` should be a thin adapter:
@@ -625,15 +671,9 @@ off; unload/reload clears observations.
 ## 11. Open decisions and assumptions
 
 The following decisions must be resolved in their named PR, with tests, before
-expanding scope. The former P3.1 firmware and truncation decisions are resolved
-in section 6.1.
+expanding scope. The former P3.1 decisions are resolved in section 6.1, and the
+P3.2 ownership, counter and HTTP-outcome decisions are resolved in section 6.4.
 
-- **P3.2:** choose whether passive protocol counters are fields on
-  `CoordinatorRuntimeState` or a composed `DiagnosticsObservationState`. They may
-  not enter `data_cache` or the routing package.
-- **P3.2:** define fixed HTTP outcome categories that distinguish no target,
-  non-200, invalid JSON/shape, network/timeout and success without retaining
-  exceptions or URLs.
 - **P3.3:** verify whether the supported HA version exposes a stable, read-only
   broker-connectivity API. Until proven, the field remains `unknown`; subscription
   handles are never a substitute.

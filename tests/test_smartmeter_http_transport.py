@@ -6,6 +6,7 @@ import aiohttp
 import pytest
 
 from custom_components.jackery.transport.smartmeter_http import (
+    HttpOutcome,
     SmartMeterHttpRequestError,
     SmartMeterHttpTransport,
 )
@@ -31,6 +32,7 @@ async def test_fetch_measurement_uses_exact_request_contract_and_returns_data():
 
     assert result.status == 200
     assert result.data is data
+    assert result.outcome is HttpOutcome.SUCCESS
     session.get.assert_called_once()
     assert session.get.call_args.args == ("http://192.0.2.1/api/measurement",)
     assert session.get.call_args.kwargs["timeout"].total == 5
@@ -49,6 +51,7 @@ async def test_fetch_measurement_rejects_bodies_without_valid_numeric_measuremen
 
     assert result.status == 200
     assert result.data is None
+    assert result.outcome is HttpOutcome.INVALID_PAYLOAD
 
 
 async def test_fetch_measurement_treats_invalid_json_as_failed_measurement():
@@ -59,6 +62,7 @@ async def test_fetch_measurement_treats_invalid_json_as_failed_measurement():
 
     assert result.status == 200
     assert result.data is None
+    assert result.outcome is HttpOutcome.INVALID_JSON
 
 
 async def test_fetch_measurement_preserves_non_200_status_without_decoding_body():
@@ -68,13 +72,21 @@ async def test_fetch_measurement_preserves_non_200_status_without_decoding_body(
 
     assert result.status == 503
     assert result.data is None
+    assert result.outcome is HttpOutcome.HTTP_STATUS_ERROR
     response.json.assert_not_awaited()
 
 
-@pytest.mark.parametrize("error", [aiohttp.ClientError("offline"), TimeoutError("slow")])
-async def test_fetch_measurement_reports_request_errors(error):
+@pytest.mark.parametrize(
+    ("error", "outcome"),
+    [
+        (aiohttp.ClientError("offline"), HttpOutcome.CLIENT_ERROR),
+        (TimeoutError("slow"), HttpOutcome.TIMEOUT),
+    ],
+)
+async def test_fetch_measurement_reports_request_errors(error, outcome):
     transport, _, _, request = _transport_response()
     request.__aenter__.side_effect = error
 
-    with pytest.raises(SmartMeterHttpRequestError, match=str(error)):
+    with pytest.raises(SmartMeterHttpRequestError, match=str(error)) as caught:
         await transport.fetch_measurement("192.0.2.1", MEASUREMENT_KEYS)
+    assert caught.value.outcome is outcome
