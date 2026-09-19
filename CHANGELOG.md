@@ -5,6 +5,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ## [Unreleased]
 
+### Added
+
+- Add a Home-Assistant-independent diagnostics contract and pure snapshot
+  builder with explicit semantic allowlists, snapshot-local device aliases,
+  deterministic bounds and neutral placeholders for later runtime observation.
+  No Home Assistant diagnostics endpoint is exposed yet.
+
 ### Refactored
 
 - Declare sensor/number metadata schemas and entity-ID invariants for accurate
