@@ -41,6 +41,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Keep the singular `plug` and plural `plugs` cache aliases on the same
+  canonical list when generic MQTT payloads replace plug data, preventing fresh
+  child activity from being paired with stale entity values.
 - Reject malformed restored configuration field types before migration or
   subscriptions, preserving optional legacy fields and missing-host adoption.
 - Use the canonical Type-23 child serial for expansion-battery cache, freshness

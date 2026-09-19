@@ -119,6 +119,53 @@ def test_child_full_and_point_update_ordering(routing_state, sequence):
     assert routing_state.listener._update_from_coordinator.call_count == 2
 
 
+def test_generic_singular_plug_update_preserves_canonical_cache_and_entity(
+    routing_state,
+    monkeypatch,
+):
+    receive(
+        routing_state,
+        101,
+        {
+            "plugs": [
+                {
+                    "sn": "PLUG",
+                    "devType": 6,
+                    "outPw": 10,
+                    "totalEgy": 5,
+                }
+            ]
+        },
+    )
+
+    coordinator = routing_state.coordinator
+    created_entities = coordinator.add_entities_callback.call_args.args[0]
+    power = next(entity for entity in created_entities if entity._sensor_key == "power")
+    monkeypatch.setattr(power, "async_write_ha_state", Mock())
+    coordinator.register_sensor(power.unique_id, power)
+    coordinator._distribute_data(coordinator._data_cache)
+    assert power.native_value == 10
+
+    original_entity_ids = tuple(entity.unique_id for entity in created_entities)
+    receive(
+        routing_state,
+        2,
+        {"plug": [{"sn": "PLUG", "outPw": 20}]},
+    )
+
+    assert coordinator._data_cache["plug"] is coordinator._data_cache["plugs"]
+    assert coordinator._data_cache["plugs"] == [
+        {"sn": "PLUG", "outPw": 20}
+    ]
+    assert coordinator.get_plug_item("PLUG")["outPw"] == 20
+    assert power.native_value == 20
+    assert coordinator._subdevice_last_seen["PLUG"] == 1002.0
+    assert coordinator._known_plugs == {"PLUG"}
+    assert coordinator.add_entities_callback.call_count == 1
+    assert coordinator.add_switch_entities_callback.call_count == 1
+    assert tuple(entity.unique_id for entity in created_entities) == original_entity_ids
+
+
 def test_type23_host_then_type23_child(routing_state):
     receive(
         routing_state,
