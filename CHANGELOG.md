@@ -15,6 +15,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   route/error counters and SmartMeter HTTP outcomes, health, failure/recovery and
   target replacement. Observations are ephemeral and read-only and do not alter
   routing, polling, availability or transport behavior.
+- Add Home Assistant config-entry diagnostics backed by the existing pure
+  snapshot contract and passive observations. The read-only adapter exports only
+  bounded semantic state and entry-scoped registry aggregates, with shared
+  snapshot-local aliases and no raw identities, state attributes or network data.
 
 ### Refactored
 

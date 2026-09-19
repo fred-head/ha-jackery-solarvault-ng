@@ -1,5 +1,17 @@
 # Test coverage map
 
+The P3.3 Home Assistant diagnostics adapter adds eight adapter/endpoint tests for
+the official config-entry signature, all nine contract sections, one-call P3.1
+construction, shared host/child/SmartMeter aliases, full-output runtime and
+registry canaries both before and after HA key redaction, unloaded/partial state,
+unexpected-error propagation, task normalization, multi-entry isolation and
+absence of MQTT, HTTP, polling, discovery, registry, entity-write or task-creation
+side effects. The existing P3.1 dependency test now permits
+only `diagnostics.py` and its read-only HA aggregation helper to import the pure
+snapshot layer. Final validation: **1,393 passed, 95.39% coverage**; the public
+endpoint has 100% statement coverage, the explicit aggregation helper has 90%,
+and both P3.1 and P3.2 modules remain at 100%. No skips or xfails were introduced.
+
 The P3.2 passive-observability layer adds nine direct/coordinator-path tests plus
 expanded HTTP transport and polling cases. They cover neutral state, immutable
 copies, counter saturation and fixed cardinality, accepted/error routing

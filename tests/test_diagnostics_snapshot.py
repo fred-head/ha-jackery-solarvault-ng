@@ -631,7 +631,7 @@ def test_builder_rejects_nonfinite_or_boolean_clock(now: float) -> None:
         build_diagnostics_snapshot(DiagnosticsSnapshotInput(), now=now)
 
 
-def test_snapshot_module_has_only_standard_library_dependencies_and_no_back_edges() -> None:
+def test_snapshot_module_has_only_standard_library_dependencies_and_adapter_callers() -> None:
     root = Path(__file__).parents[1]
     module_path = root / "custom_components/jackery/diagnostics_snapshot.py"
     tree = ast.parse(module_path.read_text(encoding="utf-8"))
@@ -655,8 +655,12 @@ def test_snapshot_module_has_only_standard_library_dependencies_and_no_back_edge
         "typing",
     }
 
+    callers = set()
     for path in (root / "custom_components/jackery").rglob("*.py"):
         if path == module_path:
             continue
         source = path.read_text(encoding="utf-8")
-        assert "diagnostics_snapshot" not in source, path
+        if "diagnostics_snapshot" in source:
+            callers.add(path.name)
+
+    assert callers == {"diagnostics.py", "diagnostics_adapter.py"}
