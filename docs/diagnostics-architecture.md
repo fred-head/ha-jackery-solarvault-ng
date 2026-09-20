@@ -507,6 +507,55 @@ unloaded or partially initialized entry uses explicit neutral inputs and
 no polling, refresh, discovery, registry mutation, task creation, device-specific
 endpoint or protocol-discovery behavior.
 
+### 7.2 P3.4 adversarial hardening decisions
+
+P3.4 exercises the complete adapter and pure builder with canaries in config,
+coordinator metadata, runtime/cache state, child discovery, HTTP target
+relations, device/entity registries, areas, labels, HA states and attributes.
+The compact P3.1 result is verified before Home Assistant key redaction as well
+as after the public endpoint returns. Both results exclude every raw identity,
+registry ID and canary, confirming that P3.1 remains the privacy boundary and
+HA redaction remains defense in depth.
+
+The largest fixed-contract stress case supplies 2,000 valid 256-character child
+identifiers, maximal child details, every semantic measurement, Type-106 field,
+route/error counter, registry aggregate and maximum-length version token. The
+deterministic result is 61,018 UTF-8 bytes, below the 65,536-byte limit. It keeps
+the first 100 sorted snapshot-local aliases and records 1,900 omissions. Child,
+freshness and SmartMeter alias references are removed together. The established
+priority remains authoritative: remove aliases from the end, then omit optional
+per-platform/listener entity detail, then fail closed if the fixed core alone
+cannot fit. Host, transport, protocol, freshness, health and truncation metadata
+remain present.
+
+Alias tests cover empty and overlong identifiers, Unicode, duplicates,
+host/child collisions, shared Child/SmartMeter relations, reversed input order
+and consecutive independent snapshots. Invalid identifiers are ignored, the
+host identity is excluded from the child namespace, duplicates reuse one alias,
+and every snapshot starts again at `child_001`; no alias map is retained.
+
+The HA adapter now takes immediate built-in shallow copies of the coordinator
+cache, discovery sets/timers, freshness map, HTTP-created set, listener map and
+protocol/source evidence. Child lists, expansion mappings and allowlisted child
+payload views are likewise copied before iteration. This prevents normal
+collection mutation from changing owner state through diagnostics or raising a
+changed-size iteration error. Registry helper results were already converted to
+tuples, and disappearing entity states remain an `unknown` aggregate. No lock is
+added: reads across distinct owners remain a best-effort, non-transactional
+snapshot, and unexpected programming errors continue to propagate.
+
+Registry stress uses 300 entry-owned plus 300 foreign entities and 100
+entry-owned plus 100 foreign devices. Only requested-entry aggregates affect the
+result, which remains below 5 KiB regardless of registry object detail. A
+separate endpoint case joins 1,000 discovery identities, including 500 retained
+expansion batteries, while preserving the 100-alias and 64-KiB bounds.
+
+Side-effect tests retain active tasks and compare cache, freshness, source,
+discovery, missing-timer and observation owners before and after the call. No
+publish, poll, discovery, reauth, registry write, entity write, task creation or
+task cancellation occurs. P3.4 adds no protocol discovery, persistence, broker
+connectivity, command outcome tracking or device diagnostics.
+
 ## 8. Diagnostics versus protocol discovery
 
 ### 8.1 Standard diagnostics
@@ -696,6 +745,11 @@ runtime behavior changes.
 **Acceptance:** complete-output privacy assertions pass for keys and values;
 64 KiB and collection limits hold under adversarial input; snapshot leaves all
 owners unchanged; full repository gates are green.
+
+**Status:** completed by the endpoint and contract stress matrix described in
+section 7.2. One live-collection iteration defect was corrected with local
+copies at the existing P3.3 adapter boundary. The contract and observation
+owners remain unchanged, and P3.5 is still separate.
 
 **Dependency:** P3.3.
 
