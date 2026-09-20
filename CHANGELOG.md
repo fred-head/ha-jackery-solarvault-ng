@@ -23,6 +23,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   mutation inputs. Runtime collections are copied at the HA adapter boundary so
   diagnostics cannot retain or mutate live cache/child views, while the existing
   64-KiB contract, fixed allowlists and side-effect-free behavior remain intact.
+- Add an opt-in, memory-only protocol discovery mode for developers. It records
+  only bounded message/device identifiers and value-free structural signatures,
+  resets on reload, exports through the versioned diagnostics allowlist and
+  never stores raw payloads, unknown field names or unknown scalar values.
 
 ### Refactored
 

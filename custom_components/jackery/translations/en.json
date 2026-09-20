@@ -31,12 +31,13 @@
         "step": {
             "init": {
                 "title": "Jackery Options",
-                "description": "Reconfigure connection and optional SmartMeter HTTP polling.",
+                "description": "Reconfigure connection, optional SmartMeter HTTP polling, and developer diagnostics.",
                 "data": {
                     "token": "Token",
                     "topic_prefix": "MQTT Topic Prefix",
                     "smartmeter_http_poll": "Poll SmartMeter via HTTP (voltage, current, reactive power, …)",
-                    "smartmeter_poll_interval": "SmartMeter poll interval (seconds)"
+                    "smartmeter_poll_interval": "SmartMeter poll interval (seconds)",
+                    "protocol_discovery_enabled": "Enable developer protocol discovery (bounded structural metadata only; no raw MQTT payloads; memory-only and reset on reload)"
                 }
             }
         }

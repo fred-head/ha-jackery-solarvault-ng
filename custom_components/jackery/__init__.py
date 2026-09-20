@@ -196,6 +196,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await _migrate_unique_ids(hass, entry, protected_entities=child_migration.protected_entities)
 
     # All platforms need the same runtime object, regardless of forwarding order.
+    from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
     from .sensor import JackeryDataCoordinator
 
     coordinator = JackeryDataCoordinator(
@@ -204,6 +205,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         token,
         mqtt_host,
         device_sn,
+        protocol_discovery_enabled=(
+            entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is True
+        ),
     )
     coordinator.config_entry_id = entry.entry_id
     coordinator._child_migration = child_migration

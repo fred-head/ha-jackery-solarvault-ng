@@ -26,6 +26,7 @@ def coordinator():
         start_time=time.time(),
     )
     coord._diagnostics_observation = DiagnosticsObservationState()
+    coord._protocol_discovery = None
     coord._known_plugs = set()
     coord._subdevice_missing_since = {}
     coord._expansion_battery_sns = set()

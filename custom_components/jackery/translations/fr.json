@@ -31,12 +31,13 @@
         "step": {
             "init": {
                 "title": "Options Jackery",
-                "description": "Reconfigurer la connexion et le sondage HTTP optionnel du SmartMeter.",
+                "description": "Reconfigurer la connexion, le sondage HTTP optionnel du SmartMeter et les diagnostics développeur.",
                 "data": {
                     "token": "Token",
                     "topic_prefix": "Préfixe de topic MQTT",
                     "smartmeter_http_poll": "Interroger le SmartMeter via HTTP (tension, courant, puissance réactive, …)",
-                    "smartmeter_poll_interval": "Intervalle d'interrogation du SmartMeter (secondes)"
+                    "smartmeter_poll_interval": "Intervalle d'interrogation du SmartMeter (secondes)",
+                    "protocol_discovery_enabled": "Activer la découverte de protocole pour développeurs (métadonnées structurelles limitées uniquement ; aucune charge utile MQTT brute ; mémoire volatile réinitialisée au rechargement)"
                 }
             }
         }
