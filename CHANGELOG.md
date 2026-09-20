@@ -19,6 +19,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   snapshot contract and passive observations. The read-only adapter exports only
   bounded semantic state and entry-scoped registry aggregates, with shared
   snapshot-local aliases and no raw identities, state attributes or network data.
+- Harden diagnostics against adversarial privacy, size, alias, registry and
+  mutation inputs. Runtime collections are copied at the HA adapter boundary so
+  diagnostics cannot retain or mutate live cache/child views, while the existing
+  64-KiB contract, fixed allowlists and side-effect-free behavior remain intact.
 
 ### Refactored
 

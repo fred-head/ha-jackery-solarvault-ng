@@ -241,6 +241,7 @@ def _add_child_payload(
     container: str,
     context: ClassificationContext,
 ) -> None:
+    payload = dict.copy(payload) if isinstance(payload, dict) else dict(payload)
     identifier = subdevice_serial(payload)
     if identifier is None:
         return
@@ -292,7 +293,7 @@ def _collect_children(
         items = cache.get(container)
         if not isinstance(items, list):
             continue
-        for item in tuple(items):
+        for item in tuple(list.copy(items)):
             if isinstance(item, Mapping):
                 _add_child_payload(
                     children,
@@ -303,7 +304,12 @@ def _collect_children(
 
     expansion_items = cache.get("expansion_batteries")
     if isinstance(expansion_items, Mapping):
-        for identifier, raw_payload in tuple(expansion_items.items()):
+        expansion_snapshot = (
+            dict.copy(expansion_items)
+            if isinstance(expansion_items, dict)
+            else dict(expansion_items)
+        )
+        for identifier, raw_payload in tuple(expansion_snapshot.items()):
             if not isinstance(identifier, str) or not identifier:
                 continue
             payload = raw_payload if isinstance(raw_payload, Mapping) else {}
@@ -451,8 +457,8 @@ def _protocol_inputs(
         invalid_value_count += 1
 
     runtime = coordinator._runtime_state
-    live_seen = dict(runtime.power_live_seen)
-    snapshot_seen = dict(runtime.power_106_samples)
+    live_seen = dict.copy(runtime.power_live_seen)
+    snapshot_seen = dict.copy(runtime.power_106_samples)
     type106_evidence = tuple(
         Type106EvidenceInput(
             field=semantic,
@@ -468,15 +474,21 @@ def _protocol_inputs(
         if wire in live_seen or wire in snapshot_seen
     )
 
-    raw_grid_source = runtime.energy_sources.get("grid")
+    energy_sources = dict.copy(runtime.energy_sources)
+    raw_grid_source = energy_sources.get("grid")
     grid_source = None
     if isinstance(raw_grid_source, Mapping):
+        grid_source_snapshot = (
+            dict.copy(raw_grid_source)
+            if isinstance(raw_grid_source, dict)
+            else dict(raw_grid_source)
+        )
         grid_source = EnergySourceDiagnosticsInput(
-            source=raw_grid_source.get("source", "unknown"),
-            activity_age_seconds=raw_grid_source.get("activity_age"),
-            skipped_stale=raw_grid_source.get("skipped_stale"),
-            skipped_missing=raw_grid_source.get("skipped_missing"),
-            reason=raw_grid_source.get("reason", "unknown"),
+            source=grid_source_snapshot.get("source", "unknown"),
+            activity_age_seconds=grid_source_snapshot.get("activity_age"),
+            skipped_stale=grid_source_snapshot.get("skipped_stale"),
+            skipped_missing=grid_source_snapshot.get("skipped_missing"),
+            reason=grid_source_snapshot.get("reason", "unknown"),
         )
 
     return ProtocolDiagnosticsInput(
@@ -535,7 +547,7 @@ def _registry_inputs(
 
     listeners: tuple[Any, ...] = ()
     if coordinator is not None:
-        listeners = tuple(coordinator._sensors.values())
+        listeners = tuple(dict.copy(coordinator._sensors).values())
     mqtt_listeners = sum(
         callable(getattr(listener, "_update_from_coordinator", None))
         for listener in listeners
@@ -576,14 +588,16 @@ def _health_inputs(
             runtime_available=True,
             reauth_requested=coordinator._reauth_started,
         )
+    reported_conflicts = set.copy(migration._reported_conflicts)
+    blocked_children = set.copy(migration.blocked_children)
     categories = Counter(
-        category for _identifier, category in tuple(migration._reported_conflicts)
+        category for _identifier, category in reported_conflicts
     )
     return HealthDiagnosticsInput(
         runtime_available=True,
         reauth_requested=coordinator._reauth_started,
         migration_block_all=migration.block_all,
-        migration_blocked_child_count=len(set(migration.blocked_children)),
+        migration_blocked_child_count=len(blocked_children),
         migration_conflict_categories=dict(categories),
     )
 
@@ -641,14 +655,14 @@ def collect_diagnostics_inputs(
         )
 
     runtime = coordinator._runtime_state
-    cache = runtime.data_cache
-    known_children = set(coordinator._child_discovery_state.known_children)
-    expansion_batteries = set(
+    cache = dict.copy(runtime.data_cache)
+    known_children = set.copy(coordinator._child_discovery_state.known_children)
+    expansion_batteries = set.copy(
         coordinator._child_discovery_state.expansion_batteries
     )
-    missing_since = dict(coordinator._child_discovery_state.missing_since)
-    last_seen = dict(runtime.subdevice_last_seen)
-    created_http_identifiers = set(coordinator._http_sm_sensor_sns_created)
+    missing_since = dict.copy(coordinator._child_discovery_state.missing_since)
+    last_seen = dict.copy(runtime.subdevice_last_seen)
+    created_http_identifiers = set.copy(coordinator._http_sm_sensor_sns_created)
     observation = coordinator.diagnostics_observation()
     target_identifier = observation.http.target_identifier
     freshness_identifiers = (

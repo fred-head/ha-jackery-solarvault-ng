@@ -1,5 +1,17 @@
 # Test coverage map
 
+The P3.4 diagnostics hardening layer adds 24 adversarial tests covering complete
+pre-/post-HA-redaction canaries, the actual 64-KiB budget with 2,000 identities,
+deterministic truncation and alias relations, unknown/saturated counters, string
+and firmware limits, 600 entities and 200 devices across two config entries,
+1,000 discovery members including 500 expansion batteries, disappearing states,
+reordered registries, live collection mutation, detached JSON output, repeated
+snapshot determinism, side-effect freedom and unexpected-error propagation. The
+largest valid fixed-contract result is 61,018 bytes and retains 100 aliases.
+Final validation: **1,417 passed, 95.62% coverage**; the public endpoint and
+P3.1/P3.2 modules remain at 100%, and the hardened aggregation adapter reaches
+93%. No skips or xfails were introduced.
+
 The P3.3 Home Assistant diagnostics adapter adds eight adapter/endpoint tests for
 the official config-entry signature, all nine contract sections, one-call P3.1
 construction, shared host/child/SmartMeter aliases, full-output runtime and
