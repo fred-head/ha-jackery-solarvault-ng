@@ -31,12 +31,13 @@
         "step": {
             "init": {
                 "title": "Jackery Optionen",
-                "description": "Verbindungseinstellungen anpassen und optionales SmartMeter-HTTP-Polling konfigurieren.",
+                "description": "Verbindung, optionales SmartMeter-HTTP-Polling und Entwicklerdiagnose konfigurieren.",
                 "data": {
                     "token": "Token",
                     "topic_prefix": "MQTT-Topic-Präfix",
                     "smartmeter_http_poll": "SmartMeter per HTTP abfragen (Spannung, Strom, Blindleistung, …)",
-                    "smartmeter_poll_interval": "SmartMeter-Abfrageintervall (Sekunden)"
+                    "smartmeter_poll_interval": "SmartMeter-Abfrageintervall (Sekunden)",
+                    "protocol_discovery_enabled": "Entwickler-Protokollerkennung aktivieren (nur begrenzte Strukturinformationen; keine MQTT-Rohdaten; nur im Arbeitsspeicher und bei Reload zurückgesetzt)"
                 }
             }
         }

@@ -567,8 +567,13 @@ field names, payload fragments or a traffic history.
 
 ### 8.2 Protocol discovery mode
 
-Protocol discovery is a later, separate, explicitly enabled developer feature.
-It may observe:
+Protocol discovery is the separate, explicitly enabled developer feature added
+in P3.5. The `protocol_discovery_enabled` config-entry option defaults to
+`false`; an entry without that option remains disabled. Options changes use the
+existing entry lifecycle, so the mode takes effect on reload. Each enabled
+coordinator creates one memory-only `ProtocolDiscoveryState`; disabled
+coordinators create no state. Unload discards the owner, and every enabled
+reload starts empty. It observes:
 
 - counts of unknown MQTT message-type categories;
 - counts of unknown numeric `devType`/`subType` combinations;
@@ -577,23 +582,57 @@ It may observe:
 - occurrence count and first/last-seen ages;
 - bounded differences from known structural schemas.
 
-It must not become a raw MQTT capture. Its observation point is after host-topic
-ownership is established and as much structural validation as the category
-allows. Rejected input may increment a fixed parse/error category, but its text or
-bytes are discarded immediately.
+It is not a raw MQTT capture. Its single observation point is in
+`JackeryDataCoordinator._handle_message`, after exact topic/host ownership and
+successful JSON/envelope validation, immediately before route application.
+Foreign-host, invalid-JSON and invalid-envelope inputs therefore never reach the
+structural summarizer. Their existing fixed P3.2 error counters remain the only
+observation. Enabled and disabled coordinators execute the same route, cache,
+freshness, child-discovery, calculation and entity fan-out code.
 
 Unknown message types that are safe integers may be bucketed numerically.
 Arbitrary string/object message types are bucketed by primitive type, not value.
-Unknown field names receive ephemeral local aliases inside a structural
-signature; raw names are not stored or exported. Unknown scalar values are never
-stored. Serial-like fields, credentials, network fields and dynamic strings are
-always represented only by type/presence.
+Unknown field names are compared transiently with code-owned allowlists at the
+fixed paths `envelope`, `payload`, `child_item` and `expansion_item`; neither raw
+names nor aliases/hashes/fragments are retained. A structural signature contains
+only the path token, unknown-field count, JSON value-type multiset, bounded
+container shapes and code-owned known-field/type mismatches. Unknown scalar
+values are never retained. Serial-like fields, credentials, network fields and
+dynamic strings are represented only by a JSON type when they occur in an
+unknown field.
 
-Discovery observations are memory-only, bounded, reset on reload and disabled by
-default. Enabling them must be an explicit option and must not change routing,
-cache merging, entity discovery, logs or command behavior. A future export may
-add a versioned `protocol.discovery` object only when enabled; it must pass the
-same complete-output canary and size tests as standard diagnostics.
+Safe numeric message types and numeric `devType`/`subType` identifiers use the
+inclusive range 0..65,535. Non-numeric or out-of-range message types are bucketed
+only by JSON type. Known message types are `2`, `23`, `25`, `101`, `102`, `106`,
+`107` and `123`; device types already handled by classification (`1`, `2`, `3`,
+`4`, `6`) do not create unknown-combination records. Bucket counts saturate at
+2,147,483,647.
+
+Bounds are fixed at 32 unknown-message buckets, 64 unknown-device-pair buckets,
+64 structural signatures, 64 mapping entries, 16 array items, three structural
+levels and 16 nested shapes per signature. Existing buckets keep counting after
+a collection fills; new buckets increment the corresponding overflow count.
+Traversal beyond a shape bound increments `traversal_dropped`. This deliberately
+simple first-observed retention policy is deterministic for an identical message
+stream and does not introduce an LRU or persistent identity.
+
+Diagnostics schema version 2 adds `protocol.discovery_enabled`. When disabled,
+there is no `protocol.discovery` object. When enabled, the versioned discovery
+object contains the fixed limits, unknown-message records, unknown-device-pair
+records, structural records, first/last-seen ages, overflow counts, traversal
+drops and deterministic omitted-record count. The immutable state snapshot is
+translated into explicit P3.1 input records; it is never serialized generically.
+Discovery has an 8-KiB detail budget inside the unchanged 64-KiB complete budget.
+Structural records are removed first, then device-pair records, then message-type
+records. Omission/overflow metadata remains, and complete-snapshot enforcement
+drops discovery detail before existing child/entity details, preserving the
+standard diagnostics core.
+
+Canary tests inspect the internal immutable snapshot, the P3.1 result before HA
+key redaction and the final HA result. They confirm that unknown keys, values,
+serials, topics, URLs, addresses and payload fragments never appear. Discovery
+does not log observations, persist data, perform I/O or gain operational
+authority.
 
 ## 9. Test strategy
 
@@ -749,7 +788,7 @@ owners unchanged; full repository gates are green.
 **Status:** completed by the endpoint and contract stress matrix described in
 section 7.2. One live-collection iteration defect was corrected with local
 copies at the existing P3.3 adapter boundary. The contract and observation
-owners remain unchanged, and P3.5 is still separate.
+owners remain unchanged.
 
 **Dependency:** P3.3.
 
@@ -775,6 +814,12 @@ flag; enabled mode remains bounded and contains no canaries/raw identifiers;
 routing/cache/entity results are byte-for-byte or semantically identical to mode
 off; unload/reload clears observations.
 
+**Status:** implemented as described in section 8.2. The HA-independent,
+per-coordinator state is opt-in and memory-only; the P3.1 schema is version 2 and
+retains the original nine root sections. Tests cover privacy at all three export
+boundaries, bounds/overflow, lifecycle reset, multi-entry isolation, disabled
+equivalence, deterministic budgets and side-effect-free diagnostics.
+
 **Dependency:** P3.4.
 
 ## 11. Open decisions and assumptions
@@ -786,9 +831,9 @@ adapter decisions in section 7.1. P3.3 deliberately leaves broker connectivity
 `unknown` and exposes config-entry diagnostics only; subscription handles are
 not connectivity evidence and no device-specific contract was justified.
 
-- **P3.5:** the exact user-facing opt-in and reload behavior must follow the
-  existing options lifecycle; protocol discovery must remain disabled by default
-  and memory-only.
+- **P3.5 resolved:** `protocol_discovery_enabled` follows the existing options
+  lifecycle and is read when a coordinator is constructed. No collected data is
+  copied into entry options or across reloads; only the Boolean option persists.
 
 Assumptions are deliberately narrow: the HA event loop gives the collector a
 non-awaiting best-effort copy window; wall-clock receipt timestamps remain the

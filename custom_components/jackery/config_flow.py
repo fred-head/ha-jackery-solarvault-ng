@@ -9,6 +9,7 @@ from homeassistant import config_entries
 from homeassistant.components import mqtt
 
 from . import DOMAIN
+from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -123,6 +124,9 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlow):
                 data={
                     "smartmeter_http_poll": user_input["smartmeter_http_poll"],
                     "smartmeter_poll_interval": user_input["smartmeter_poll_interval"],
+                    OPTION_PROTOCOL_DISCOVERY_ENABLED: user_input[
+                        OPTION_PROTOCOL_DISCOVERY_ENABLED
+                    ],
                 },
             )
 
@@ -138,8 +142,13 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlow):
                     "smartmeter_poll_interval",
                     default=current_options.get("smartmeter_poll_interval", DEFAULT_SMARTMETER_POLL_INTERVAL),
                 ): vol.All(int, vol.Range(min=2, max=60)),
+                vol.Required(
+                    OPTION_PROTOCOL_DISCOVERY_ENABLED,
+                    default=current_options.get(
+                        OPTION_PROTOCOL_DISCOVERY_ENABLED, False
+                    ),
+                ): bool,
             }
         )
 
         return self.async_show_form(step_id="init", data_schema=schema)
-

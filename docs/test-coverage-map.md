@@ -1,5 +1,18 @@
 # Test coverage map
 
+The P3.5 protocol-discovery matrix adds direct and HA-path coverage for the
+disabled-by-default option, per-coordinator memory-only state, safe numeric and
+JSON-type message buckets, unknown device-pair aggregation, fixed structural
+paths, value/name-free signatures, traversal/cardinality overflow, first/last
+ages, deterministic 8-KiB discovery and 64-KiB complete budgets, three-stage
+canary privacy, options enable/disable, reload reset, multi-entry isolation,
+disabled-mode runtime equivalence and read-only snapshot behavior. Routing,
+cache, freshness, child discovery, P3.2 counters and fan-out remain equal with
+the mode disabled or enabled. Final validation: **1,442 passed, 96.09%
+coverage**; the discovery module reaches 98%, the P3.1 snapshot builder 99%,
+the HA diagnostics endpoint and P3.2 observation state 100%, and the read-only
+adapter 94%. No skips or xfails were introduced.
+
 The P3.4 diagnostics hardening layer adds 24 adversarial tests covering complete
 pre-/post-HA-redaction canaries, the actual 64-KiB budget with 2,000 identities,
 deterministic truncation and alias relations, unknown/saturated counters, string

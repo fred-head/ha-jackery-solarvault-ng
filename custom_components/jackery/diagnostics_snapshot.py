@@ -12,12 +12,20 @@ import math
 import re
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
-from typing import Any, Final, TypedDict
+from typing import Any, Final, NotRequired, TypedDict
 
-DIAGNOSTICS_SCHEMA_VERSION: Final = 1
+DIAGNOSTICS_SCHEMA_VERSION: Final = 2
 MAX_CHILDREN: Final = 100
 MAX_SNAPSHOT_BYTES: Final = 64 * 1024
 MAX_VERSION_LENGTH: Final = 32
+DISCOVERY_DETAIL_BUDGET_BYTES: Final = 8 * 1024
+MAX_DISCOVERY_MESSAGE_TYPES: Final = 32
+MAX_DISCOVERY_DEVICE_TYPES: Final = 64
+MAX_DISCOVERY_STRUCTURES: Final = 64
+MAX_DISCOVERY_MAPPING_ENTRIES: Final = 64
+MAX_DISCOVERY_ARRAY_ITEMS: Final = 16
+MAX_DISCOVERY_DEPTH: Final = 3
+MAX_SAFE_PROTOCOL_INTEGER: Final = 65_535
 
 TOP_LEVEL_SECTIONS: Final = (
     "integration",
@@ -173,6 +181,18 @@ _HTTP_REPLACEMENT_STATES: Final = frozenset(
 _HTTP_HEALTH_STATES: Final = frozenset(
     {"degraded", "healthy", "unavailable", "unknown"}
 )
+_DISCOVERY_TYPES: Final = frozenset(
+    {"array", "bool", "integer", "null", "number", "object", "string"}
+)
+_DISCOVERY_PATHS: Final = frozenset(
+    {"child_item", "envelope", "expansion_item", "payload"}
+)
+_DISCOVERY_FIELDS: Final = frozenset(
+    {"body", "deviceSn", "devType", "sn", "subType", "type"}
+)
+_DISCOVERY_SHAPE = re.compile(
+    r"(?=.{1,256}\Z)[a-z]+(?:\([a-z0-9:,_()]*\))?"
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -236,6 +256,59 @@ class EnergySourceDiagnosticsInput:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscoveryObservationInput:
+    """Occurrence metadata for one safe discovery record."""
+
+    count: int
+    first_seen_at: float
+    last_seen_at: float
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryMessageTypeInput:
+    """One unknown message-type category."""
+
+    kind: str
+    value: int | None
+    observation: DiscoveryObservationInput
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryDeviceTypeInput:
+    """One unknown safe numeric devType/subType pair."""
+
+    dev_type: int
+    sub_type: int
+    observation: DiscoveryObservationInput
+
+
+@dataclass(frozen=True, slots=True)
+class DiscoveryStructureInput:
+    """One value-free structural signature at a fixed path."""
+
+    path: str
+    unknown_field_count: int
+    unknown_value_types: Mapping[str, Any]
+    nested_shapes: Sequence[str]
+    type_mismatches: Sequence[tuple[str, str]]
+    observation: DiscoveryObservationInput
+
+
+@dataclass(frozen=True, slots=True)
+class ProtocolDiscoveryDiagnosticsInput:
+    """Explicit P3.1 input for the optional discovery contract."""
+
+    version: int = 1
+    unknown_message_types: Sequence[DiscoveryMessageTypeInput] = ()
+    unknown_device_types: Sequence[DiscoveryDeviceTypeInput] = ()
+    structures: Sequence[DiscoveryStructureInput] = ()
+    message_type_overflow: int = 0
+    device_type_overflow: int = 0
+    structural_overflow: int = 0
+    traversal_dropped: int = 0
+
+
+@dataclass(frozen=True, slots=True)
 class ProtocolDiagnosticsInput:
     """Explicit semantic protocol facts, not a raw protocol cache."""
 
@@ -249,6 +322,8 @@ class ProtocolDiagnosticsInput:
     route_counters: Mapping[str, Any] = field(default_factory=dict)
     error_counters: Mapping[str, Any] = field(default_factory=dict)
     unknown_message_count: int | None = None
+    discovery_enabled: bool = False
+    discovery: ProtocolDiscoveryDiagnosticsInput | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -414,6 +489,8 @@ class ProtocolSection(TypedDict):
     type106_evidence: list[dict[str, str | int | float | bool | None]]
     energy_sources: dict[str, dict[str, str | int | float | None]]
     observation: dict[str, dict[str, int] | int | None]
+    discovery_enabled: bool
+    discovery: NotRequired[dict[str, Any]]
 
 
 class FreshnessSection(TypedDict):
@@ -583,6 +660,7 @@ def _integration_section(
     child_total: int,
     child_included: int,
     entity_detail_omitted: bool,
+    protocol_observations_omitted: int = 0,
 ) -> IntegrationSection:
     source = inputs.integration
     return {
@@ -609,7 +687,7 @@ def _integration_section(
             "children_total": child_total,
             "children_included": child_included,
             "children_omitted": child_total - child_included,
-            "protocol_observations_omitted": 0,
+            "protocol_observations_omitted": protocol_observations_omitted,
             "entity_detail_omitted": entity_detail_omitted,
         },
     }
@@ -764,7 +842,7 @@ def _protocol_section(
     measurements: dict[str, float],
 ) -> ProtocolSection:
     source = inputs.protocol
-    return {
+    result: ProtocolSection = {
         "measurements": measurements,
         "cache": {
             "known_field_count": _optional_count(source.known_field_count),
@@ -795,7 +873,168 @@ def _protocol_section(
                 source.unknown_message_count
             ),
         },
+        "discovery_enabled": source.discovery_enabled is True,
     }
+    if source.discovery_enabled is True:
+        result["discovery"] = _discovery_section(source.discovery, now=now)
+    return result
+
+
+def _discovery_observation(
+    source: DiscoveryObservationInput,
+    *,
+    now: float,
+) -> dict[str, int | float | None]:
+    return {
+        "count": _optional_count(source.count) or 0,
+        "first_seen_age_seconds": _age(now, source.first_seen_at),
+        "last_seen_age_seconds": _age(now, source.last_seen_at),
+    }
+
+
+def _discovery_section(
+    source: ProtocolDiscoveryDiagnosticsInput | None,
+    *,
+    now: float,
+) -> dict[str, Any]:
+    message_types: list[dict[str, Any]] = []
+    device_types: list[dict[str, Any]] = []
+    structures: list[dict[str, Any]] = []
+
+    if source is not None:
+        for message_item in source.unknown_message_types:
+            kind = _closed_string(message_item.kind, _DISCOVERY_TYPES, "unknown")
+            if kind == "unknown":
+                continue
+            value = (
+                message_item.value
+                if kind == "integer"
+                and isinstance(message_item.value, int)
+                and not isinstance(message_item.value, bool)
+                and 0 <= message_item.value <= MAX_SAFE_PROTOCOL_INTEGER
+                else None
+            )
+            message_types.append(
+                {
+                    "kind": kind,
+                    "value": value,
+                    **_discovery_observation(message_item.observation, now=now),
+                }
+            )
+
+        for device_item in source.unknown_device_types:
+            if not (
+                isinstance(device_item.dev_type, int)
+                and not isinstance(device_item.dev_type, bool)
+                and 0 <= device_item.dev_type <= MAX_SAFE_PROTOCOL_INTEGER
+                and isinstance(device_item.sub_type, int)
+                and not isinstance(device_item.sub_type, bool)
+                and 0 <= device_item.sub_type <= MAX_SAFE_PROTOCOL_INTEGER
+            ):
+                continue
+            device_types.append(
+                {
+                    "dev_type": device_item.dev_type,
+                    "sub_type": device_item.sub_type,
+                    **_discovery_observation(device_item.observation, now=now),
+                }
+            )
+
+        for structure_item in source.structures:
+            if structure_item.path not in _DISCOVERY_PATHS:
+                continue
+            shapes = sorted(
+                {
+                    shape
+                    for shape in structure_item.nested_shapes
+                    if isinstance(shape, str) and _DISCOVERY_SHAPE.fullmatch(shape)
+                }
+            )[:16]
+            mismatches = [
+                {"field": field, "observed_type": observed}
+                for field, observed in sorted(set(structure_item.type_mismatches))
+                if field in _DISCOVERY_FIELDS and observed in _DISCOVERY_TYPES
+            ]
+            structures.append(
+                {
+                    "path": structure_item.path,
+                    "unknown_field_count": _optional_count(
+                        structure_item.unknown_field_count
+                    )
+                    or 0,
+                    "unknown_value_types": {
+                        kind: count
+                        for kind in sorted(_DISCOVERY_TYPES)
+                        if (
+                            count := _optional_count(
+                                structure_item.unknown_value_types.get(kind)
+                            )
+                        )
+                        is not None
+                        and count > 0
+                    },
+                    "nested_shapes": shapes,
+                    "type_mismatches": mismatches,
+                    **_discovery_observation(structure_item.observation, now=now),
+                }
+            )
+
+    message_types.sort(key=lambda item: json.dumps(item, sort_keys=True))
+    device_types.sort(key=lambda item: json.dumps(item, sort_keys=True))
+    structures.sort(key=lambda item: json.dumps(item, sort_keys=True))
+    result: dict[str, Any] = {
+        "version": 1,
+        "limits": {
+            "detail_budget_bytes": DISCOVERY_DETAIL_BUDGET_BYTES,
+            "message_type_buckets": MAX_DISCOVERY_MESSAGE_TYPES,
+            "device_type_buckets": MAX_DISCOVERY_DEVICE_TYPES,
+            "structural_signatures": MAX_DISCOVERY_STRUCTURES,
+            "mapping_entries": MAX_DISCOVERY_MAPPING_ENTRIES,
+            "array_items": MAX_DISCOVERY_ARRAY_ITEMS,
+            "structural_depth": MAX_DISCOVERY_DEPTH,
+        },
+        "unknown_message_types": {
+            "items": message_types,
+            "overflow_count": _optional_count(
+                source.message_type_overflow if source is not None else 0
+            )
+            or 0,
+        },
+        "unknown_device_types": {
+            "items": device_types,
+            "overflow_count": _optional_count(
+                source.device_type_overflow if source is not None else 0
+            )
+            or 0,
+        },
+        "structures": {
+            "items": structures,
+            "overflow_count": _optional_count(
+                source.structural_overflow if source is not None else 0
+            )
+            or 0,
+            "traversal_dropped": _optional_count(
+                source.traversal_dropped if source is not None else 0
+            )
+            or 0,
+        },
+        "omitted_records": 0,
+    }
+    while _serialized_size(result) > DISCOVERY_DETAIL_BUDGET_BYTES:
+        if not _remove_discovery_record(result):
+            break
+    return result
+
+
+def _remove_discovery_record(discovery: dict[str, Any]) -> bool:
+    """Drop the lowest-priority discovery detail deterministically."""
+    for section in ("structures", "unknown_device_types", "unknown_message_types"):
+        items = discovery[section]["items"]
+        if items:
+            items.pop()
+            discovery["omitted_records"] += 1
+            return True
+    return False
 
 
 def _freshness_reason(
@@ -1073,7 +1312,7 @@ def _health_section(
     }
 
 
-def _serialized_size(snapshot: DiagnosticsSnapshot) -> int:
+def _serialized_size(snapshot: Any) -> int:
     return len(
         json.dumps(
             snapshot,
@@ -1130,6 +1369,13 @@ def build_diagnostics_snapshot(
     identity_mode = _identity_mode(inputs)
     measurements = _semantic_measurements(inputs.protocol.semantic_measurements)
     transport = _transport_section(inputs)
+    protocol = _protocol_section(
+        inputs, now=snapshot_now, measurements=measurements
+    )
+    discovery = protocol.get("discovery")
+    protocol_observations_omitted = (
+        discovery["omitted_records"] if discovery is not None else 0
+    )
     freshness = _freshness_section(
         inputs,
         now=snapshot_now,
@@ -1144,14 +1390,13 @@ def build_diagnostics_snapshot(
             child_total=len(aliases),
             child_included=len(included_aliases),
             entity_detail_omitted=False,
+            protocol_observations_omitted=protocol_observations_omitted,
         ),
         "host": _host_section(
             inputs, identity_mode=identity_mode, measurements=measurements
         ),
         "transport": transport,
-        "protocol": _protocol_section(
-            inputs, now=snapshot_now, measurements=measurements
-        ),
+        "protocol": protocol,
         "freshness": freshness,
         "children": _children_section(
             inputs,
@@ -1169,6 +1414,16 @@ def build_diagnostics_snapshot(
             inputs, transport=transport, freshness=freshness
         ),
     }
+
+    while _serialized_size(snapshot) > MAX_SNAPSHOT_BYTES:
+        current_discovery = snapshot["protocol"].get("discovery")
+        if current_discovery is None or not _remove_discovery_record(
+            current_discovery
+        ):
+            break
+        snapshot["integration"]["truncation"][
+            "protocol_observations_omitted"
+        ] += 1
 
     while _serialized_size(snapshot) > MAX_SNAPSHOT_BYTES and included_alias_list:
         _remove_alias(snapshot, included_alias_list.pop())
@@ -1191,6 +1446,10 @@ __all__ = [
     "ChildFreshnessDiagnosticsInput",
     "DiagnosticsSnapshot",
     "DiagnosticsSnapshotInput",
+    "DiscoveryDeviceTypeInput",
+    "DiscoveryMessageTypeInput",
+    "DiscoveryObservationInput",
+    "DiscoveryStructureInput",
     "EnergySourceDiagnosticsInput",
     "EntityDiagnosticsInput",
     "FreshnessDiagnosticsInput",
@@ -1198,6 +1457,7 @@ __all__ = [
     "HostDiagnosticsInput",
     "IntegrationDiagnosticsInput",
     "ProtocolDiagnosticsInput",
+    "ProtocolDiscoveryDiagnosticsInput",
     "SmartMeterDiagnosticsInput",
     "TransportDiagnosticsInput",
     "Type106EvidenceInput",

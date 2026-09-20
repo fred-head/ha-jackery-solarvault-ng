@@ -27,6 +27,10 @@ from .diagnostics_snapshot import (
     ChildDiagnosticsInput,
     ChildFreshnessDiagnosticsInput,
     DiagnosticsSnapshotInput,
+    DiscoveryDeviceTypeInput,
+    DiscoveryMessageTypeInput,
+    DiscoveryObservationInput,
+    DiscoveryStructureInput,
     EnergySourceDiagnosticsInput,
     EntityDiagnosticsInput,
     FreshnessDiagnosticsInput,
@@ -34,6 +38,7 @@ from .diagnostics_snapshot import (
     HostDiagnosticsInput,
     IntegrationDiagnosticsInput,
     ProtocolDiagnosticsInput,
+    ProtocolDiscoveryDiagnosticsInput,
     SmartMeterDiagnosticsInput,
     TransportDiagnosticsInput,
     Type106EvidenceInput,
@@ -41,6 +46,7 @@ from .diagnostics_snapshot import (
 from .entities.sensor_definitions import SENSORS
 from .identity import parse_child_device_identifier
 from .protocol.routing import subdevice_serial
+from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
 from .sensor import (
     HTTP_FAILURE_THRESHOLD,
     OFFLINE_TIMEOUT,
@@ -491,6 +497,56 @@ def _protocol_inputs(
             reason=grid_source_snapshot.get("reason", "unknown"),
         )
 
+    discovery_snapshot = coordinator.protocol_discovery_snapshot()
+    discovery = None
+    if discovery_snapshot is not None:
+        discovery = ProtocolDiscoveryDiagnosticsInput(
+            version=discovery_snapshot.version,
+            unknown_message_types=tuple(
+                DiscoveryMessageTypeInput(
+                    kind=item.key.kind,
+                    value=item.key.value,
+                    observation=DiscoveryObservationInput(
+                        count=item.observation.count,
+                        first_seen_at=item.observation.first_seen_at,
+                        last_seen_at=item.observation.last_seen_at,
+                    ),
+                )
+                for item in discovery_snapshot.unknown_message_types
+            ),
+            unknown_device_types=tuple(
+                DiscoveryDeviceTypeInput(
+                    dev_type=item.key.dev_type,
+                    sub_type=item.key.sub_type,
+                    observation=DiscoveryObservationInput(
+                        count=item.observation.count,
+                        first_seen_at=item.observation.first_seen_at,
+                        last_seen_at=item.observation.last_seen_at,
+                    ),
+                )
+                for item in discovery_snapshot.unknown_device_types
+            ),
+            structures=tuple(
+                DiscoveryStructureInput(
+                    path=item.key.path,
+                    unknown_field_count=item.key.unknown_field_count,
+                    unknown_value_types=dict(item.key.unknown_value_types),
+                    nested_shapes=item.key.nested_shapes,
+                    type_mismatches=item.key.type_mismatches,
+                    observation=DiscoveryObservationInput(
+                        count=item.observation.count,
+                        first_seen_at=item.observation.first_seen_at,
+                        last_seen_at=item.observation.last_seen_at,
+                    ),
+                )
+                for item in discovery_snapshot.structures
+            ),
+            message_type_overflow=discovery_snapshot.message_type_overflow,
+            device_type_overflow=discovery_snapshot.device_type_overflow,
+            structural_overflow=discovery_snapshot.structural_overflow,
+            traversal_dropped=discovery_snapshot.traversal_dropped,
+        )
+
     return ProtocolDiagnosticsInput(
         semantic_measurements=semantic_measurements,
         known_field_count=known_field_count,
@@ -502,6 +558,8 @@ def _protocol_inputs(
         route_counters=dict(observation_routes),
         error_counters=dict(observation_errors),
         unknown_message_count=unknown_message_count,
+        discovery_enabled=discovery_snapshot is not None,
+        discovery=discovery,
     )
 
 
@@ -613,6 +671,9 @@ def collect_diagnostics_inputs(
     data = entry.data
     options = entry.options
     http_enabled = options.get("smartmeter_http_poll") is True
+    protocol_discovery_enabled = (
+        options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is True
+    )
     http_poll_interval = options.get(
         "smartmeter_poll_interval", _DEFAULT_HTTP_POLL_INTERVAL
     )
@@ -649,6 +710,9 @@ def collect_diagnostics_inputs(
                 poll_interval_seconds=_safe_int(http_poll_interval),
                 request_timeout_seconds=_HTTP_REQUEST_TIMEOUT_SECONDS,
                 failure_threshold=HTTP_FAILURE_THRESHOLD,
+            ),
+            protocol=ProtocolDiagnosticsInput(
+                discovery_enabled=protocol_discovery_enabled
             ),
             entities=entities,
             health=health,

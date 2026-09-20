@@ -73,6 +73,7 @@ from .protocol.routing import (
 from .protocol.routing import (
     subdevice_serial as _subdevice_sn,
 )
+from .protocol_discovery import ProtocolDiscoverySnapshot, ProtocolDiscoveryState
 from .transport.mqtt import JackeryMqttTransport
 from .transport.smartmeter_http import (
     SmartMeterHttpRequestError,
@@ -153,7 +154,16 @@ def _merge_subdevice_list(
 class JackeryDataCoordinator:
     """协调器：管理MQTT订阅和数据获取，供所有传感器实体共享使用."""
 
-    def __init__(self, hass: HomeAssistant, topic_prefix: str, token: str | None, mqtt_host: str | None, device_sn: str | None) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        topic_prefix: str,
+        token: str | None,
+        mqtt_host: str | None,
+        device_sn: str | None,
+        *,
+        protocol_discovery_enabled: bool = False,
+    ) -> None:
         self.hass = hass
         self._topic_prefix = topic_prefix
         self._token = token
@@ -171,6 +181,9 @@ class JackeryDataCoordinator:
             start_time=time.time(),
         )
         self._diagnostics_observation = DiagnosticsObservationState()
+        self._protocol_discovery = (
+            ProtocolDiscoveryState() if protocol_discovery_enabled else None
+        )
 
         self._child_discovery_state = ChildDiscoveryState()
         # Compatibility aliases retained for existing coordinator consumers.
@@ -239,6 +252,11 @@ class JackeryDataCoordinator:
     def diagnostics_observation(self) -> DiagnosticsObservationSnapshot:
         """Return an immutable copy of passive per-coordinator observations."""
         return self._diagnostics_observation.snapshot()
+
+    def protocol_discovery_snapshot(self) -> ProtocolDiscoverySnapshot | None:
+        """Return a detached discovery snapshot when the opt-in mode is active."""
+        state = self._protocol_discovery
+        return state.snapshot() if state is not None else None
 
     def register_sensor(self, sensor_id: str, entity: Any) -> None:
         """Register an HA entity for its supported MQTT or HTTP update path."""
@@ -341,7 +359,19 @@ class JackeryDataCoordinator:
                 _LOGGER.info(f"Discovered device SN: {self._device_sn}")
             # The topic identifies the host; payload SNs may identify its children.
             # Invalid or foreign traffic must not postpone offline/reauth checks.
-            self._runtime_state.record_host_activity(time.time())
+            received_at = time.time()
+            self._runtime_state.record_host_activity(received_at)
+
+            # Discovery observes only host-owned, parsed and structurally accepted
+            # envelopes.  It cannot affect routing or any operational state.
+            protocol_discovery = self._protocol_discovery
+            if protocol_discovery is not None:
+                protocol_discovery.observe(
+                    parsed.raw_data,
+                    parsed.body,
+                    message_type=parsed.decision.message_type,
+                    now=received_at,
+                )
 
             decision = parsed.decision
             if decision.captures_host_metadata and is_host_message_body(
