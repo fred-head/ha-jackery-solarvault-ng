@@ -249,6 +249,7 @@ Restarting the SolarVault (via the Jackery app or directly on the device) causes
 ## Related projects and documentation
 
 - **Implemented architecture**: [docs/architecture.md](docs/architecture.md)
+- **Current development status**: [docs/project-status.md](docs/project-status.md)
 - **Entity reference**: [docs/entity-reference.md](docs/entity-reference.md)
 - **Current capability inventory**: [docs/current-capability-inventory.md](docs/current-capability-inventory.md)
 - **Jackery original integration**: https://github.com/Jackery-Official/jackery
