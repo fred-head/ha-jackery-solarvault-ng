@@ -9,6 +9,11 @@ for a future Phase 4. It does not authorize or schedule Phase 4 work. Findings
 come from the current source, tests, Git history and freshly fetched configured
 upstreams. No production or test code was changed for this audit.
 
+Phase 4 evidence work has started with the completed
+[P4.1 standby/live-zero root-cause audit](p4-standby-live-zero-audit.md). The
+audit identifies the exact cross-alias arbitration failure and designs a bounded
+fix contract; no production fix or regression test is marked complete yet.
+
 ## 1. Executive summary
 
 SolarVault NG now has a substantially safer foundation than the community
