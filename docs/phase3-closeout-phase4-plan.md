@@ -12,10 +12,11 @@ upstreams. No production or test code was changed for this audit.
 Phase 4 evidence work started with the completed
 [P4.1 standby/live-zero root-cause audit](p4-standby-live-zero-audit.md). The
 resulting bounded receipt-time fix is merged in foundation
-`0d55a01e3fbd247407fe63106bf25c6c9c8aa73d`. The current decision step is the
+`0d55a01e3fbd247407fe63106bf25c6c9c8aa73d`. The subsequent
 [best-of-both-worlds upstream delta audit](upstream-best-of-both-worlds-audit.md),
 which classifies current Community and Official changes without approving or
-implementing a port.
+implementing a port, is also complete. The active direction is preparation of
+the high-confidence Group-A ports listed in [project status](project-status.md).
 
 ## 1. Executive summary
 
@@ -36,13 +37,15 @@ to broad production proof. The suite has no recorded hardware fixtures, no live
 broker or device run, and no SolarVault NG production soak. The README correctly
 continues to describe the project as experimental.
 
-Three issues should be resolved before a broad production recommendation:
+The original audit identified three issues before a broad production
+recommendation. The first is now resolved; the other two remain open:
 
-1. The accepted foundation still reproduces the community v2.4.2 standby case:
+1. At the time of this audit, the accepted foundation reproduced the community
+   v2.4.2 standby case:
    with live `inOngridPw=0` and stale `gridInPw=300`,
-   `_effective_ongrid_net()` selects `300` instead of the live zero. P4.1 now has
-   a bounded receipt-time fix with 20 focused regressions, but broad production
-   recommendation still depends on review and merge of that uncommitted candidate.
+   `_effective_ongrid_net()` selected `300` instead of the live zero. P4.1
+   resolved this with bounded receipt-time arbitration and focused regressions;
+   the fix is merged in foundation `0d55a01e3fbd247407fe63106bf25c6c9c8aa73d`.
 2. No NG hardware/golden-fixture matrix proves the supported combinations and
    long-running lifecycle behavior. Existing hardware statements are inherited
    reports, not validation performed on this foundation.
@@ -91,7 +94,7 @@ Freshly fetched comparison references at audit time are:
 | Protocol commands | `protocol/commands.py` | Pure action topic and six outbound envelope builders | Mature for wire construction | No execution acknowledgement, retry or correlation semantics |
 | Route application | `JackeryDataCoordinator` in `sensor.py` | Applies route decisions, child merges, Type-23/106 effects, discovery and fan-out | Strongly tested but coupled | Main cache and child-array policy still require coordinator knowledge |
 | Runtime cache/freshness | `CoordinatorRuntimeState` | Main cache, host/child clocks, Type-106 evidence and source provenance; HA-independent | Mature for documented policy | No per-field freshness; compatibility properties expose mutable internals |
-| Energy calculation | `calculations/energy_flow.py` | Pure source selection and derived energy flow | Broad synthetic coverage | Current v2.4.2 standby source-priority gap; no golden physical scenarios |
+| Energy calculation | `calculations/energy_flow.py` | Pure source selection and derived energy flow | Broad synthetic coverage | P4.1 resolved the known standby source-priority gap; no golden physical scenarios |
 | Device classification | `devices/classification.py` | Route-aware family/model classification and static plug filter | Mature for known matrix | Several paths are heuristic; no generic capability model or dynamic reclassification |
 | Child membership | `ChildDiscoveryState` in `discovery.py` | Known/expansion membership and missing timers; no HA objects | Unit-tested | Merged-cache semantics prevent ordinary empty/omitted reports from proving unbinding |
 | MQTT transport | `transport/mqtt.py` | HA subscribe, publish, JSON and owned unsubscribe handles | Mature for mocked HA lifecycle | Broker connectivity/reconnect is delegated to HA and not exercised against a broker |
@@ -252,7 +255,7 @@ dated to this audit rather than treating the original pin as current.
 | --- | --- | --- |
 | Architecture | Extracted protocol, calculation, state, discovery, transport and diagnostics layers | Primarily platform files with a large `sensor.py` |
 | Robustness fixes from v2.4.1 | Equivalent or stricter local fixes exist for dispatch, host validation, malformed children, lifecycle, Type-106, Type-23 and SmartMeter replacement | Consolidated those fixes into v2.4.1 |
-| Standby home-power fix | Not present; current helper reproduces the stale `gridInPw` priority case | Fixed in v2.4.2 by preferring present live `inOngridPw/outOngridPw` |
+| Standby home-power fix | Not present in the audited foundation; subsequently superseded by the merged P4.1 receipt-time fix | Fixed in v2.4.2 by preferring present live `inOngridPw/outOngridPw` |
 | Capability gating | Main controls remain created without `ability` suppression | v2.4.3 gates Force Charge and `maxOutPw` by capability bits |
 | Storm warning field | Not exposed | v2.4.3 exposes `wps` as a read-only enum |
 | Identity/migration | Host-scoped child identity and conflict-safe preflight | Does not contain the NG migration architecture |
@@ -283,7 +286,7 @@ feature ranking.
 | Finding | Evidence and effect |
 | --- | --- |
 | No NG hardware/golden validation | Every protocol playback is synthetic. Inherited reports exist, but this exact foundation has no device/broker soak or sanitized trace corpus |
-| Known current upstream correctness delta | The v2.4.2 standby scenario is reproducible in NG and can make derived home power collapse toward zero when a stale Type-106 alias has larger magnitude |
+| Known standby correctness delta | Resolved by the merged P4.1 receipt-time arbitration; real hardware validation remains part of the broader evidence gap |
 | Release/upgrade contract not finalized | Manifest remains 2.4.0 and points at the community docs/issues; NG HACS/HA compatibility and upgrade path have not been declared and exercised as a release |
 
 These block a general recommendation, not controlled developer testing.
@@ -456,20 +459,21 @@ These candidates are alternatives or composable tracks, not a selected roadmap.
 
 ### 12.1 Production evidence and release hardening
 
-- **Problem:** a known standby calculation delta exists; release/version/support
-  metadata and the HA compatibility claim are not aligned with NG.
-- **Practical benefit:** removes known correctness uncertainty and creates a
-  supportable installation/upgrade target.
-- **Architecture:** calculation policy, manifest/release metadata, CI matrix and
-  documentation.
+- **Problem:** release/version/support metadata and the HA compatibility claim
+  are not aligned with NG; the previously known standby calculation delta is
+  resolved by P4.1.
+- **Practical benefit:** creates a supportable installation/upgrade target and
+  adds physical evidence for established calculation behavior.
+- **Architecture:** manifest/release metadata, CI matrix, documentation and
+  hardware-backed validation.
 - **Risk/size:** medium risk, medium scope; formula/source changes require strict
   regression isolation.
-- **Prerequisites:** reproduce community v2.4.2 sequences in NG, decide supported
-  HA versions, select release/version policy.
+- **Prerequisites:** decide supported HA versions and release/version policy;
+  obtain suitable hardware contributors for physical validation.
 - **Hardware:** strongly desirable for standby validation; not required for
   metadata/CI work.
-- **Possible PRs:** standby regression and fix; community v2.4.3 delta decision;
-  HA version matrix; NG release metadata/docs.
+- **Possible PRs:** HA version matrix; NG release metadata/docs; hardware-backed
+  validation of established energy scenarios.
 - **Acceptance:** live-zero source priority is explicit; all historical energy
   scenarios pass; declared HA versions pass CI; manifest/support links/version
   identify the intended release; clean upgrade and rollback instructions exist.
@@ -655,8 +659,8 @@ audit conclusion, not an approved Phase 4 roadmap.
 
 ## 15. Questions for maintainer decision
 
-1. Should the first Phase 4 deliverable be a production/release hardening series,
-   beginning with the v2.4.2 standby regression and a supported HA/release policy?
+1. After the high-confidence Group-A ports, should the next workstream be a
+   production/release hardening series centered on a supported HA/release policy?
 2. Which real hardware and firmware combinations can provide sanitized golden
    captures and a multi-day broker/reload soak?
 3. How long must direct upgrades from historical community v1/v2 registry states

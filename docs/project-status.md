@@ -2,8 +2,8 @@
 
 SolarVault NG is an experimental, local-first Home Assistant integration under
 active development. The maintained development branch is
-`refactor/v3-foundation`; this page was created from foundation
-`abe5201e93a46c39ae10f5b4bc7c9ee544fa7974`.
+`refactor/v3-foundation`. This page tracks the current development state of that
+branch.
 
 This is the public status entry point, not a second roadmap. The linked audits
 and architecture documents remain authoritative.
@@ -129,4 +129,3 @@ for the full contracts.
 | Upstream deltas and candidate groups | [Best-of-both-worlds audit](upstream-best-of-both-worlds-audit.md) |
 | Test evidence and remaining blind spots | [Test coverage map](test-coverage-map.md) |
 | User-facing capability and setup | [README](../README.md) |
-
