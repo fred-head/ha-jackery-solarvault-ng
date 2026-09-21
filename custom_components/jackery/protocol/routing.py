@@ -83,6 +83,33 @@ def subdevice_serial(payload: Mapping[str, Any]) -> str | None:
     return serial if isinstance(serial, str) and serial else None
 
 
+def exclude_serial_from_child_arrays(
+    body: dict[str, Any],
+    serial: str | None,
+) -> dict[str, Any]:
+    """Copy child arrays while excluding one exact established serial."""
+    if not serial:
+        return body
+
+    result = body
+    for key in _CHILD_ARRAY_KEYS:
+        items = body.get(key)
+        if not isinstance(items, list):
+            continue
+        filtered = [
+            item
+            for item in items
+            if not (
+                isinstance(item, Mapping) and subdevice_serial(item) == serial
+            )
+        ]
+        if len(filtered) != len(items):
+            if result is body:
+                result = dict(body)
+            result[key] = filtered
+    return result
+
+
 def route_message_type(message_type: Any) -> RoutingDecision:
     """Classify a message type without hashing or coercing wire metadata."""
     if message_type == 23:

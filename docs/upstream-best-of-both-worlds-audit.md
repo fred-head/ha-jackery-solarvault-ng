@@ -316,6 +316,11 @@ generic fallback. A label-only change would overstate support.
   set; valid children remain unchanged; no entity or device is created; point
   and array behavior agree.
 - **Suggested PR:** one regression-first correctness PR.
+- **Implementation follow-up:** A1 was implemented manually in NG with
+  regression-first coverage across established array aliases and the shared
+  admission boundary. No upstream commit was cherry-picked, no hardware evidence
+  is required for this identity invariant, and cleanup of historical registry
+  records is intentionally outside this change.
 
 #### A2. Accept top-level host firmware metadata
 

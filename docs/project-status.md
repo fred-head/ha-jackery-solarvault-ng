@@ -14,7 +14,9 @@ and architecture documents remain authoritative.
 | Done | Phase 3 | Privacy-bounded Home Assistant diagnostics and opt-in, memory-only structural protocol discovery are complete. |
 | Done | P4.1 correctness | Receipt-time arbitration now preserves a newer explicit live on-grid zero over an older Type-106 alias. |
 | Done | Upstream audit | 10 Community and 43 Official delta commits were classified semantically; no upstream code was imported. |
-| Current | High-confidence upstream ports | Three small candidates are ready for separate regression-first review: reject the host serial in child arrays, accept top-level host firmware metadata, and isolate type-100 child-poll failures. None is implemented yet. |
+| Done | Group A1 host/child admission | The configured host serial is rejected at the shared child-array admission boundary before cache, freshness, discovery or entity state. |
+| Current | Group A3 poll isolation | The next focused candidate is isolating type-100 child-poll failures while preserving cadence, order and cancellation behavior. |
+| Next | Group A2 host firmware metadata | After A3, accept validated top-level host firmware metadata with explicit precedence and ownership guards. |
 | Next | Release and lifecycle hardening | After the focused ports, likely work includes the release/upgrade contract, reauthentication and options reload, and real MQTT reconnect behavior. This order remains a maintainer decision. |
 
 ## Recently completed
@@ -35,18 +37,18 @@ and architecture documents remain authoritative.
   classified into port, adaptation, evidence, investigation, superseded, and
   no-action groups. See the
   [upstream delta audit](upstream-best-of-both-worlds-audit.md).
+- **Group A1 host/child admission:** child arrays cannot admit the configured
+  host into child-owned cache, freshness, discovery, entity or device state.
 
 ## Next
 
-The immediate candidates are the three Group-A changes from the upstream audit.
-Each should remain a separate, regression-first PR adapted to NG's architecture:
+The remaining immediate candidates are the two Group-A changes from the upstream
+audit. Each remains a separate, regression-first PR adapted to NG's architecture:
 
-1. Prevent the configured host from entering child arrays, freshness, discovery,
-   or registry state.
+1. Attempt every type-100 child category when one category publish fails, while
+   preserving order, pacing, and cancellation behavior.
 2. Accept host firmware metadata from the validated top-level envelope form with
    explicit precedence and host ownership.
-3. Attempt every type-100 child category when one category publish fails, while
-   preserving order, pacing, and cancellation behavior.
 
 Release/compatibility hardening and lifecycle work are the likely following
 tracks. The [Phase 3 closeout and Phase 4 decision basis](phase3-closeout-phase4-plan.md)

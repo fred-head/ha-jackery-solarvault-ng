@@ -7,6 +7,7 @@ import pytest
 from custom_components.jackery.protocol.routing import (
     MessageRoute,
     TopicInfo,
+    exclude_serial_from_child_arrays,
     is_host_message_body,
     parse_envelope,
     parse_topic,
@@ -168,6 +169,29 @@ def test_child_array_sanitizing_preserves_existing_shapes_without_mutation():
     }
     assert envelope["body"] is body
     assert body["plugs"] == {"bad": "container"}
+
+
+def test_child_array_serial_exclusion_is_exact_and_does_not_mutate_input():
+    body = {
+        "plugs": [
+            {"deviceSn": "HOST"},
+            {"deviceSn": "host"},
+            {"sn": "CHILD"},
+        ],
+        "future": 1,
+    }
+
+    filtered = exclude_serial_from_child_arrays(body, "HOST")
+
+    assert filtered == {
+        "plugs": [{"deviceSn": "host"}, {"sn": "CHILD"}],
+        "future": 1,
+    }
+    assert body["plugs"] == [
+        {"deviceSn": "HOST"},
+        {"deviceSn": "host"},
+        {"sn": "CHILD"},
+    ]
 
 
 def test_malformed_message_type_remains_generic_without_hashing():

@@ -178,6 +178,41 @@ async def discover(hass, coordinator, serial, group, dev_type, sub_type, data_ke
     await hass.async_block_till_done()
 
 
+async def test_host_array_entry_creates_neither_child_entities_nor_device(
+    hass,
+    setup_hosts,
+):
+    entries = await setup_hosts((HOSTS[0],))
+    entry = entries[HOSTS[0]]
+    coordinator = coordinator_for(hass, entry)
+    report(
+        coordinator,
+        {
+            "plugs": [
+                {"deviceSn": HOSTS[0], "devType": 6, "commMode": 1},
+                {"deviceSn": "REAL_CHILD", "devType": 6, "commMode": 1},
+            ]
+        },
+    )
+    await hass.async_block_till_done()
+
+    devices = dr.async_get(hass)
+    assert devices.async_get_device(
+        identifiers={(DOMAIN, child_device_identifier(HOSTS[0], HOSTS[0]))}
+    ) is None
+    real_child = devices.async_get_device(
+        identifiers={(DOMAIN, child_device_identifier(HOSTS[0], "REAL_CHILD"))}
+    )
+    assert real_child is not None
+    assert coordinator._known_plugs == {"REAL_CHILD"}
+    assert set(coordinator._subdevice_last_seen) == {"REAL_CHILD"}
+    phantom_prefix = f"jackery_child:{HOSTS[0]}:{HOSTS[0]}:"
+    assert all(
+        not entity.unique_id.startswith(phantom_prefix)
+        for entity in er.async_entries_for_config_entry(er.async_get(hass), entry.entry_id)
+    )
+
+
 @pytest.mark.parametrize("order", [HOSTS, HOSTS[::-1]])
 @pytest.mark.parametrize("group,dev_type,sub_type,data_key", CHILDREN)
 async def test_distinct_children_with_overlapping_metadata(hass, setup_hosts, order, group, dev_type, sub_type, data_key):

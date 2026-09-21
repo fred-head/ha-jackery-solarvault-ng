@@ -152,6 +152,120 @@ def test_101_alias_merge_duplicates_and_omissions(protocol, array):
         assert protocol._data_cache["plug"] is protocol._data_cache["plugs"]
 
 
+def test_101_child_array_rejects_configured_host_identity(protocol):
+    """The configured host must never enter child-owned runtime state."""
+    receive(
+        protocol,
+        101,
+        {
+            "plugs": [
+                {"deviceSn": "CHILD_A", "devType": 6, "outPw": 10},
+                {"deviceSn": "HOST_A", "devType": 6, "outPw": 20},
+                {"deviceSn": "CHILD_B", "devType": 6, "outPw": 30},
+            ]
+        },
+    )
+
+    assert [item["deviceSn"] for item in protocol._data_cache["plugs"]] == [
+        "CHILD_A",
+        "CHILD_B",
+    ]
+    assert set(protocol._subdevice_last_seen) == {"CHILD_A", "CHILD_B"}
+    assert protocol._known_plugs == {"CHILD_A", "CHILD_B"}
+
+
+@pytest.mark.parametrize(
+    ("array", "serial_key"),
+    [
+        ("plug", "deviceSn"),
+        ("plugs", "sn"),
+        ("socket", "deviceSn"),
+        ("sockets", "sn"),
+        ("ct", "deviceSn"),
+        ("cts", "sn"),
+        ("collectors", "deviceSn"),
+    ],
+)
+def test_101_child_array_aliases_reject_host_only(protocol, array, serial_key):
+    dtype = 4 if array == "collectors" else 2 if array in ("ct", "cts") else 6
+    receive(protocol, 101, {array: [{serial_key: "HOST_A", "devType": dtype}]})
+
+    assert not any(
+        key in protocol._data_cache
+        for key in ("plug", "plugs", "socket", "sockets", "ct", "cts", "collectors")
+    )
+    assert not protocol._subdevice_last_seen
+    assert not protocol._known_plugs
+    protocol.add_entities_callback.assert_not_called()
+    protocol.add_switch_entities_callback.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("array", "position"),
+    [
+        ("plug", 0),
+        ("plugs", 1),
+        ("socket", 2),
+        ("sockets", 0),
+        ("ct", 1),
+        ("cts", 2),
+        ("collectors", 1),
+    ],
+)
+def test_101_child_array_aliases_keep_real_children(protocol, array, position):
+    dtype = 4 if array == "collectors" else 2 if array in ("ct", "cts") else 6
+    items = [
+        {"deviceSn": "CHILD_A", "devType": dtype, "outPw": 10},
+        {"sn": "CHILD_B", "devType": dtype, "outPw": 30},
+    ]
+    items.insert(position, {"sn": "HOST_A", "devType": dtype, "outPw": 20})
+    receive(protocol, 101, {array: items})
+
+    cache_key = (
+        "cts"
+        if array in ("ct", "cts")
+        else "collectors"
+        if array == "collectors"
+        else "plugs"
+    )
+    assert {
+        item.get("deviceSn") or item.get("sn")
+        for item in protocol._data_cache[cache_key]
+    } == {"CHILD_A", "CHILD_B"}
+    assert set(protocol._subdevice_last_seen) == {"CHILD_A", "CHILD_B"}
+    assert protocol._known_plugs == {"CHILD_A", "CHILD_B"}
+    created = [
+        entity
+        for call in protocol.add_entities_callback.call_args_list
+        for entity in call.args[0]
+    ]
+    assert created
+    assert all(entity._plug_sn != "HOST_A" for entity in created)
+
+
+@pytest.mark.parametrize("message_type", [2, 107, 999])
+def test_generic_child_array_rejects_host_before_cache_freshness_and_discovery(
+    protocol,
+    message_type,
+):
+    receive(
+        protocol,
+        message_type,
+        {
+            "plugs": [
+                {"deviceSn": "HOST_A", "devType": 6, "outPw": 20},
+                {"deviceSn": "CHILD", "devType": 6, "outPw": 30},
+            ]
+        },
+    )
+
+    assert [item["deviceSn"] for item in protocol._data_cache["plugs"]] == [
+        "CHILD"
+    ]
+    assert set(protocol._subdevice_last_seen) == {"CHILD"}
+    assert protocol._known_plugs == {"CHILD"}
+
+
 def test_101_mixed_arrays_do_not_discover_battery_until_23(protocol):
     receive(protocol, 101, {"devType": 2, "plugs": [{"sn": "P", "commMode": 1}],
                             "cts": [{"sn": "CT"}, {"sn": "SM", "devType": 3, "subType": 5}],
