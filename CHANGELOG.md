@@ -64,6 +64,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Prevent the configured host serial from being admitted through child-device
+  arrays into child cache, freshness, discovery or entity state.
 - Preserve a newer explicit live on-grid zero over an older Type-106 alias when
   calculating Home Power. Per-coordinator receipt evidence now applies the
   existing inclusive 60-second live preference without changing raw cache

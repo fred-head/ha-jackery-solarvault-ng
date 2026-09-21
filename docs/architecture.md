@@ -128,7 +128,9 @@ coordinator. It tracks known children, expansion-battery membership and
 missing-since timestamps, returning explicit reappearance, newly-missing and
 removal-due decisions. It also maps classifier results to the unchanged sensor
 group, cache key and plug-switch requirement. The module imports no Home
-Assistant APIs and holds no entities, registry handles, transports or cache.
+Assistant APIs and holds no entities, registry handles, transports or cache. The
+configured host identity is removed at the shared child-array admission boundary
+before cache, freshness or membership state can observe it.
 
 The coordinator still collects discovery arrays, checks migration eligibility,
 constructs sensors and switches, invokes platform callbacks and applies due

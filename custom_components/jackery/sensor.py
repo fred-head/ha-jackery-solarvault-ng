@@ -67,6 +67,7 @@ from .protocol.normalization import normalize_payload_fields
 from .protocol.routing import (
     MessageRoute,
     RoutingDecision,
+    exclude_serial_from_child_arrays,
     is_host_message_body,
     parse_envelope,
     parse_topic,
@@ -395,16 +396,19 @@ class JackeryDataCoordinator:
                     now=received_at,
                 )
 
+            # The topic owns the host identity. Child arrays may redundantly
+            # include that same serial, but it must not enter child-owned state.
+            body = exclude_serial_from_child_arrays(parsed.body, self._device_sn)
             decision = parsed.decision
             if decision.captures_host_metadata and is_host_message_body(
-                parsed.body,
+                body,
                 self._device_sn,
             ):
-                self._capture_device_meta(parsed.raw_data, parsed.body)
+                self._capture_device_meta(parsed.raw_data, body)
 
-            self._apply_message_route(decision, parsed.body)
+            self._apply_message_route(decision, body)
             if decision.refreshes_generic_children:
-                self._refresh_generic_child_activity(parsed.body)
+                self._refresh_generic_child_activity(body)
 
             # Enrich data with calculations using merged cache
             # operate on copy or direct? Direct is fine.
