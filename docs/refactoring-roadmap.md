@@ -1,13 +1,25 @@
 # Incremental and reversible roadmap
 
-Current progress: the pure normalization, energy calculation and device
-classification bundles described in phases 1 through 3 are implemented. The
-safe structural portion of phase 4 is also implemented in
-`protocol/routing.py`, and the safe runtime-state portion of phase 5 is
+Accepted foundation after Phase 3:
+`2158a531be9790aa77ad234e9a4dbd52f6434ac8`.
+
+**Phase 3 is complete.** P3.1 through P3.5 delivered the pure diagnostics
+contract, passive observability, Home Assistant config-entry endpoint,
+adversarial hardening and opt-in protocol discovery. No Phase 4 workstream has
+been selected. The current technical audit, production-readiness gaps and
+candidate decision matrix are in
+[phase3-closeout-phase4-plan.md](phase3-closeout-phase4-plan.md).
+
+The numbered rows below are the historical extraction sequence; their row
+numbers are not the program-level Phase 3/Phase 4 names used above. Current
+progress: the pure normalization, energy calculation and device classification
+bundles described in extraction rows 1 through 3 are implemented. The safe
+structural portion of extraction row 4 is also implemented in
+`protocol/routing.py`, and the safe runtime-state portion of extraction row 5 is
 implemented in `coordinator_state.py`.
-Pure outbound action-topic and envelope construction from phase 6 is implemented
-in `protocol/commands.py`.
-The low-level MQTT API and subscription-handle boundary from phase 7 is
+Pure outbound action-topic and envelope construction from extraction row 6 is
+implemented in `protocol/commands.py`.
+The low-level MQTT API and subscription-handle boundary from extraction row 7 is
 implemented in `transport/mqtt.py`; coordinator polling policy remains in place.
 Established aliases and flat-status body reconstruction live in
 `protocol/normalization.py`; formulas and source selection live in
@@ -17,7 +29,8 @@ decisions now live in `protocol/routing.py`; coordinator-owned route application
 entity construction, discovery/deletion policy and availability side effects
 remain in `sensor.py`. Runtime cache, freshness, Type-106 evidence and source
 metadata live in `coordinator_state.py`. See [architecture.md](architecture.md).
-Later rows remain future work.
+Rows 1 through 10 record completed or intentionally partial extraction history.
+Rows 11 and 12 remain possible work, not an approved Phase 4 plan.
 
 Phase 0/1 stops with this documentation. The following work requires subsequent review. Baseline: 174 tests passing, translation/Ruff pass, CI-style lint-only mypy pass; combined HA+lint environment has 23 typing findings. The [test map](test-coverage-map.md) defines actual assertion limits.
 
@@ -42,6 +55,12 @@ Each row is one small PR, or a sequence of PRs when explicitly indicated. Do not
 | 12. Selective upstream behavior | Only modules relevant to one accepted candidate, tests, future upstream-sync ledger | Protect community-only groups/calculations/history; never branch-merge Official. | Candidate-specific regression fixture and compatibility tests listed in port assessment. | Variable. Record upstream SHA, exact intent and local test evidence; reject changes without protocol evidence. One behavior per PR. |
 
 ## Recommended next work
+
+No Phase 4 objective is approved by this roadmap. The maintainer should first
+answer the decision questions in the
+[Phase 3 closeout audit](phase3-closeout-phase4-plan.md), particularly whether
+production/release hardening and hardware evidence take precedence over new
+capabilities, command tracking or further decomposition.
 
 The prerequisite HTTP/MQTT coexistence and related lifecycle, freshness and
 identity defects were handled in isolated bugfix work before these extractions.

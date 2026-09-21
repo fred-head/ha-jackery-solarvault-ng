@@ -1,5 +1,36 @@
 # Test coverage map
 
+## Current post-P3.5 assessment
+
+Accepted foundation `2158a531be9790aa77ad234e9a4dbd52f6434ac8` has
+**1,442 passing tests and 96.09% statement coverage**, with no skips or xfails.
+Ruff, DE/EN/FR translation validation, CI-compatible mypy, HA-aware mypy, the
+Python compile check and `git diff --check` pass. Protocol discovery has 98%
+coverage; `diagnostics_snapshot.py` has 99%, `diagnostics.py` and
+`diagnostics_observation.py` have 100%, and `diagnostics_adapter.py` has 94%.
+
+Coverage is not hardware evidence. All MQTT/HTTP payload playback is synthetic,
+there is no recorded golden-fixture directory, broker reconnect uses mocks, and
+no command test proves device execution. Current residual gaps are:
+
+| Area | Remaining evidence gap |
+| --- | --- |
+| Hardware/protocol | Sanitized startup/steady-state/failure fixtures for Pro Max, SolarVault 3, HTO907A, Shelly, HTO910A, BP2500 and Smart Plug |
+| Energy | Community v2.4.2 standby/live-zero regression and hardware-backed source transitions |
+| Lifecycle | Actual broker disconnect/reconnect and multi-day reload/unload soak |
+| Config/auth | Automatic options application and complete reauth/reload/failure flow |
+| Upgrade | Real registry/config snapshots from supported historical releases and HACS upgrade/rollback |
+| Commands | Device acknowledgement, rejection, timeout and optimistic rollback semantics |
+| Child removal | Authoritative Type-101 membership/unbinding evidence |
+| HA compatibility | Version matrix down to the advertised HACS minimum |
+| Quality gate | CI's configured coverage floor is still 50%, well below the observed 96.09% |
+
+The chronological sections below explain how coverage was built. The old
+behavior/gap matrix and source index at the end are retained as Phase 0/1
+evidence and must not be read as the current test inventory. See
+[phase3-closeout-phase4-plan.md](phase3-closeout-phase4-plan.md) for the complete
+closeout assessment.
+
 The P3.5 protocol-discovery matrix adds direct and HA-path coverage for the
 disabled-by-default option, per-coordinator memory-only state, safe numeric and
 JSON-type message buckets, unknown device-pair aggregation, fixed structural
@@ -235,7 +266,12 @@ Baseline: [baseline](baseline.md). All 10 test modules and `conftest.py` were re
 
 `conftest.coordinator` bypasses `__init__` with `__new__`, omits config_entry_id and HTTP state, and uses poll counter=0 rather than production=2. Most routing tests therefore merge cache without creating actual child entities or running transport. Helpers frequently replace `async_write_ha_state`, timers or registry removal with mocks. Passing cache assertions do not establish end-to-end HA availability.
 
-## Behavior to tests
+## Historical Phase 0/1 behavior-to-test map (superseded)
+
+The following table described the original 174-test baseline. Most HIGH gaps
+were subsequently covered or fixed; only hardware/golden evidence, completed
+options/reauth journeys and authoritative unbinding remain current in the same
+form.
 
 | Behavior | Existing protection | What remains unprotected |
 | --- | --- | --- |
@@ -266,7 +302,7 @@ Baseline: [baseline](baseline.md). All 10 test modules and `conftest.py` were re
 
 A test named `test_optimistic_switch_turn_on_patches_cache` uses the generic optimistic class with swEps, but **production swEps uses the non-optimistic class**. It is not proof that the actual EPS switch updates optimistically. Number coverage is 98%, yet wire encoding is uncovered because its coordinator is fake. Button coverage is 93%, yet pressing the button is not tested. These are examples of why statement coverage alone is insufficient.
 
-## Critical test gaps
+## Historical Phase 0/1 critical test gaps (superseded)
 
 | Priority | Regression scenario required before related refactoring | Why |
 | --- | --- | --- |
@@ -286,7 +322,7 @@ A test named `test_optimistic_switch_turn_on_patches_cache` uses the generic opt
 | LOW | Full metadata/translation-key snapshots and old HA compatibility matrix | Current translation test only checks key completeness |
 
 Add fixtures with synthetic identifiers and documented capture provenance; do not call invented payloads recorded hardware evidence. For source-confirmed defects, first capture the existing behavior, then add the intended failure case and fix it in a separate bugfix PR rather than hiding it inside extraction.
-## Complete test index
+## Historical Phase 0/1 complete test index (174 cases)
 
 These are source test functions, not a hardware matrix. Parametrization is absent; 174 collected cases match the source index. Group descriptions above explain assertion scope.
 

@@ -44,11 +44,11 @@ Complete cloud-independent provisioning is not implemented or guaranteed. Provis
 - Maintain robust MQTT and protocol handling
 - Preserve SmartMeter and child-device support
 - Expand automated regression coverage around known device and lifecycle behavior
+- Provide privacy-bounded Home Assistant diagnostics and an opt-in, memory-only developer protocol-discovery mode
 
 ### Next
 
-- Add useful, privacy-conscious Home Assistant diagnostics
-- Add opt-in protocol-discovery tooling for maintainers and testers
+- Use the Phase 3 closeout audit to select the next production-hardening or capability workstream
 - Continue stability work and broader real-hardware validation
 - Review and selectively port relevant public changes from the upstream and community projects
 
