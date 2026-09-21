@@ -48,6 +48,17 @@ class GridSourceSelection:
         }
 
 
+@dataclass(frozen=True, slots=True)
+class OnGridSourceEvidence:
+    """Receipt evidence for the two semantic on-grid alias families."""
+
+    live_observed: bool = False
+    live_seen_at: float | None = None
+    type106_observed: bool = False
+    type106_seen_at: float | None = None
+    live_preference_seconds: float = 0.0
+
+
 def _field_present(data: Mapping[str, Any], key: str) -> bool:
     """Return whether a field exists and is non-null; zero is present."""
     return key in data and data[key] is not None
@@ -89,6 +100,29 @@ def _pick_best_power_net(candidates: list[float]) -> float:
     return candidates[-1]
 
 
+def _directional_power_net(
+    data: Mapping[str, Any],
+    incoming_key: str,
+    outgoing_key: str,
+) -> float | None:
+    """Read one finite directional pair without turning invalid input into zero."""
+    observed = False
+    incoming = 0.0
+    outgoing = 0.0
+    for key, is_incoming in ((incoming_key, True), (outgoing_key, False)):
+        if key not in data or data[key] is None:
+            continue
+        observed = True
+        sample = _power_sample(data[key])
+        if sample is None:
+            return None
+        if is_incoming:
+            incoming = sample
+        else:
+            outgoing = sample
+    return incoming - outgoing if observed else None
+
+
 def _effective_ongrid_net(
     data: Mapping[str, Any],
     grid_in: float,
@@ -97,8 +131,52 @@ def _effective_ongrid_net(
     ongrid_supply: float,
     in_grid_side: float,
     out_grid_side: float,
+    evidence: OnGridSourceEvidence | None = None,
 ) -> float:
     """Return grid-tied port net power; positive means grid to unit."""
+    if evidence is not None and (
+        evidence.live_observed or evidence.type106_observed
+    ):
+        live_net = _directional_power_net(
+            data,
+            "inOngridPw",
+            "outOngridPw",
+        )
+        type106_net = _directional_power_net(data, "gridInPw", "gridOutPw")
+        if evidence.live_seen_at is None:
+            live_net = None
+        if evidence.type106_seen_at is None:
+            type106_net = None
+        grid_side_net = _directional_power_net(
+            data,
+            "inGridSidePw",
+            "outGridSidePw",
+        )
+
+        if (
+            live_net is not None
+            and evidence.live_seen_at is not None
+            and (
+                type106_net is None
+                or evidence.type106_seen_at is None
+                or evidence.type106_seen_at <= evidence.live_seen_at
+                or evidence.type106_seen_at - evidence.live_seen_at
+                <= evidence.live_preference_seconds
+            )
+        ):
+            return live_net
+
+        fallback = [
+            value
+            for value in (type106_net, grid_side_net)
+            if value is not None
+        ]
+        if fallback:
+            return _pick_best_power_net(fallback)
+        if live_net is not None and evidence.live_seen_at is not None:
+            return live_net
+        return 0.0
+
     candidates: list[float] = []
     if _field_present(data, "gridInPw") or _field_present(data, "gridOutPw"):
         candidates.append(grid_in - grid_out)
@@ -240,6 +318,7 @@ def select_grid_source(
 def calculate_energy_flow(
     data: dict[str, Any],
     grid_source: GridSourceSelection | None = None,
+    ongrid_evidence: OnGridSourceEvidence | None = None,
 ) -> dict[str, Any]:
     """Mutate and return normalized raw state with established derived values."""
     pv = _power_sample(data.get("pvPw"))
@@ -260,6 +339,7 @@ def calculate_energy_flow(
         ongrid_supply,
         in_grid_side,
         out_grid_side,
+        ongrid_evidence,
     )
 
     eps_in = _safe_float(data.get("swEpsInPw"))

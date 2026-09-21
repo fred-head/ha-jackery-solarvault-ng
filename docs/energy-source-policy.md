@@ -128,11 +128,20 @@ Conflicting host aliases still need device evidence before changing priority.
 Post-Phase-3 note: the
 [P4.1 standby/live-zero audit](p4-standby-live-zero-audit.md) now reproduces a
 specific counterexample for `_effective_ongrid_net()`: a newer explicit live
-zero loses to an older Type-106 non-zero and makes Home Power collapse. The
-implementation remains unchanged pending its regression-first fix. This new
-evidence supersedes the “no priority evidence” conclusion only for the on-grid
-semantic selector; `_grid_net_from_system()` and its host-fallback magnitude
-policy remain separate and unresolved.
+zero loses to an older Type-106 non-zero and makes Home Power collapse. The P4.1
+candidate records per-coordinator receipt metadata for the live and Type-106
+on-grid alias families. A valid live pair, including zero, has the existing
+60-second inclusive preference; a newly received valid Type-106 pair after that
+window may replace it. Suppressed snapshots do not reactivate merely as time
+passes. Never-seen or explicitly all-null input has no valid receipt timestamp;
+omission from unrelated incremental messages leaves prior evidence unchanged.
+Malformed or non-finite input cannot change priority. Raw cache fields remain
+separate.
+
+This evidence supersedes the former “no priority evidence” conclusion only for
+the on-grid semantic selector. `_grid_net_from_system()` and its host-fallback
+magnitude policy remain unchanged and unresolved, and the eleven existing
+same-key Type-106/live fields retain their prior policy.
 
 Solar balance uses pvPw, never an invented channel sum. For dictionaries,
 prefer first non-null pvPw/w/power, including zero. Battery raw main-unit and

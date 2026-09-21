@@ -1,13 +1,15 @@
 # Test coverage map
 
-## Current post-P3.5 assessment
+## Current P4.1 candidate assessment
 
-Accepted foundation `2158a531be9790aa77ad234e9a4dbd52f6434ac8` has
-**1,442 passing tests and 96.09% statement coverage**, with no skips or xfails.
+The uncommitted P4.1 candidate is based on audit-merge foundation
+`f7b0cd19856ba9ec536437111da0ff8f54fd6a35` and has **1,462 passing tests and
+96.14% statement coverage**, with no skips or xfails.
 Ruff, DE/EN/FR translation validation, CI-compatible mypy, HA-aware mypy, the
-Python compile check and `git diff --check` pass. Protocol discovery has 98%
-coverage; `diagnostics_snapshot.py` has 99%, `diagnostics.py` and
-`diagnostics_observation.py` have 100%, and `diagnostics_adapter.py` has 94%.
+Python compile check and `git diff --check` pass. The changed energy calculation
+module has 99% coverage, coordinator state 100% and `sensor.py` 93%. Protocol
+discovery remains at 98%; `diagnostics_snapshot.py` has 99%, `diagnostics.py`
+and `diagnostics_observation.py` have 100%, and `diagnostics_adapter.py` has 94%.
 
 Coverage is not hardware evidence. All MQTT/HTTP payload playback is synthetic,
 there is no recorded golden-fixture directory, broker reconnect uses mocks, and
@@ -16,7 +18,7 @@ no command test proves device execution. Current residual gaps are:
 | Area | Remaining evidence gap |
 | --- | --- |
 | Hardware/protocol | Sanitized startup/steady-state/failure fixtures for Pro Max, SolarVault 3, HTO907A, Shelly, HTO910A, BP2500 and Smart Plug |
-| Energy | Community v2.4.2 standby/live-zero regression and hardware-backed source transitions |
+| Energy | Hardware-backed on-grid source transitions and the separately deferred `_grid_net_from_system()` alias policy |
 | Lifecycle | Actual broker disconnect/reconnect and multi-day reload/unload soak |
 | Config/auth | Automatic options application and complete reauth/reload/failure flow |
 | Upgrade | Real registry/config snapshots from supported historical releases and HACS upgrade/rollback |
@@ -30,6 +32,15 @@ behavior/gap matrix and source index at the end are retained as Phase 0/1
 evidence and must not be read as the current test inventory. See
 [phase3-closeout-phase4-plan.md](phase3-closeout-phase4-plan.md) for the complete
 closeout assessment.
+
+The P4.1 standby/live-zero matrix adds 20 focused cases. It first reproduced the
+real `_handle_message()` → cache/evidence → calculation → `JackerySensor`
+fan-out failure (`0.0` Home Power instead of `300`). It now covers explicit zero
+versus missing/null/invalid input, `<60`, `==60` and `>60` receipt boundaries,
+startup with Type 106 only, live recovery, suppression without timer-based
+reactivation, a genuinely new Type-106 receipt after expiry, unchanged grid
+source selection and unchanged same-key PV protection. Final validation:
+**1,462 passed, 96.14% coverage**; no skips or xfails were introduced.
 
 The P3.5 protocol-discovery matrix adds direct and HA-path coverage for the
 disabled-by-default option, per-coordinator memory-only state, safe numeric and

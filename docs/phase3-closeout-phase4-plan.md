@@ -12,7 +12,10 @@ upstreams. No production or test code was changed for this audit.
 Phase 4 evidence work has started with the completed
 [P4.1 standby/live-zero root-cause audit](p4-standby-live-zero-audit.md). The
 audit identifies the exact cross-alias arbitration failure and designs a bounded
-fix contract; no production fix or regression test is marked complete yet.
+fix contract. The resulting regression-first implementation is complete and
+validated on `fix/standby-live-zero-arbitration`, based on audit-merge foundation
+`f7b0cd19856ba9ec536437111da0ff8f54fd6a35`; it is not yet committed or merged
+into the accepted foundation.
 
 ## 1. Executive summary
 
@@ -35,11 +38,11 @@ continues to describe the project as experimental.
 
 Three issues should be resolved before a broad production recommendation:
 
-1. The current calculation still reproduces the community v2.4.2 standby case:
+1. The accepted foundation still reproduces the community v2.4.2 standby case:
    with live `inOngridPw=0` and stale `gridInPw=300`,
-   `_effective_ongrid_net()` selects `300` instead of the live zero. The newer
-   community tree fixes this. It needs an independent regression-first review in
-   the NG source policy, not a blind cherry-pick.
+   `_effective_ongrid_net()` selects `300` instead of the live zero. P4.1 now has
+   a bounded receipt-time fix with 20 focused regressions, but broad production
+   recommendation still depends on review and merge of that uncommitted candidate.
 2. No NG hardware/golden-fixture matrix proves the supported combinations and
    long-running lifecycle behavior. Existing hardware statements are inherited
    reports, not validation performed on this foundation.

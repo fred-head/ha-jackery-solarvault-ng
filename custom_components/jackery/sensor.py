@@ -14,6 +14,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
 from .calculations.energy_flow import (
+    OnGridSourceEvidence,
     SourceFreshness,
     _power_sample,
     calculate_energy_flow,
@@ -107,6 +108,27 @@ _TYPE106_LIVE_PREFERRED: frozenset[str] = frozenset({
     "swEpsInPw", "swEpsOutPw",
     "stackInPw", "stackOutPw",
 })
+
+
+def _directional_power_observation(
+    payload: dict[str, Any],
+    incoming_key: str,
+    outgoing_key: str,
+) -> bool | None:
+    """Classify an observed pair as valid, explicitly missing, or unusable."""
+    observed = False
+    valid = False
+    for key in (incoming_key, outgoing_key):
+        if key not in payload:
+            continue
+        observed = True
+        value = payload[key]
+        if value is None:
+            continue
+        if _power_sample(value) is None:
+            return None
+        valid = True
+    return valid if observed else None
 
 
 def _protocol_observation_bucket(
@@ -480,6 +502,15 @@ class JackeryDataCoordinator:
     def _handle_type106(self, body: dict[str, Any]) -> None:
         """Apply a full-system snapshot with coordinator-owned live preference."""
         normalized = normalize_payload_fields(body)
+        ongrid_observation = _directional_power_observation(
+            normalized,
+            "gridInPw",
+            "gridOutPw",
+        )
+        if ongrid_observation is not None:
+            self._runtime_state.record_ongrid_type106_evidence(
+                ongrid_observation,
+            )
         self._runtime_state.merge_type106_snapshot(
             normalized,
             live_preferred=_TYPE106_LIVE_PREFERRED,
@@ -503,6 +534,16 @@ class JackeryDataCoordinator:
         """Normalize field aliases and merge a main-device payload into the cache."""
         normalized = normalize_payload_fields(payload)
         live_type = msg_code if msg_code in (2, 23, 25, 107) else None
+        if live_type is not None:
+            ongrid_observation = _directional_power_observation(
+                normalized,
+                "inOngridPw",
+                "outOngridPw",
+            )
+            if ongrid_observation is not None:
+                self._runtime_state.record_ongrid_live_evidence(
+                    ongrid_observation,
+                )
         valid_live_fields = {
             key
             for key in _TYPE106_LIVE_PREFERRED.intersection(payload)
@@ -961,7 +1002,17 @@ class JackeryDataCoordinator:
                             activity_age=now - seen if seen is not None else None,
                         )
             selected = select_grid_source(data, freshness)
-            calculate_energy_flow(data, selected)
+            ongrid_evidence = None
+            if self is not None:
+                runtime = self._runtime_state
+                ongrid_evidence = OnGridSourceEvidence(
+                    live_observed=runtime.ongrid_live_observed,
+                    live_seen_at=runtime.ongrid_live_seen_at,
+                    type106_observed=runtime.ongrid_type106_observed,
+                    type106_seen_at=runtime.ongrid_type106_seen_at,
+                    live_preference_seconds=OFFLINE_TIMEOUT,
+                )
+            calculate_energy_flow(data, selected, ongrid_evidence)
             if self is not None:
                 self._runtime_state.record_energy_source("grid", selected.metadata())
 
