@@ -48,9 +48,9 @@ Complete cloud-independent provisioning is not implemented or guaranteed. Provis
 
 ### Next
 
-- Use the Phase 3 closeout audit to select the next production-hardening or capability workstream
-- Continue stability work and broader real-hardware validation
-- Review and selectively port relevant public changes from the upstream and community projects
+- Prepare selective, high-confidence ports identified by the completed public upstream audit
+- Follow with release, compatibility and lifecycle hardening
+- Keep hardware and capability expansion dependent on real-device evidence
 
 ### Long term
 
