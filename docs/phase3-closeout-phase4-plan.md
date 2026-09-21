@@ -9,13 +9,13 @@ for a future Phase 4. It does not authorize or schedule Phase 4 work. Findings
 come from the current source, tests, Git history and freshly fetched configured
 upstreams. No production or test code was changed for this audit.
 
-Phase 4 evidence work has started with the completed
+Phase 4 evidence work started with the completed
 [P4.1 standby/live-zero root-cause audit](p4-standby-live-zero-audit.md). The
-audit identifies the exact cross-alias arbitration failure and designs a bounded
-fix contract. The resulting regression-first implementation is complete and
-validated on `fix/standby-live-zero-arbitration`, based on audit-merge foundation
-`f7b0cd19856ba9ec536437111da0ff8f54fd6a35`; it is not yet committed or merged
-into the accepted foundation.
+resulting bounded receipt-time fix is merged in foundation
+`0d55a01e3fbd247407fe63106bf25c6c9c8aa73d`. The current decision step is the
+[best-of-both-worlds upstream delta audit](upstream-best-of-both-worlds-audit.md),
+which classifies current Community and Official changes without approving or
+implementing a port.
 
 ## 1. Executive summary
 
