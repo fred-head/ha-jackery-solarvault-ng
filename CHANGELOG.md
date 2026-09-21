@@ -64,6 +64,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Preserve a newer explicit live on-grid zero over an older Type-106 alias when
+  calculating Home Power. Per-coordinator receipt evidence now applies the
+  existing inclusive 60-second live preference without changing raw cache
+  fields, grid-source selection or the other Type-106-protected power fields.
 - Ignore malformed numeric values in the legacy subtype-3 CT phase-sum
   fallback, preserving the entity's last valid value and allowing later MQTT
   listeners to receive the same update.

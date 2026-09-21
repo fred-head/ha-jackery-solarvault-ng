@@ -571,3 +571,38 @@ but do not prevent a bounded software fix for the reproduced sequence:
 understood well enough to implement a narrow, regression-first P4.1 fix. The
 fix should use bounded receipt evidence rather than copy the upstream strict
 presence rule blindly.
+
+## 18. Implementation outcome
+
+The P4.1 candidate implements Candidate B on
+`fix/standby-live-zero-arbitration`, based on audit-merge foundation
+`f7b0cd19856ba9ec536437111da0ff8f54fd6a35`. It is validated but not yet
+committed or merged.
+
+`CoordinatorRuntimeState` now owns four metadata fields: an observed flag and
+optional local receipt timestamp for each of the live and Type-106 on-grid alias
+families. Known live routes update the live metadata only when
+`inOngridPw/outOngridPw` is observed; Type 106 does the same for
+`gridInPw/gridOutPw`. At least one finite directional sample is required. An
+explicit all-null observation clears that family's valid timestamp. Malformed,
+boolean and non-finite input changes neither receipt priority nor validity into
+a synthetic zero. Omission from an unrelated incremental message does not
+refresh or clear prior evidence. Raw power values are not copied into this
+evidence.
+
+The pure calculation input carries a detached receipt-evidence record.
+`_effective_ongrid_net()` gives valid live evidence, including zero, preference
+when it is newer or when a Type-106 receipt follows within **60 seconds
+inclusive**. A genuinely new valid Type-106 receipt after 60 seconds may replace
+stale live evidence. The decision compares receipt timestamps rather than the
+current clock, so a snapshot suppressed inside the window cannot reactivate
+later without another receipt. Startup Type-106-only behavior and the existing
+grid-side fallback remain available.
+
+The original end-to-end regression failed before production changes with Home
+Power `0.0` instead of `300`. The completed 20-test P4.1 matrix covers that real
+route/cache/calculation/entity fan-out, receipt boundaries, missing/null/invalid
+input, startup, recovery, and lack of timer-only reactivation. The complete suite
+passes with **1,462 tests and 96.14% coverage**. `_grid_net_from_system()`, the
+eleven same-key Type-106/live fields, Diagnostics and Protocol Discovery are
+unchanged. Remaining hardware questions in section 17 still apply.

@@ -17,6 +17,10 @@ class CoordinatorRuntimeState:
     data_cache: dict[str, Any] = field(default_factory=dict)
     power_live_seen: dict[str, tuple[int, float]] = field(default_factory=dict)
     power_106_samples: dict[str, tuple[Any, float]] = field(default_factory=dict)
+    ongrid_live_observed: bool = False
+    ongrid_live_seen_at: float | None = None
+    ongrid_type106_observed: bool = False
+    ongrid_type106_seen_at: float | None = None
     energy_sources: dict[str, Any] = field(default_factory=dict)
     subdevice_last_seen: dict[str, float] = field(default_factory=dict)
 
@@ -66,6 +70,16 @@ class CoordinatorRuntimeState:
                     continue
                 self.power_live_seen.pop(key, None)
             self.data_cache[key] = value
+
+    def record_ongrid_live_evidence(self, valid: bool) -> None:
+        """Record receipt metadata for the live on-grid alias family."""
+        self.ongrid_live_observed = True
+        self.ongrid_live_seen_at = self.last_update_time if valid else None
+
+    def record_ongrid_type106_evidence(self, valid: bool) -> None:
+        """Record receipt metadata for the Type-106 on-grid alias family."""
+        self.ongrid_type106_observed = True
+        self.ongrid_type106_seen_at = self.last_update_time if valid else None
 
     def child_is_available(
         self,
