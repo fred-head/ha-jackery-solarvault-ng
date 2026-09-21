@@ -125,6 +125,15 @@ is inherited deliberately, **not** generalized to CT versus system sources.
 Its historical goal was to avoid snapshot zero masking a live host alias.
 Conflicting host aliases still need device evidence before changing priority.
 
+Post-Phase-3 note: the
+[P4.1 standby/live-zero audit](p4-standby-live-zero-audit.md) now reproduces a
+specific counterexample for `_effective_ongrid_net()`: a newer explicit live
+zero loses to an older Type-106 non-zero and makes Home Power collapse. The
+implementation remains unchanged pending its regression-first fix. This new
+evidence supersedes the “no priority evidence” conclusion only for the on-grid
+semantic selector; `_grid_net_from_system()` and its host-fallback magnitude
+policy remain separate and unresolved.
+
 Solar balance uses pvPw, never an invented channel sum. For dictionaries,
 prefer first non-null pvPw/w/power, including zero. Battery raw main-unit and
 stack sensors remain separate from the derived total battery flow.
