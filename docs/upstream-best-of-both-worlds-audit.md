@@ -588,11 +588,11 @@ Every follow-up must preserve these established constraints:
 ## 16. Proposed follow-up audits and port PRs
 
 The previously proposed Group-A sequence was completed as separate A1, A3 and
-A2 regression-first PRs. This refresh did not select a next major workstream;
-B1 was selected later and is now complete. Remaining decision candidates include:
+A2 regression-first PRs. B1, B2 and the separate NG Options/reload lifecycle
+workstream were completed later. Remaining decision candidates include:
 
 - an alert payload/event-contract evidence audit before any `/alert` feature;
-- options/reload lifecycle design and HA tests after completed B2;
+- real MQTT disconnect/reconnect validation after completed lifecycle flows;
 - C1 capability evidence, with `wps` separate from writable gates;
 - C3 membership semantics after real Type-101 sequences exist;
 - C2/C4 hardware work, one meter family or formula question per audit.

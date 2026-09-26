@@ -295,7 +295,7 @@ These block a general recommendation, not controlled developer testing.
 
 | Finding | Current evidence |
 | --- | --- |
-| Options reload | The options flow stores values but no update listener guarantees reload; HTTP and protocol discovery are read when a coordinator is constructed |
+| Options reload (resolved after this audit) | The later Options/reload lifecycle change applies changed data and options through one flow-owned reload, with no update listener |
 | Reauth completion | Trigger and token-update helper exist, but there is no full flow/reload/rejection/removed-entry regression |
 | MQTT reconnect | HA owns reconnect behavior, but tests use an in-memory subscription model rather than an actual broker loss/recovery |
 | Command failure semantics | Optimistic controls retain tentative cache/UI values after publish errors; no acknowledgement, timeout or rollback exists |
@@ -342,7 +342,7 @@ These block a general recommendation, not controlled developer testing.
 | Narrow coordinator APIs | Entities read `_data_cache`, identity, source and listener internals directly | High architectural leverage, medium/high regression risk |
 | HA/coordinator coupling | Dynamic child entities, registry removal, HTTP policy and callbacks remain in `sensor.py` | Valuable only in small behavior-preserving slices |
 | Hardware golden fixtures | No fixture directory or recorded sanitized payload corpus exists | High production evidence value; needs hardware contributors |
-| Options application | No deterministic automatic reload hook | Small focused lifecycle candidate |
+| Options application | Resolved after this audit by flow-owned reloads and HA lifecycle regressions | Completed lifecycle workstream |
 | Stale child cleanup | Membership owner exists, but cache merge is not an authoritative membership snapshot | Requires protocol evidence before behavior change |
 | Command optimism | No pending-command owner, ack semantics or rollback | Separate protocol/hardware workstream |
 | Compatibility aliases | Coordinator private properties re-expose the runtime owner; sensor definitions and helpers are re-exported | Intentional migration bridge; remove only with downstream policy |
@@ -479,6 +479,9 @@ These candidates are alternatives or composable tracks, not a selected roadmap.
   identify the intended release; clean upgrade and rollback instructions exist.
 
 ### 12.2 Reauth, options and connection lifecycle completion
+
+The reauth and options-flow portions of this historical candidate are now
+implemented. Real broker disconnect/reconnect validation remains open.
 
 - **Problem:** options application and reauth completion are only partly covered;
   reconnect behavior is delegated to HA without broker-level evidence.
