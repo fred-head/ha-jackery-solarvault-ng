@@ -703,6 +703,8 @@ class JackeryDataCoordinator:
             else:
                 changed = True
         soft_ver = body.get("softver")
+        if soft_ver is None:
+            soft_ver = raw_data.get("softver")
         if soft_ver is not None and soft_ver != self._soft_ver:
             self._soft_ver = str(soft_ver)
             changed = True

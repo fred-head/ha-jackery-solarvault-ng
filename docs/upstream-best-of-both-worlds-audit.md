@@ -335,6 +335,11 @@ generic fallback. A label-only change would overstate support.
 - **Acceptance:** top-level and body forms work; body precedence is explicit;
   child/foreign/malformed messages cannot update host metadata; no ID change.
 - **Suggested PR:** metadata-only PR, separate from model-label expansion.
+- **Implementation follow-up:** A2 was adapted manually from the Official
+  metadata helpers around `12c2e7c`/`d0e0c9f` and implemented regression-first
+  without cherry-picking. Parsing semantics require no hardware evidence. NG
+  deliberately retains body-first precedence for compatibility, and the
+  existing host/message-type ownership gates remain authoritative.
 
 #### A3. Isolate type-100 child poll failures
 

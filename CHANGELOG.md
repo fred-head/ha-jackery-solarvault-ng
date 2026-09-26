@@ -64,6 +64,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Accept validated top-level host `softver` metadata when `body.softver` is
+  absent, while preserving the established body-first firmware precedence.
 - Isolate Type-100 child polling failures per device category so one failed
   publish no longer prevents the remaining categories in the same cycle from
   being attempted.
