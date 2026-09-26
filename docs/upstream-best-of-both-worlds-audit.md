@@ -352,6 +352,10 @@ generic fallback. A label-only change would overstate support.
   25/2/105 cadence, `[2,3,6]` order, token/body and cancellation semantics stay
   unchanged.
 - **Suggested PR:** one polling failure-isolation PR.
+- **Implementation follow-up:** A3 was adapted manually from Official `8ac1b40`
+  and implemented regression-first without cherry-picking. Publish failures are
+  isolated per child category and require no hardware evidence; poll order,
+  cadence, payloads and cancellation semantics remain unchanged.
 
 ### Group B: port with NG adaptation
 

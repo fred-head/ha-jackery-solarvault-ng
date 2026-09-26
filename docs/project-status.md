@@ -15,8 +15,8 @@ and architecture documents remain authoritative.
 | Done | P4.1 correctness | Receipt-time arbitration now preserves a newer explicit live on-grid zero over an older Type-106 alias. |
 | Done | Upstream audit | 10 Community and 43 Official delta commits were classified semantically; no upstream code was imported. |
 | Done | Group A1 host/child admission | The configured host serial is rejected at the shared child-array admission boundary before cache, freshness, discovery or entity state. |
-| Current | Group A3 poll isolation | The next focused candidate is isolating type-100 child-poll failures while preserving cadence, order and cancellation behavior. |
-| Next | Group A2 host firmware metadata | After A3, accept validated top-level host firmware metadata with explicit precedence and ownership guards. |
+| Done | Group A3 poll isolation | Type-100 child-poll publish failures are isolated per category while preserving cadence, order and cancellation behavior. |
+| Current | Group A2 host firmware metadata | The next focused candidate is accepting validated top-level host firmware metadata with explicit precedence and ownership guards. |
 | Next | Release and lifecycle hardening | After the focused ports, likely work includes the release/upgrade contract, reauthentication and options reload, and real MQTT reconnect behavior. This order remains a maintainer decision. |
 
 ## Recently completed
@@ -39,15 +39,15 @@ and architecture documents remain authoritative.
   [upstream delta audit](upstream-best-of-both-worlds-audit.md).
 - **Group A1 host/child admission:** child arrays cannot admit the configured
   host into child-owned cache, freshness, discovery, entity or device state.
+- **Group A3 poll isolation:** a failed Type-100 child-category publish no
+  longer suppresses later categories in the same polling cycle.
 
 ## Next
 
-The remaining immediate candidates are the two Group-A changes from the upstream
-audit. Each remains a separate, regression-first PR adapted to NG's architecture:
+The remaining immediate Group-A candidate from the upstream audit stays a
+separate, regression-first PR adapted to NG's architecture:
 
-1. Attempt every type-100 child category when one category publish fails, while
-   preserving order, pacing, and cancellation behavior.
-2. Accept host firmware metadata from the validated top-level envelope form with
+1. Accept host firmware metadata from the validated top-level envelope form with
    explicit precedence and host ownership.
 
 Release/compatibility hardening and lifecycle work are the likely following
