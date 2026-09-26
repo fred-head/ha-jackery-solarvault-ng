@@ -23,6 +23,8 @@ from custom_components.jackery.sensor import JackeryDataCoordinator
 
 from .conftest import FakeMqttMsg
 
+ORIGINAL_HTTP_POLL_LOOP = JackeryDataCoordinator._smartmeter_http_poll_loop
+
 
 class Subscriptions:
     """Model HA's synchronous cleanup API and independent listener handles."""
@@ -71,6 +73,30 @@ class Subscriptions:
 
 async def idle():
     await asyncio.Future()
+
+
+DEFAULT_OPTIONS = {
+    "smartmeter_http_poll": True,
+    "smartmeter_poll_interval": 10,
+    "protocol_discovery_enabled": False,
+}
+
+
+async def submit_options(hass, entry, *, token=None, topic_prefix=None, **options):
+    flow = await hass.config_entries.options.async_init(entry.entry_id)
+    assert flow["type"] is FlowResultType.FORM
+    result = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        user_input={
+            "token": entry.data["token"] if token is None else token,
+            "topic_prefix": entry.data["topic_prefix"] if topic_prefix is None else topic_prefix,
+            **DEFAULT_OPTIONS,
+            **options,
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    return result
 
 
 def auth_rejection(host: str) -> FakeMqttMsg:
@@ -544,6 +570,204 @@ async def test_actual_ha_reload_replaces_only_its_own_subscriptions(hass, entrie
         assert calls.call_count == 0
 
 
+async def test_options_topic_prefix_reloads_runtime_and_subscriptions(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    old_handles = list(broker.active)
+    assert {record.topic for record in old_handles} == {
+        "hb/device/HOST_A/status",
+        "hb/device/HOST_A/event",
+    }
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, topic_prefix="newroot")
+    assert reload.await_count == 1
+
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert entry.data["topic_prefix"] == "newroot"
+    assert replacement is not original
+    assert not original._lifecycle_active
+    assert original._data_task.done() and original._smartmeter_http_task.done()
+    assert all(not record.active and record.remove.call_count == 1 for record in old_handles)
+    assert {record.topic for record in broker.active} == {
+        "newroot/device/HOST_A/status",
+        "newroot/device/HOST_A/event",
+    }
+    with patch("homeassistant.components.mqtt.async_publish", new_callable=AsyncMock) as publish:
+        await replacement.async_control_main_device({"synthetic": 1})
+    assert publish.await_args.args[1] == "newroot/device/HOST_A/action"
+
+
+async def test_options_token_only_reloads_once_without_changing_options(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    old_handles = list(broker.active)
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, token="replacement-token")
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert entry.data["token"] == replacement._token == "replacement-token"
+    assert dict(entry.options) == DEFAULT_OPTIONS
+    assert replacement is not original and not original._lifecycle_active
+    assert original._data_task.done() and original._smartmeter_http_task.done()
+    assert all(not handle.active and handle.remove.call_count == 1 for handle in old_handles)
+    assert len(broker.active) == 2
+    assert not reauth_flows(hass, entry)
+
+
+async def test_options_data_and_options_change_reloads_once(hass, entries):
+    configs, _broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, token="replacement-token", smartmeter_poll_interval=15)
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert replacement is not original
+    assert replacement._token == "replacement-token"
+    assert entry.options["smartmeter_poll_interval"] == 15
+    assert original._smartmeter_http_task.done()
+    assert replacement._smartmeter_http_task and not replacement._smartmeter_http_task.done()
+
+
+async def test_options_http_task_enable_disable_and_interval(hass, entries, monkeypatch, caplog):
+    configs, _broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    monkeypatch.setattr(JackeryDataCoordinator, "_smartmeter_http_poll_loop", ORIGINAL_HTTP_POLL_LOOP)
+    hass.config_entries.async_update_entry(
+        entry, options={**DEFAULT_OPTIONS, "smartmeter_http_poll": False}
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    disabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert disabled._smartmeter_http_task is None
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, smartmeter_http_poll=True, smartmeter_poll_interval=15)
+    enabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert enabled is not disabled
+    assert entry.options["smartmeter_poll_interval"] == 15
+    assert enabled._smartmeter_http_task and not enabled._smartmeter_http_task.done()
+    assert "SmartMeter HTTP poll loop started (interval=15s)" in caplog.text
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, smartmeter_http_poll=False, smartmeter_poll_interval=15)
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert replacement is not enabled
+    assert enabled._smartmeter_http_task.done()
+    assert replacement._smartmeter_http_task is None
+
+
+async def test_options_protocol_discovery_toggle_resets_runtime(hass, entries):
+    configs, _broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    disabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert disabled._protocol_discovery is None
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, protocol_discovery_enabled=True)
+    enabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert enabled is not disabled and enabled._protocol_discovery is not None
+    old_state = enabled._protocol_discovery
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, protocol_discovery_enabled=False)
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert replacement is not enabled
+    assert replacement._protocol_discovery is None
+    assert old_state is enabled._protocol_discovery
+
+
+async def test_options_noop_does_not_reload(hass, entries):
+    configs, _broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry)
+    assert reload.await_count == 0
+    assert hass.data[DOMAIN][entry.entry_id]["coordinator"] is original
+    assert dict(entry.options) == DEFAULT_OPTIONS
+
+
+async def test_options_legacy_missing_defaults_are_a_noop(hass, entries):
+    configs, _broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options={})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, smartmeter_http_poll=False)
+    assert reload.await_count == 0
+    assert hass.data[DOMAIN][entry.entry_id]["coordinator"] is original
+    assert not entry.options
+
+
+async def test_options_reload_isolated_to_own_entry(hass, entries):
+    configs, broker = entries
+    for entry in configs:
+        entry.add_to_hass(hass)
+        hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][configs[0].entry_id]["coordinator"]
+    other = hass.data[DOMAIN][configs[1].entry_id]["coordinator"]
+    other_handles = [record for record in broker.active if "/HOST_B/" in record.topic]
+    other_http = other._smartmeter_http_task
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, configs[0], topic_prefix="newroot")
+    assert reload.await_count == 1
+    assert reload.await_args.args == (configs[0].entry_id,)
+    assert hass.data[DOMAIN][configs[0].entry_id]["coordinator"] is not original
+    assert hass.data[DOMAIN][configs[1].entry_id]["coordinator"] is other
+    assert other._smartmeter_http_task is other_http and not other_http.done()
+    assert all(record.active and record.remove.call_count == 0 for record in other_handles)
+
+
+async def test_options_reload_start_failure_releases_old_and_partial_resources(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    old_handles = list(broker.active)
+    broker.fail_at = broker.attempts + 2
+
+    await submit_options(hass, entry, topic_prefix="newroot")
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert original._data_task.done() and original._smartmeter_http_task.done()
+    assert all(not handle.active and handle.remove.call_count == 1 for handle in old_handles)
+    assert not broker.active
+    assert entry.entry_id not in hass.data[DOMAIN]
+
+
 async def test_reauth_updates_token_reloads_and_allows_new_coordinator_rejection(
     hass,
     entries,
@@ -575,13 +799,15 @@ async def test_reauth_updates_token_reloads_and_allows_new_coordinator_rejection
     assert flows[0]["step_id"] == "reauth_confirm"
     assert not reauth_flows(hass, other_entry)
 
-    result = await hass.config_entries.flow.async_configure(
-        flows[0]["flow_id"],
-        user_input={"token": "replacement-token"},
-    )
-    assert result["type"] is FlowResultType.ABORT
-    assert result["reason"] == "reauth_successful"
-    await hass.async_block_till_done()
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        result = await hass.config_entries.flow.async_configure(
+            flows[0]["flow_id"],
+            user_input={"token": "replacement-token"},
+        )
+        assert result["type"] is FlowResultType.ABORT
+        assert result["reason"] == "reauth_successful"
+        await hass.async_block_till_done()
+    assert reload.await_count == 1
 
     replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     assert entry.data["token"] == "replacement-token"

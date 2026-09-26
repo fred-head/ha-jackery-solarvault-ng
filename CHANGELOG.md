@@ -64,6 +64,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Reload the owning config entry after changed connection data or runtime
+  options, so a fresh coordinator applies token, MQTT topic, SmartMeter HTTP
+  polling and protocol-discovery settings after old resources are released.
 - Align runtime reauthentication with Home Assistant's entry-owned API, allow
   exactly one flow per active coordinator, and prevent stopped or removed
   coordinator instances from starting new flows while preserving token update
