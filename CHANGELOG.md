@@ -64,6 +64,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Isolate Type-100 child polling failures per device category so one failed
+  publish no longer prevents the remaining categories in the same cycle from
+  being attempted.
 - Prevent the configured host serial from being admitted through child-device
   arrays into child cache, freshness, discovery or entity state.
 - Preserve a newer explicit live on-grid zero over an older Type-106 alias when

@@ -1,5 +1,6 @@
 """Exact action envelopes through production entities; no live device commands."""
 
+import asyncio
 import json
 import logging
 from copy import deepcopy
@@ -300,11 +301,62 @@ async def test_poll_payloads_cadence_pacing_and_message_id_reuse(commands, monke
     assert commands.randint.call_count == 22
 
 
+@pytest.mark.parametrize("failed_devtype", [2, 3, 6])
+async def test_type_100_publish_failure_isolated_per_child_category(
+    commands, monkeypatch, caplog, failed_devtype
+):
+    async def fail_one_category(hass, topic, payload, qos, retain):
+        data = json.loads(payload)
+        if data["type"] == 100 and data["body"]["devType"] == failed_devtype:
+            raise HomeAssistantError(f"synthetic devType {failed_devtype} failure")
+
+    commands.publish.side_effect = fail_one_category
+    sleep = AsyncMock()
+    monkeypatch.setattr(sensor_module, "asyncio", SimpleNamespace(sleep=sleep))
+    caplog.set_level(logging.DEBUG, logger="custom_components.jackery.sensor")
+
+    await commands.c._send_poll_requests()
+
+    attempted_devtypes = [
+        data["body"]["devType"]
+        for call in commands.publish.await_args_list
+        if (data := json.loads(call.args[2]))["type"] == 100
+    ]
+    assert attempted_devtypes == [2, 3, 6]
+    for index, dev_type in enumerate((2, 3, 6), start=3):
+        assert_publish(commands, envelope(100, {"devType": dev_type}), index)
+    assert sleep.await_count == 2
+    assert all(call.args == (0.5,) for call in sleep.await_args_list)
+    assert f"type-100 devType={failed_devtype}" in caplog.text
+    assert f"synthetic devType {failed_devtype} failure" in caplog.text
+
+
+async def test_type_100_poll_cancellation_propagates(commands, monkeypatch):
+    async def cancel_devtype_3(hass, topic, payload, qos, retain):
+        data = json.loads(payload)
+        if data["type"] == 100 and data["body"]["devType"] == 3:
+            raise asyncio.CancelledError
+
+    commands.publish.side_effect = cancel_devtype_3
+    sleep = AsyncMock()
+    monkeypatch.setattr(sensor_module, "asyncio", SimpleNamespace(sleep=sleep))
+
+    with pytest.raises(asyncio.CancelledError):
+        await commands.c._send_poll_requests()
+
+    attempted_devtypes = [
+        data["body"]["devType"]
+        for call in commands.publish.await_args_list
+        if (data := json.loads(call.args[2]))["type"] == 100
+    ]
+    assert attempted_devtypes == [2, 3]
+    sleep.assert_awaited_once_with(0.5)
+
+
 @pytest.mark.parametrize("failed_type,failed_devtype,expected", [
     (25, None, [25, 2, 105, 100, 100, 100]),
     (2, None, [25, 2, 105, 100, 100, 100]),
     (105, None, [25, 2, 105, 100, 100, 100]),
-    (100, 2, [25, 2, 105, 100]), (100, 3, [25, 2, 105, 100, 100]),
 ])
 async def test_poll_errors_are_logged_and_current_batch_boundaries_preserved(commands, monkeypatch, caplog,
                                                                            failed_type, failed_devtype, expected):

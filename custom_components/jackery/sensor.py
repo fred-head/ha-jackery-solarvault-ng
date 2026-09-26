@@ -1173,18 +1173,23 @@ class JackeryDataCoordinator:
                 _LOGGER.warning("Error polling full system state (type-105): %s", e)
 
         # 3. Poll sub-devices (type-100): CTs (2), SmartMeter 3P (3), Plugs (6)
-        try:
-            for dev_type in [2, 3, 6]:
-                payload_100 = build_subdevice_request(
-                    message_id=random.randint(1000, 9999),
-                    timestamp=ts,
-                    token=self._token,
-                    device_type=dev_type,
-                )
+        for dev_type in [2, 3, 6]:
+            payload_100 = build_subdevice_request(
+                message_id=random.randint(1000, 9999),
+                timestamp=ts,
+                token=self._token,
+                device_type=dev_type,
+            )
+            try:
                 await self._mqtt_transport.async_publish(topic, payload_100)
-                await asyncio.sleep(0.5)
-        except Exception as e:
-            _LOGGER.warning("Error polling sub-devices (type-100): %s", e)
+            except Exception as e:
+                _LOGGER.warning(
+                    "Error polling sub-device category (type-100 devType=%s): %s",
+                    dev_type,
+                    e,
+                )
+                continue
+            await asyncio.sleep(0.5)
 
         _LOGGER.debug("Sent poll requests to %s", topic)
 
