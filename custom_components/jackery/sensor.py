@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Any
 from homeassistant.components.sensor import SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -956,6 +957,11 @@ class JackeryDataCoordinator:
         if not self._device_sn:
             _LOGGER.warning("Cannot control sub-device: device SN not discovered")
             return
+
+        allowed, reason = plug_mqtt_control_allowed(self.get_plug_item(plug_sn) or {})
+        if not allowed:
+            _LOGGER.warning("Cannot control smart plug %s via MQTT: %s", plug_sn, reason)
+            raise HomeAssistantError(reason)
 
         topic = action_topic(self._topic_root, self._device_sn)
         ts = int(time.time())

@@ -191,6 +191,59 @@ async def test_plug_commands_are_not_optimistic(commands, monkeypatch, action, i
         assert e.is_on == bool(state)
 
 
+@pytest.mark.parametrize("mode", [1, "1"])
+async def test_direct_coordinator_allows_local_plug(commands, mode):
+    receive(
+        commands.c,
+        101,
+        {"plugs": [{"sn": "PLUG", "devType": 6, "commMode": mode}]},
+    )
+
+    await commands.c.async_control_subdevice_switch("PLUG", 6, True)
+
+    assert_publish(commands, envelope(103, {"deviceSn": "PLUG", "devType": 6, "sysSwitch": 1}))
+    assert commands.publish.await_count == 1
+
+
+@pytest.mark.parametrize("mode", [2, "2", None, "bad", {}, 3])
+async def test_direct_coordinator_blocks_nonlocal_plug(commands, mode, caplog):
+    receive(
+        commands.c,
+        101,
+        {"plugs": [{"sn": "PLUG", "devType": 6, "commMode": mode}]},
+    )
+
+    with pytest.raises(HomeAssistantError, match="commMode"):
+        await commands.c.async_control_subdevice_switch("PLUG", 6, True)
+
+    commands.publish.assert_not_awaited()
+    assert "PLUG" in caplog.text
+    assert "commMode" in caplog.text
+
+
+async def test_direct_coordinator_blocks_missing_plug(commands, caplog):
+    with pytest.raises(HomeAssistantError, match="Unknown commMode"):
+        await commands.c.async_control_subdevice_switch("MISSING", 6, True)
+
+    commands.publish.assert_not_awaited()
+    assert "MISSING" in caplog.text
+    assert "Unknown commMode" in caplog.text
+
+
+async def test_direct_local_plug_publish_failure_propagates(commands):
+    receive(
+        commands.c,
+        101,
+        {"plugs": [{"sn": "PLUG", "devType": 6, "commMode": 1}]},
+    )
+    commands.publish.side_effect = HomeAssistantError("MQTT unavailable")
+
+    with pytest.raises(HomeAssistantError, match="MQTT unavailable"):
+        await commands.c.async_control_subdevice_switch("PLUG", 6, True)
+
+    assert commands.publish.await_count == 1
+
+
 @pytest.mark.parametrize("mode,allowed", [(1, True), ("1", True), (2, False), (None, False),
                                          ("bad", False), ({}, False), (3, False)])
 @pytest.mark.parametrize("action", ["async_turn_on", "async_turn_off", "async_toggle"])
@@ -274,6 +327,7 @@ async def test_controls_omit_empty_token_polls_include_it(commands, monkeypatch,
     commands.c._token = token
     await entity_for(commands, "reboot").async_press()
     assert_publish(commands, envelope(1, {"cmd": 5, "rc": 1, "reboot": 1}, token=None))
+    receive(commands.c, 101, {"plugs": [{"sn": "PLUG", "devType": 6, "commMode": 1}]})
     await commands.c.async_control_subdevice_switch("PLUG", 6, False)
     assert_publish(commands, envelope(103, {"deviceSn": "PLUG", "devType": 6, "sysSwitch": 0}, token=None))
     monkeypatch.setattr(sensor_module, "asyncio", SimpleNamespace(sleep=AsyncMock()))

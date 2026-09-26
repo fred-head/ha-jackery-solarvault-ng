@@ -64,6 +64,9 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Enforce Smart Plug MQTT communication-mode policy at the coordinator command
+  boundary as well as the entity layer, so direct callers cannot publish Type-103
+  commands for cloud-connected, unknown or uncached plugs.
 - Accept validated top-level host `softver` metadata when `body.softver` is
   absent, while preserving the established body-first firmware precedence.
 - Isolate Type-100 child polling failures per device category so one failed
