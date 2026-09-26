@@ -1,8 +1,8 @@
 # Best-of-both-worlds upstream delta audit
 
-Audit date: **2026-09-21**. This is a read-only source audit. No upstream
-commit was merged, cherry-picked or copied, and no production or test file was
-changed.
+Original audit date: **2026-09-21**. Community v2.5.0 refresh:
+**2026-09-26**. This is a read-only source audit. No upstream commit was merged,
+cherry-picked or copied, and no production or test file was changed.
 
 ## 1. Executive summary
 
@@ -15,22 +15,25 @@ Jackery-Official/jackery
 ```
 
 Git history gives two useful comparison boundaries. Community and Official
-share `1f122f2`; after that point Official has 43 commits and Community has 86.
-NG and Community share Community v2.4.0 at `183d74b`; Community has 10 later
-commits. The commit counts are inventory only. The conclusions below compare
-behavior against NG foundation `0d55a01`, not SHA presence.
+share `1f122f2`; after that point Official has 43 commits and Community has 87.
+NG and Community share Community v2.4.0 at `183d74b`; Community has 11 later
+commits. The commit counts are inventory only. The refreshed conclusions compare
+behavior against NG foundation `7a9c252`, not SHA presence.
 
 All Community v2.4.1 and v2.4.2 correctness changes are already equivalent or
 superseded in NG. In particular, NG's merged P4.1 implementation replaces the
-Community v2.4.2 "live always first" change with receipt-time arbitration. The
-only new Community feature cluster is v2.4.3: ability-bit gates for two writable
-entities and the read-only `wps` storm-warning field. The code and its 14
-parameterized/configuration tests establish intent, but not cross-firmware
-capability semantics. It belongs behind hardware evidence and an NG-specific
-entity-availability contract.
+Community v2.4.2 "live always first" change with receipt-time arbitration.
+Community v2.4.3 adds ability-bit gates for two writable entities and the read-only `wps`
+storm-warning field. Community v2.5.0 additionally subscribes to `/alert` and
+fires a `jackery_alert` Home Assistant event. That event path is a new
+evidence-gated capability candidate rather than a high-confidence port: payload
+semantics, lifecycle behavior and a stable public event contract need validation
+before an NG-native implementation. The v2.5.0 typing changes are already
+superseded by NG, while its battery statements are Community-claimed firmware
+evidence for later cross-checking, not an immediate behavior change.
 
-Official contains no checked-in tests, but its post-fork history still exposes
-three high-confidence, narrowly testable gaps in current NG:
+Official contains no checked-in tests, but its post-fork history exposed three
+high-confidence, narrowly testable gaps that have since been implemented in NG:
 
 1. exclude the configured host serial from child arrays, not only point updates;
 2. accept host firmware from the top-level `softver` envelope form as well as
@@ -38,8 +41,9 @@ three high-confidence, narrowly testable gaps in current NG:
 3. isolate each type-100 child poll so a failure for devType 2 does not skip
    devTypes 3 and 6.
 
-These are semantic-port candidates, not cherry-picks. Other Official differences
-need hardware evidence or separate policy audits: authoritative Type-101 list
+These were completed as regression-first semantic ports, not cherry-picks, so
+Group A is now complete. Other Official and Community differences need hardware
+evidence or separate policy audits: authoritative Type-101 list
 replacement, generic devType 2/4 phase entities, CT-zero/commState logic,
 `otherLoadPw` fallback, dynamic host model labels, and optimistic plug state.
 Official's battery/home formulas, five-second polling, noisy protocol logging,
@@ -56,14 +60,14 @@ with pruning before comparison.
 
 | Repository/reference | SHA | Date | Meaning |
 | --- | --- | --- | --- |
-| NG `refactor/v3-foundation` | `0d55a01e3fbd247407fe63106bf25c6c9c8aa73d` | 2026-09-21 | Accepted foundation including P1-P3 and merged P4.1 |
-| Community `upstream-community/main` | `020b37010377ee858ec7c8336282e5b9a57bf591` | 2026-09-18 | Community v2.4.3 |
+| NG `refactor/v3-foundation` | `7a9c25284e3020a590b8c101cdb5ab57d38faaff` | 2026-09-26 | Accepted foundation including P1-P3, P4.1 and completed Group A |
+| Community `upstream-community/main` | `77d218f6f531c1b5cd0b2ae5b9f2edfe0c61879c` | 2026-09-23 | Community v2.5.0 |
 | Official `upstream-official/main` | `af97223ff17fc8f14314cbc6da7213a5eee7004d` | 2026-07-22 | Official v2.0.0 documentation head |
 
 Local and `origin/refactor/v3-foundation` both resolved to the accepted NG SHA,
-with ahead/behind `0/0`. The audit branch is
-`audit/upstream-best-of-both-worlds`. The already configured upstream remotes
-were not added or modified, and no push was made to either upstream.
+with ahead/behind `0/0`. The refresh branch is
+`docs/community-v250-audit-refresh`. The already configured upstream remotes were
+not added or modified, and no push was made to either upstream.
 
 The current NG comparison includes these relevant architectural facts:
 
@@ -72,7 +76,7 @@ The current NG comparison includes these relevant architectural facts:
 - transport-owned MQTT unsubscribe handles and separate SmartMeter HTTP health;
 - host-scoped child identity and guarded registry migration;
 - P3 diagnostics allowlisting and opt-in, read-only protocol discovery;
-- 1,462 passing tests after P4.1 with 96.14% total coverage.
+- 1,491 passing tests after Group A with 96.13% total coverage.
 
 ## 3. Repository and fork topology
 
@@ -93,8 +97,8 @@ The heads are not linear descendants of one another after their fork points:
 
 | Comparison | Left-only commits | Right-only commits |
 | --- | ---: | ---: |
-| NG foundation vs Community head | 71 | 10 |
-| Community head vs Official head | 86 | 43 |
+| NG foundation vs Community head | 83 | 11 |
+| Community head vs Official head | 87 | 43 |
 
 ## 4. Fork point A: Official to Community
 
@@ -129,8 +133,8 @@ used only for the three-way cross-check.
 | Tag | Community `v2.4.0` |
 
 This commit is the head of NG's original `main` and is contained by both NG and
-Community. NG modernization and Community v2.4.1-v2.4.3 then diverge. It is the
-precise boundary for the 10-commit Community delta.
+Community. NG modernization and Community v2.4.1-v2.5.0 then diverge. It is the
+precise boundary for the 11-commit Community delta.
 
 ## 6. Community delta inventory
 
@@ -150,17 +154,19 @@ documentation area, but compresses long paths to basenames.
 | [`082340e`](https://github.com/csoscd/ha-solarvault/commit/082340e3e49be76f9283f74054cbd3049bde120a) | 2026-09-17 | `CHANGELOG.md`, `README.md`, `manifest.json`, `sensor.py` | Fixes [Issue 21](https://github.com/csoscd/ha-solarvault/issues/21) by making present live on-grid aliases unconditionally outrank Type-106 aliases. | NG P4.1 uses bounded receipt-time arbitration, preserves valid live zero and still permits sufficiently newer Type-106 evidence. | Superseded by NG | Do not port the simpler “live always first” rule. |
 | [`4c80715`](https://github.com/csoscd/ha-solarvault/commit/4c807156ce5dd9cc9d35b828f38571d7d3c7fc2c) | 2026-09-17 | no content change | v2.4.2 release/tag marker. | No behavior. | Irrelevant | None. |
 | [`020b370`](https://github.com/csoscd/ha-solarvault/commit/020b37010377ee858ec7c8336282e5b9a57bf591) | 2026-09-18 | README, manifest, number/sensor/switch, strings, DE/EN/FR, `test_v243_changes.py` | Gates `maxOutPw` on ability bit 9 and `socForceChg` on bit 11; adds `wps` storm-warning enum. Tests prove field/config and bit arithmetic, not HA lifecycle or hardware semantics. | NG exposes raw `ability` but does not gate the controls and does not expose `wps`. | Needs hardware evidence | Split into a capability-policy audit and a separate read-only `wps` sensor proposal; test firmware variation and identity/availability behavior. |
+| [`77d218f`](https://github.com/csoscd/ha-solarvault/commit/77d218f6f531c1b5cd0b2ae5b9f2edfe0c61879c) | 2026-09-23 | `.gitignore`, README, manifest, number/sensor/switch, `conftest.py`, `test_v250_alert.py` | Adds an `/alert` subscription and `jackery_alert` event for flat/wrapped payloads; adds type annotations and config/unique-ID guards; documents claimed battery/BP2500 firmware findings; releases Community v2.5.0. | NG has no alert capability, but its transport/lifecycle boundaries require an NG-native design and validated payload/event semantics. NG already supersedes the typing changes. Battery statements are upstream evidence only; release/repository metadata is not portable. | Investigate further | Validate public payload semantics and the HA event contract before any alert proposal; cross-check battery claims independently; do not port typing or release metadata. |
 
 ## 7. Community semantic classification
 
 The Community delta contains no missing high-confidence production fix after
-P4.1. Its distribution by primary classification is:
+completed Group A. Its distribution by primary classification is:
 
 | Classification | Commits | Conclusion |
 | --- | --- | --- |
 | Already equivalent | `db01e86`, `f355df8` | Same behavior exists in current architecture. |
 | Superseded by NG | `276abfc`, `0b49875`, `9e8da40`, `082340e` | NG solves the same failure with broader ownership/tests. |
 | Needs hardware evidence | `020b370` | Capability bit meanings and `wps` usefulness need firmware evidence. |
+| Investigate further | `77d218f` | The alert capability needs payload/event-contract evidence; the same commit's other parts are separately superseded, evidence-only or irrelevant. |
 | Irrelevant | `6365bf8`, `f040e40`, `4c80715` | Documentation or empty release markers only. |
 
 The v2.4.3 tests contain one useful test idea: exercise availability transitions
@@ -168,6 +174,20 @@ of existing writable entities when capability data is absent, malformed, loses
 a bit, gains a bit, or arrives after entity setup. The upstream tests only assert
 dictionary configuration and bit extraction, so they are not sufficient as an
 NG test-only port.
+
+### 7.1 Community v2.5.0 component classification
+
+| Component | Classification | Reason | Follow-up |
+| --- | --- | --- | --- |
+| `/alert` subscription and `jackery_alert` event | Investigate further / evidence-gated feature | This is a new NG capability. Community tests demonstrate flat/wrapped payload handling and SN filtering, but not stable field semantics, HA event compatibility or NG transport lifecycle integration. | Validate public payload examples and define a bounded event contract; any later port must use NG's MQTT transport/lifecycle boundaries. |
+| mypy/type cleanup | Already equivalent / superseded by NG | NG is mypy-clean and has stronger typed metadata, entity and coordinator contracts. | No code or test port. |
+| Battery/BP2500 documentation | Evidence cross-check; no immediate code port | Community documentation attributes `batInPw`/`batOutPw` to the main unit rather than individual expansion batteries, describes BP2500 SOC as combined, and attributes Type-23 `inEgy`/`outEgy` to an onboard Coulomb counter. NG has not independently verified these claims. | Compare against sanitized hardware evidence before changing sensors, formulas or support claims. |
+| Version, `.gitignore` and repository documentation | Irrelevant / repository-specific | Community release numbering and local repository exclusions do not change NG behavior. | No action. |
+
+The Community handler subscribes to `hb/device/{SN}/alert`, accepts both flat
+and `{"body": {...}}` payloads, and maps `alertId` and `recordTs` plus optional
+`status`, `startTs`, `endTs`, and `manual` values into its event. These are
+observed Community implementation details, not an accepted NG event contract.
 
 ## 8. Official delta inventory
 
@@ -229,7 +249,7 @@ covers every commit in `1f122f2..upstream-official/main`.
 | --- | --- | --- | --- |
 | Host-specific status/event subscriptions | `12c2e7c` | Community and NG subscribe to the configured host, with wildcard only when no host is known; NG owns unsubscribe handles. | Already equivalent. |
 | Type-23 literal host serial | `12c2e7c` route semantics | NG accepts missing, `system`, or configured host serial and separately handles expansion serial aliases. | Already equivalent with tests. |
-| Top-level or body `softver` | Final Official `_capture_device_meta()` | NG accepts only `body.softver`. | High-confidence semantic gap; read-only registry metadata. |
+| Top-level or body `softver` | Final Official `_capture_device_meta()` | NG accepts `body.softver` first and top-level `softver` as a fallback. | Closed by A2; body-first precedence is the NG compatibility contract. |
 | Host-only metadata | `55bfb2b`, `d0e0c9f` | NG route plus `is_host_message_body()` is stricter. | Superseded. |
 | Child point/array updates outside 101/102 | `c35993e` | NG generic routes merge arrays/points and refresh children under an explicit route contract. | Already equivalent. |
 | Main serial filtered from child arrays | `6315207` | NG point path rejects it; array path does not. | High-confidence correctness gap. |
@@ -279,26 +299,28 @@ generic fallback. A label-only change would overstate support.
 | MQTT unsubscribe lifecycle | No complete owned transport | v2.4.1 stores callbacks | Transport-owned, failure-safe | NG independently improved |
 | Type-23 host and child serials | Host serial accepted | v2.4.1 adds `sn` fallback | Both with canonical precedence | In all; NG broader |
 | Type-106 live preference | Snapshot overwrites/magnitude formulas | 60-second same-key; v2.4.2 live alias always first | 60-second same-key plus P4.1 cross-alias receipts | Three implementations; NG evidence model wins |
-| Host metadata scope | Host-message guard; top/body firmware | Host guard adopted; body firmware | Host guard; body firmware only | Top-level firmware remains NG gap |
-| Main SN in child arrays | Filtered | Not explicitly filtered in merged arrays | Point filtered, array not filtered | Official-only correctness guard |
+| Host metadata scope | Host-message guard; top/body firmware | Host guard adopted; body firmware | Host guard; body-first with top-level fallback | In NG after A2; NG preserves established precedence |
+| Main SN in child arrays | Filtered | Not explicitly filtered in merged arrays | Shared array-admission filter | In NG after A1 |
 | Type-101 membership | Category replacement and immediate removal | Partial merge/cache preservation | Partial merge plus guarded identity/removal | Unresolved semantic difference |
 | Generic child routing | Broad arrays/points | Added through upstream sync/hardening | Pure routing plus bounded classifier | In all; NG extracted |
 | Generic CT phase entities | Ten Official entities for type 2/4 | Two legacy type-2/4; 19 richer type-3 | Same Community families, centrally classified | Official-only for legacy CT; hardware evidence needed |
 | HTO907A / Shelly / HTO910A | Generic/partial CT handling | Dedicated groups | Dedicated groups plus HTTP transport tests | Community + NG |
 | Expansion batteries | No dedicated discovery/entities | BP2500 Type-23 energy | Canonical serial, host identity and lifecycle tests | Community + NG |
+| Alert topic/event | Not present in audited delta | v2.5.0 `/alert` plus `jackery_alert` | Not implemented | Community-only candidate; validate payload and public event contract first |
+| Battery firmware claims | No equivalent checked-in evidence | v2.5.0 documents main-unit power, combined SOC and Type-23 energy claims | Existing behavior remains evidence-based and unchanged | Community documentation evidence; independent cross-check required |
 | Plug commMode guard | Entity and coordinator boundary | Entity-level port | Entity-level transformed helper | Coordinator boundary still differs |
 | Plug optimistic state | Publish patches cache and fans out | Telemetry-priority behavior | Publish does not imply execution | Intentional policy conflict |
-| Poll child failure isolation | Each devType isolated | One grouped child loop | One grouped child loop, tested | Official-only correctness candidate |
+| Poll child failure isolation | Each devType isolated | One grouped child loop | Per-category isolation with preserved cadence | In NG after A3 |
 | Reauth | Official HA API plus form | Flow/init heuristic | Same plus tests, incomplete end-to-end completion | Manual lifecycle hardening candidate |
 | Ability-bit entity gating | No v2.4.3 mapping | Bits 9/11 gate two controls | Raw ability only | Community-only; validate hardware |
 | Storm warning `wps` | Not exposed | Read-only enum | Not exposed | Community-only; low operational value |
 | Diagnostics/privacy | None | None | Nine-section allowlist and hardened HA endpoint | NG-only |
 | Protocol discovery | None | None | Opt-in, bounded, memory-only | NG-only |
-| Tests | None checked in | Broad synthetic suite | 1,462 tests, HA and privacy layers | NG independently improved |
+| Tests | None checked in | Broad synthetic suite | 1,491 tests, HA and privacy layers | NG independently improved |
 
 ## 11. Candidate port groups
 
-### Group A: high-confidence port candidates
+### Group A: completed high-confidence ports
 
 #### A1. Reject the host serial in child arrays
 
@@ -455,6 +477,10 @@ home-power outcome. NG has equivalent behavior with stronger isolation/tests.
 
 ### Group E: investigate separately
 
+- **Community v2.5.0 `/alert` and `jackery_alert`:** validate real public
+  payload shapes, field meaning, lifecycle behavior and a stable HA event
+  contract before proposing an NG-native transport integration. Do not copy the
+  Community coordinator path into NG's transport abstraction.
 - **Dynamic host model changes and deviceType 1/2/4 labels:** distinguish a
   metadata label from actual supported host hardware before changing registry
   model. A changed deviceType after setup also needs identity/diagnostics review.
@@ -463,8 +489,6 @@ home-power outcome. NG has equivalent behavior with stronger isolation/tests.
 - **YAML `async_step_import`:** Official has a step but no repository-level YAML
   schema/initiator proving a supported import path. Investigate only if a real
   import use case is requested.
-- **Top-level softver precedence:** A2 can be implemented without resolving
-  dynamic deviceType; if both forms disagree, document deterministic precedence.
 
 ### Group F: ignore
 
@@ -545,22 +569,18 @@ Every follow-up must preserve these established constraints:
 
 ## 16. Proposed follow-up audits and port PRs
 
-The smallest defensible sequence is:
+The previously proposed Group-A sequence was completed as separate A1, A3 and
+A2 regression-first PRs. No next major workstream is selected by this refresh.
+Remaining decision candidates include:
 
-1. **A1 host-as-child regression and fix.** One bounded routing/cache PR.
-2. **A3 child-poll failure isolation.** One command/lifecycle PR; useful before
-   broader release hardening.
-3. **A2 firmware envelope form.** One metadata-only PR, or combine only if A1's
-   review proves both are the same admission boundary (currently they are not).
-4. **B2 reauth lifecycle audit.** Design and HA tests before implementation.
-5. **C1 capability evidence audit.** Collect model/firmware fixtures before any
-   entity availability change; split `wps` from writable gates.
-6. **C3 membership audit.** Only after real Type-101 sequences exist.
-7. **C2/C4 hardware work.** One meter family or formula question per audit/PR.
+- an alert payload/event-contract evidence audit before any `/alert` feature;
+- B2 reauthentication lifecycle design and HA tests;
+- C1 capability evidence, with `wps` separate from writable gates;
+- C3 membership semantics after real Type-101 sequences exist;
+- C2/C4 hardware work, one meter family or formula question per audit.
 
-A1 and A3 have the clearest pre-release correctness/reliability benefit. A2 is
-low risk but display-only. Capability and entity expansion should wait for
-hardware fixtures and a release/compatibility contract.
+Capability, entity and battery-semantics changes should wait for independently
+reviewable evidence and a release/compatibility contract.
 
 ## 17. Explicitly superseded or no-action changes
 
@@ -568,6 +588,8 @@ hardware fixtures and a release/compatibility contract.
   not the NG contract.
 - Community v2.4.1's lifecycle, malformed-input, Type-23, Type-106 and HTTP
   replacement fixes are all covered by stronger NG owners and regressions.
+- Community v2.5.0's mypy cleanup is superseded by NG's existing type contracts;
+  its version, `.gitignore` and repository metadata are not portable behavior.
 - Official identity changes are superseded by host-scoped, preflighted migration.
 - Official Type-106 overwrite/magnitude selection is superseded by receipt
   evidence and must not replace NG source policy.
@@ -583,9 +605,11 @@ hardware fixtures and a release/compatibility contract.
 
 | Candidate | Source | NG gap | Port style | Hardware needed | Risk | Suggested next step |
 | --- | --- | --- | --- | --- | --- | --- |
-| Host serial filter in child arrays | Official `6315207` | Array admission can cache self-child | Manual semantic port | No | Low/medium | Regression-first A1 PR |
-| Top-level host `softver` | Official metadata helper | Registry misses one known envelope form | Manual semantic port | No | Low | Metadata-only A2 PR |
-| Child poll failure isolation | Official `8ac1b40` | One failure skips later devTypes | Manual semantic port | No | Low/medium | A3 command/lifecycle PR |
+| Host serial filter in child arrays | Official `6315207` | Closed by A1 | Manual semantic port | No | Low/medium | Implemented in NG |
+| Top-level host `softver` | Official metadata helper | Closed by A2 with body-first precedence | Manual semantic port | No | Low | Implemented in NG |
+| Child poll failure isolation | Official `8ac1b40` | Closed by A3 | Manual semantic port | No | Low/medium | Implemented in NG |
+| Alert topic and HA event | Community `77d218f` | No NG `/alert` subscription or public event contract | Investigation first; later NG-native transport adaptation | Evidence first | Medium | Validate payload fields, lifecycle and event compatibility |
+| Battery/BP2500 firmware claims | Community `77d218f` documentation | Claims are not independently verified by NG | Evidence cross-check only | Yes | Medium/high | Compare sanitized hardware evidence before behavior changes |
 | Coordinator plug guard | Official `d1f4f68` | Direct caller bypass | Manual semantic port | Low | Medium | B1 contract audit/PR |
 | Reauth lifecycle completion | Official flow pattern | End-to-end recovery not proven | Manual NG adaptation | No/low | Medium | B2 HA lifecycle audit |
 | Ability bits 9/11 | Community `020b370` | Unsupported controls may remain available | Manual capability port | Yes | Medium/high | Cross-firmware evidence audit |
@@ -615,27 +639,33 @@ HA behavior.
    will a later command manager replace that API?
 6. What is the supported HA version range for `ConfigEntry.async_start_reauth`
    versus the current flow-init approach?
-7. If a host was already mis-created as a child, should a future A1 PR only stop
-   recurrence or include a separately reviewed registry cleanup?
+7. Which publicly verifiable `/alert` payload forms and fields are stable enough
+   for an NG event contract, and how should reload/unload be tested?
+8. Can the Community v2.5.0 battery/BP2500 claims be independently confirmed by
+   sanitized hardware evidence before changing NG behavior or support wording?
+9. Should historical host-as-child registry records, if any, receive a separate
+   cleanup after A1's prevention-only fix?
 
 ## 20. Decision answers
 
-1. **Are there high-confidence changes NG still lacks?** Yes: host-SN exclusion
-   in child arrays, top-level host firmware metadata, and per-category child-poll
-   failure isolation. Each is small, testable and should be manually ported.
+1. **Are there high-confidence changes NG still lacks?** No from the audited
+   Group-A set: host-SN exclusion, top-level host firmware metadata and
+   per-category child-poll isolation are implemented. Community v2.5.0 `/alert`
+   is evidence-gated rather than a new Group-A port.
 2. **Which changes need hardware tests first?** Ability gates, `wps`, generic CT
    phase entities, Type-101 unbinding, formula/CT-zero fallbacks and expanded host
    labels.
-3. **Did Community miss Official functionality?** Yes: generic devType 2/4 phase
-   entities, top-level firmware form, explicit host-SN array filtering and
-   authoritative category replacement. The last two are partly correctness and
-   partly unresolved policy; not all should be implemented.
-4. **Are there post-fork Community fixes to port?** No open high-confidence bugfix
-   remains after P4.1. Community v2.4.3 is a hardware-evidence candidate, not a
-   ready port.
-5. **What belongs before release/compatibility hardening?** A1 and A3 have direct
-   correctness/reliability value. A2 is safe but display-only. Reauth itself is
-   part of release/lifecycle hardening. Hardware expansion should wait.
+3. **Did Community miss Official functionality?** Historically yes: generic
+   devType 2/4 phase entities, top-level firmware, host-SN array filtering and
+   authoritative category replacement. NG has independently completed the
+   bounded host-filter and firmware-metadata ports; phase entities and authoritative
+   membership still need evidence.
+4. **Are there post-fork Community fixes to port?** No ready high-confidence
+   bugfix remains. Community v2.4.3 needs hardware evidence, while v2.5.0
+   `/alert` needs a separate payload/event-contract investigation.
+5. **What belongs before release/compatibility hardening?** Group A is complete.
+   This refresh does not choose between release/lifecycle hardening and the
+   remaining evidence audits; that is now a maintainer decision.
 6. **What should deliberately not be ported?** Wholesale Official formulas,
    magnitude source selection, strict live-alias priority, optimistic plug cache,
    identity formats, five-second polling, INFO protocol logs, entity removals and
