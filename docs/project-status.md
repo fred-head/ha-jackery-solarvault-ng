@@ -16,7 +16,8 @@ and architecture documents remain authoritative.
 | Done | Upstream audit | 10 Community and 43 Official delta commits were classified semantically; no upstream code was imported. |
 | Done | Group A1 host/child admission | The configured host serial is rejected at the shared child-array admission boundary before cache, freshness, discovery or entity state. |
 | Done | Group A3 poll isolation | Type-100 child-poll publish failures are isolated per category while preserving cadence, order and cancellation behavior. |
-| Current | Group A2 host firmware metadata | The next focused candidate is accepting validated top-level host firmware metadata with explicit precedence and ownership guards. |
+| Done | Group A2 host firmware metadata | Validated top-level host firmware metadata is accepted as a fallback while established body metadata retains precedence. |
+| Current | Maintainer selection | The focused Group-A ports are complete; the next major workstream has not yet been selected. |
 | Next | Release and lifecycle hardening | After the focused ports, likely work includes the release/upgrade contract, reauthentication and options reload, and real MQTT reconnect behavior. This order remains a maintainer decision. |
 
 ## Recently completed
@@ -41,14 +42,14 @@ and architecture documents remain authoritative.
   host into child-owned cache, freshness, discovery, entity or device state.
 - **Group A3 poll isolation:** a failed Type-100 child-category publish no
   longer suppresses later categories in the same polling cycle.
+- **Group A2 host firmware metadata:** validated top-level `softver` metadata is
+  used when the established body field is absent, without weakening host or
+  message-type ownership.
 
 ## Next
 
-The remaining immediate Group-A candidate from the upstream audit stays a
-separate, regression-first PR adapted to NG's architecture:
-
-1. Accept host firmware metadata from the validated top-level envelope form with
-   explicit precedence and host ownership.
+The focused Group-A ports from the upstream audit are complete. The maintainer
+has not yet selected the next major workstream.
 
 Release/compatibility hardening and lifecycle work are the likely following
 tracks. The [Phase 3 closeout and Phase 4 decision basis](phase3-closeout-phase4-plan.md)

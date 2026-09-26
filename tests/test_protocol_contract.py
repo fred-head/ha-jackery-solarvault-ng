@@ -329,13 +329,88 @@ async def test_23_host_statistics_and_metadata(protocol, sn):
     assert protocol._device_type == 3
 
 
+async def test_host_metadata_accepts_top_level_firmware(protocol):
+    receive(protocol, 25, {}, softver="top-fw")
+    await protocol.hass.async_block_till_done()
+
+    assert protocol._soft_ver == "top-fw"
+    protocol._update_device_registry.assert_awaited_once()
+
+    receive(protocol, 25, {}, softver="top-fw")
+    await protocol.hass.async_block_till_done()
+    protocol._update_device_registry.assert_awaited_once()
+
+
+@pytest.mark.parametrize(
+    ("body_softver", "top_softver", "expected"),
+    [
+        ("body-fw", None, "body-fw"),
+        ("body-fw", "top-fw", "body-fw"),
+    ],
+)
+async def test_host_metadata_preserves_body_firmware_precedence(
+    protocol, body_softver, top_softver, expected
+):
+    envelope = {} if top_softver is None else {"softver": top_softver}
+
+    receive(protocol, 25, {"softver": body_softver}, **envelope)
+    await protocol.hass.async_block_till_done()
+
+    assert protocol._soft_ver == expected
+
+
 @pytest.mark.parametrize("kind", [23, 101, 102])
 async def test_child_metadata_cannot_contaminate_host(protocol, kind):
-    receive(protocol, kind, {"deviceSn": "CHILD", "devType": 6, "softver": "child-fw"}, deviceType=99)
+    receive(
+        protocol,
+        kind,
+        {"deviceSn": "CHILD", "devType": 6, "softver": "child-fw"},
+        deviceType=99,
+        softver="top-child-fw",
+    )
     assert protocol._soft_ver is None
     assert protocol._device_type is None
     receive(protocol, 25, {"softver": "host-fw"}, deviceType=3)
     assert protocol._device_type == 3 and protocol._soft_ver == "host-fw"
+
+
+def test_foreign_host_top_level_firmware_is_ignored(protocol):
+    protocol._soft_ver = "host-fw"
+    payload = json.dumps({"type": 25, "softver": "foreign-fw", "body": {}})
+
+    protocol._handle_message(
+        FakeMqttMsg(f"{protocol._topic_root}/device/FOREIGN/status", payload)
+    )
+
+    assert protocol._soft_ver == "host-fw"
+    protocol._update_device_registry.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        '{"type":25,"softver":"invalid-fw","body":[]}',
+        '{"type":25,"softver":"invalid-fw","body":',
+    ],
+)
+def test_invalid_envelope_top_level_firmware_is_ignored(protocol, payload):
+    protocol._soft_ver = "host-fw"
+
+    protocol._handle_message(
+        FakeMqttMsg(f"{protocol._topic_root}/device/HOST_A/status", payload)
+    )
+
+    assert protocol._soft_ver == "host-fw"
+    protocol._update_device_registry.assert_not_awaited()
+
+
+def test_non_metadata_message_top_level_firmware_is_ignored(protocol):
+    protocol._soft_ver = "host-fw"
+
+    receive(protocol, 1, {}, softver="control-fw")
+
+    assert protocol._soft_ver == "host-fw"
+    protocol._update_device_registry.assert_not_awaited()
 
 
 @pytest.mark.parametrize("key,dtype,subtype,updated", [("plugs", 6, 0, True), ("cts", 3, 5, True),
