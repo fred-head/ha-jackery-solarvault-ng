@@ -399,6 +399,13 @@ generic fallback. A label-only change would overstate support.
 - **Port style:** manual semantic port; explicitly exclude optimistic cache writes.
 - **Acceptance:** all callers share one type-safe gate; local mode still publishes;
   cloud/unknown mode never publishes; entity notification behavior is unchanged.
+- **Implementation follow-up:** B1 was manually adapted for NG from Official
+  `d1f4f68`, refined by `66b9a7f`/`8417002`, without cherry-picking. The
+  coordinator uses its current `get_plug_item()` view and the existing pure
+  `plug_mqtt_control_allowed()` policy immediately before Type-103 construction.
+  Missing-host calls intentionally retain NG's warning-and-return contract;
+  entity notifications, transport failures and telemetry-confirmed plug state are
+  unchanged. No hardware evidence is required to enforce this command boundary.
 
 #### B2. Reauth lifecycle completion/API alignment
 
@@ -521,7 +528,7 @@ hardware support certification.
 | Top-level/body firmware matrix with child/foreign messages | Official metadata helper | Proves A2 without weakening host ownership | New protocol contract test |
 | Capability absent/malformed/gain/loss across setup and reload | Community `020b370` concept | Upstream tests only bit math; NG needs HA entity lifecycle proof | New HA tests after policy decision |
 | CT-only Type-101 as first child message | Observed Official startup failure | Prevents adoption of replacement logic that assumes `plugs` exists | Test-only prerequisite for C3 |
-| Plug coordinator called outside entity path | Official coordinator guard | Proves no alternate caller bypasses commMode policy | New command contract test for B1 |
+| Plug coordinator called outside entity path | Official coordinator guard | Proves no alternate caller bypasses commMode policy | Added by the completed B1 command-contract regression |
 | Reauth removed/reloaded/repeated entry journey | Official API difference | Closes a known production-readiness gap | New HA config-flow/lifecycle suite |
 
 Official has no checked-in tests to copy. Community's v2.4.3 test file is useful
@@ -570,8 +577,8 @@ Every follow-up must preserve these established constraints:
 ## 16. Proposed follow-up audits and port PRs
 
 The previously proposed Group-A sequence was completed as separate A1, A3 and
-A2 regression-first PRs. No next major workstream is selected by this refresh.
-Remaining decision candidates include:
+A2 regression-first PRs. This refresh did not select a next major workstream;
+B1 was selected later and is now complete. Remaining decision candidates include:
 
 - an alert payload/event-contract evidence audit before any `/alert` feature;
 - B2 reauthentication lifecycle design and HA tests;
@@ -610,7 +617,7 @@ reviewable evidence and a release/compatibility contract.
 | Child poll failure isolation | Official `8ac1b40` | Closed by A3 | Manual semantic port | No | Low/medium | Implemented in NG |
 | Alert topic and HA event | Community `77d218f` | No NG `/alert` subscription or public event contract | Investigation first; later NG-native transport adaptation | Evidence first | Medium | Validate payload fields, lifecycle and event compatibility |
 | Battery/BP2500 firmware claims | Community `77d218f` documentation | Claims are not independently verified by NG | Evidence cross-check only | Yes | Medium/high | Compare sanitized hardware evidence before behavior changes |
-| Coordinator plug guard | Official `d1f4f68` | Direct caller bypass | Manual semantic port | Low | Medium | B1 contract audit/PR |
+| Coordinator plug guard | Official `d1f4f68`, refined by `66b9a7f`/`8417002` | Closed by B1 | Manual semantic port | No | Medium | Implemented in NG |
 | Reauth lifecycle completion | Official flow pattern | End-to-end recovery not proven | Manual NG adaptation | No/low | Medium | B2 HA lifecycle audit |
 | Ability bits 9/11 | Community `020b370` | Unsupported controls may remain available | Manual capability port | Yes | Medium/high | Cross-firmware evidence audit |
 | `wps` storm sensor | Community `020b370` | Read-only field not exposed | Manual additive port | Yes | Low/medium | Separate evidence/sensor proposal |
@@ -635,15 +642,13 @@ HA behavior.
    default-visible entity useful?
 4. Which generic devType 2/4 meters actually report per-phase forward/reverse
    fields and what are their scaling guarantees?
-5. Should direct coordinator plug calls become an enforced command boundary, or
-   will a later command manager replace that API?
-6. What is the supported HA version range for `ConfigEntry.async_start_reauth`
+5. What is the supported HA version range for `ConfigEntry.async_start_reauth`
    versus the current flow-init approach?
-7. Which publicly verifiable `/alert` payload forms and fields are stable enough
+6. Which publicly verifiable `/alert` payload forms and fields are stable enough
    for an NG event contract, and how should reload/unload be tested?
-8. Can the Community v2.5.0 battery/BP2500 claims be independently confirmed by
+7. Can the Community v2.5.0 battery/BP2500 claims be independently confirmed by
    sanitized hardware evidence before changing NG behavior or support wording?
-9. Should historical host-as-child registry records, if any, receive a separate
+8. Should historical host-as-child registry records, if any, receive a separate
    cleanup after A1's prevention-only fix?
 
 ## 20. Decision answers

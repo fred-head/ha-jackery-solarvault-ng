@@ -17,8 +17,8 @@ and architecture documents remain authoritative.
 | Done | Group A1 host/child admission | The configured host serial is rejected at the shared child-array admission boundary before cache, freshness, discovery or entity state. |
 | Done | Group A3 poll isolation | Type-100 child-poll publish failures are isolated per category while preserving cadence, order and cancellation behavior. |
 | Done | Group A2 host firmware metadata | Validated top-level host firmware metadata is accepted as a fallback while established body metadata retains precedence. |
-| Current | Maintainer selection | The focused Group-A ports are complete; the next major workstream has not yet been selected. |
-| Next | Release and lifecycle hardening | After the focused ports, likely work includes the release/upgrade contract, reauthentication and options reload, and real MQTT reconnect behavior. This order remains a maintainer decision. |
+| Done | Group B1 coordinator plug guard | Direct coordinator callers now share the entity layer's fail-closed Smart Plug MQTT communication-mode policy. |
+| Next | Reauthentication and release/lifecycle hardening | B2 reauthentication lifecycle completion is the likely next focused track, followed by the broader release, options reload and MQTT reconnect decisions. It has not started. |
 
 ## Recently completed
 
@@ -45,11 +45,16 @@ and architecture documents remain authoritative.
 - **Group A2 host firmware metadata:** validated top-level `softver` metadata is
   used when the established body field is absent, without weakening host or
   message-type ownership.
+- **Group B1 coordinator plug guard:** the coordinator now rechecks the shared
+  fail-closed `commMode` policy against its current plug cache immediately before
+  publishing Type 103. Entity notifications and telemetry-confirmed state remain
+  unchanged.
 
 ## Next
 
-The focused Group-A ports from the upstream audit are complete. The maintainer
-has not yet selected the next major workstream.
+The focused Group-A ports and the selected B1 coordinator command-boundary
+hardening are complete. B2 reauthentication lifecycle completion is the likely
+next focused track, but has not started.
 
 Release/compatibility hardening and lifecycle work are the likely following
 tracks. The [Phase 3 closeout and Phase 4 decision basis](phase3-closeout-phase4-plan.md)
@@ -75,8 +80,8 @@ hardware or automatically enable new devices.
   payload-field, lifecycle and event-contract validation before any NG-native
   implementation.
 - Dynamic host-model labels and model changes after setup.
-- Coordinator-level plug communication-mode enforcement; optimistic plug state
-  and command acknowledgement/telemetry ordering remain separate concerns.
+- Optimistic plug state and command acknowledgement/telemetry ordering remain
+  separate from the completed coordinator communication-mode guard.
 - Whether a supported YAML import path is actually needed.
 - The separately deferred `_grid_net_from_system()` alias/source policy.
 - Maintainability work such as removing the proven-unused `use_cts` fallback,
