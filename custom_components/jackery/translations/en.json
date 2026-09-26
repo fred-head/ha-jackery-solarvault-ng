@@ -12,7 +12,7 @@
             },
             "reauth_confirm": {
                 "title": "Re-authenticate Jackery",
-                "description": "The device reported a token mismatch. Enter the current token to restore the connection.",
+                "description": "The integration can no longer authenticate communication with the device. Enter the current token to restore the connection.",
                 "data": {
                     "token": "Token"
                 }

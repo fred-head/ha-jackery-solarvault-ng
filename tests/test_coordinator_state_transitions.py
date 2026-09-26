@@ -251,6 +251,8 @@ def test_new_coordinator_resets_ephemeral_runtime_state(state_runtime):
     assert replacement._last_update_time == replacement._start_time == 2000.0
     assert not replacement._ever_received
     assert not replacement._reauth_started
+    assert not replacement._lifecycle_active
+    assert not replacement._stop_requested
     assert not replacement._http_sm_sensor_sns_created
     assert replacement._data_cache is not original._data_cache
     assert replacement._data_cache is replacement._runtime_state.data_cache

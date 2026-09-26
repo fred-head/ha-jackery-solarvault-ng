@@ -418,6 +418,17 @@ generic fallback. A label-only change would overstate support.
 - **Port style:** manual NG lifecycle work, not code transplant.
 - **Acceptance:** exactly one flow, safe missing-entry behavior, successful update
   and reload, no post-unload trigger, programming errors remain visible.
+- **Implementation follow-up:** B2 was implemented manually with Official
+  `12c2e7c`/`90c4414` as historical context and the current Home Assistant
+  ConfigEntry API as authoritative. Active coordinators call the entry-owned
+  `async_start_reauth()` helper; stopped or removed runtimes cannot create new
+  flows. The existing `_get_reauth_entry()` plus
+  `async_update_reload_and_abort()` flow remains in place, so a successful token
+  update performs a real reload and a replacement coordinator can request reauth
+  again after a later rejection. No synchronous token validation, ConfigEntry
+  update listener or OptionsFlow redesign was added. The existing 120-second
+  no-response trigger remains explicitly heuristic because silence can also mean
+  a wrong serial, an offline device or an MQTT/network failure.
 
 ### Group C: hardware validation first
 
@@ -581,7 +592,7 @@ A2 regression-first PRs. This refresh did not select a next major workstream;
 B1 was selected later and is now complete. Remaining decision candidates include:
 
 - an alert payload/event-contract evidence audit before any `/alert` feature;
-- B2 reauthentication lifecycle design and HA tests;
+- options/reload lifecycle design and HA tests after completed B2;
 - C1 capability evidence, with `wps` separate from writable gates;
 - C3 membership semantics after real Type-101 sequences exist;
 - C2/C4 hardware work, one meter family or formula question per audit.
@@ -618,7 +629,7 @@ reviewable evidence and a release/compatibility contract.
 | Alert topic and HA event | Community `77d218f` | No NG `/alert` subscription or public event contract | Investigation first; later NG-native transport adaptation | Evidence first | Medium | Validate payload fields, lifecycle and event compatibility |
 | Battery/BP2500 firmware claims | Community `77d218f` documentation | Claims are not independently verified by NG | Evidence cross-check only | Yes | Medium/high | Compare sanitized hardware evidence before behavior changes |
 | Coordinator plug guard | Official `d1f4f68`, refined by `66b9a7f`/`8417002` | Closed by B1 | Manual semantic port | No | Medium | Implemented in NG |
-| Reauth lifecycle completion | Official flow pattern | End-to-end recovery not proven | Manual NG adaptation | No/low | Medium | B2 HA lifecycle audit |
+| Reauth lifecycle completion | Official `12c2e7c`/`90c4414`, current HA API authoritative | Closed by B2 | Manual NG lifecycle implementation | No | Medium | Implemented in NG |
 | Ability bits 9/11 | Community `020b370` | Unsupported controls may remain available | Manual capability port | Yes | Medium/high | Cross-firmware evidence audit |
 | `wps` storm sensor | Community `020b370` | Read-only field not exposed | Manual additive port | Yes | Low/medium | Separate evidence/sensor proposal |
 | Generic CT phase entities | Official `c7894d3` | Legacy type2/4 telemetry narrower | Manual additive port | Yes | High | One subtype fixture/audit |
@@ -642,13 +653,11 @@ HA behavior.
    default-visible entity useful?
 4. Which generic devType 2/4 meters actually report per-phase forward/reverse
    fields and what are their scaling guarantees?
-5. What is the supported HA version range for `ConfigEntry.async_start_reauth`
-   versus the current flow-init approach?
-6. Which publicly verifiable `/alert` payload forms and fields are stable enough
+5. Which publicly verifiable `/alert` payload forms and fields are stable enough
    for an NG event contract, and how should reload/unload be tested?
-7. Can the Community v2.5.0 battery/BP2500 claims be independently confirmed by
+6. Can the Community v2.5.0 battery/BP2500 claims be independently confirmed by
    sanitized hardware evidence before changing NG behavior or support wording?
-8. Should historical host-as-child registry records, if any, receive a separate
+7. Should historical host-as-child registry records, if any, receive a separate
    cleanup after A1's prevention-only fix?
 
 ## 20. Decision answers

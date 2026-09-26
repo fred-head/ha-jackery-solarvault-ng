@@ -12,7 +12,7 @@
             },
             "reauth_confirm": {
                 "title": "Ré-authentifier Jackery",
-                "description": "L’appareil a signalé un conflit de jeton. Veuillez saisir le jeton actuel pour rétablir la connexion.",
+                "description": "L’intégration ne parvient plus à authentifier la communication avec l’appareil. Saisissez le jeton actuel pour rétablir la connexion.",
                 "data": {
                     "token": "Jeton"
                 }

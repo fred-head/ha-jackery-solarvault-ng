@@ -64,6 +64,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Align runtime reauthentication with Home Assistant's entry-owned API, allow
+  exactly one flow per active coordinator, and prevent stopped or removed
+  coordinator instances from starting new flows while preserving token update
+  and reload behavior.
 - Enforce Smart Plug MQTT communication-mode policy at the coordinator command
   boundary as well as the entity layer, so direct callers cannot publish Type-103
   commands for cloud-connected, unknown or uncached plugs.
