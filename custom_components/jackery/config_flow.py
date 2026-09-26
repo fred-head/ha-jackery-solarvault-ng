@@ -74,7 +74,7 @@ class JackeryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: igno
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
     ) -> config_entries.ConfigFlowResult:
-        """Handle re-authentication when the device reports a token mismatch."""
+        """Handle re-authentication when runtime communication cannot authenticate."""
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(

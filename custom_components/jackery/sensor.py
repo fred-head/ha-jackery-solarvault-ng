@@ -200,6 +200,8 @@ class JackeryDataCoordinator:
         self._subscribed = False
         self._mqtt_transport = JackeryMqttTransport(hass)
         self._lifecycle_lock = asyncio.Lock()
+        self._lifecycle_active = False
+        self._stop_requested = False
         self._runtime_state = CoordinatorRuntimeState(
             last_update_time=time.time(),
             start_time=time.time(),
@@ -296,6 +298,7 @@ class JackeryDataCoordinator:
         async with self._lifecycle_lock:
             if self._subscribed:
                 return
+            self._stop_requested = False
             try:
                 @callback
                 def message_received(msg):
@@ -314,18 +317,22 @@ class JackeryDataCoordinator:
                     self._smartmeter_http_task = asyncio.create_task(self._smartmeter_http_poll_loop())
                     _LOGGER.info("SmartMeter HTTP polling enabled (interval=%ds)", entry.options.get("smartmeter_poll_interval", 10))
                 self._subscribed = True
+                self._lifecycle_active = not self._stop_requested
             except (Exception, asyncio.CancelledError):
                 await self._async_release_resources()
                 raise
 
     async def async_stop(self) -> None:
         """Release only this coordinator's resources, once, even after a partial start."""
+        self._stop_requested = True
+        self._lifecycle_active = False
         async with self._lifecycle_lock:
             await self._async_release_resources()
         _LOGGER.debug("Coordinator stopped for entry %s", self.config_entry_id)
 
     async def _async_release_resources(self) -> None:
         """Attempt all cleanup before reporting errors; caller holds lifecycle lock."""
+        self._lifecycle_active = False
         self._subscribed = False
         errors: list[Exception] = []
         had_subscriptions = self._mqtt_transport.unsubscribe_count > 0
@@ -728,18 +735,18 @@ class JackeryDataCoordinator:
 
     def _trigger_reauth(self, reason: str) -> None:
         """Initiate a re-authentication flow in HA (Re-Auth feature)."""
-        if self._reauth_started:
+        if self._reauth_started or not self._lifecycle_active:
+            return
+        entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
+        if entry is None:
+            _LOGGER.debug(
+                "Skipping re-authentication for missing config entry %s",
+                self.config_entry_id,
+            )
             return
         self._reauth_started = True
         _LOGGER.warning("Triggering re-authentication: %s", reason)
-        from homeassistant.config_entries import SOURCE_REAUTH
-        self.hass.async_create_task(
-            self.hass.config_entries.flow.async_init(
-                DOMAIN,
-                context={"source": SOURCE_REAUTH, "entry_id": self.config_entry_id},
-                data={},
-            )
-        )
+        entry.async_start_reauth(self.hass)
 
     def _entity_keys_for_subdevice(self, sn: str) -> list[str]:
         """Return all registered entity keys (unique_ids) belonging to a sub-device SN."""

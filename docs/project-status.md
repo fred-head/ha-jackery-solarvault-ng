@@ -18,7 +18,8 @@ and architecture documents remain authoritative.
 | Done | Group A3 poll isolation | Type-100 child-poll publish failures are isolated per category while preserving cadence, order and cancellation behavior. |
 | Done | Group A2 host firmware metadata | Validated top-level host firmware metadata is accepted as a fallback while established body metadata retains precedence. |
 | Done | Group B1 coordinator plug guard | Direct coordinator callers now share the entity layer's fail-closed Smart Plug MQTT communication-mode policy. |
-| Next | Reauthentication and release/lifecycle hardening | B2 reauthentication lifecycle completion is the likely next focused track, followed by the broader release, options reload and MQTT reconnect decisions. It has not started. |
+| Done | Group B2 reauthentication lifecycle | Runtime reauthentication uses the entry-owned Home Assistant API, remains isolated per active coordinator, and replaces runtime state through an actual reload. |
+| Next | Options/reload lifecycle hardening | Applying configuration-option changes predictably through reload remains the likely next focused lifecycle track. It has not started. |
 
 ## Recently completed
 
@@ -49,12 +50,16 @@ and architecture documents remain authoritative.
   fail-closed `commMode` policy against its current plug cache immediately before
   publishing Type 103. Entity notifications and telemetry-confirmed state remain
   unchanged.
+- **Group B2 reauthentication lifecycle:** authentication failures now start an
+  entry-owned HA reauthentication flow only from an active coordinator. Successful
+  token replacement reloads the entry, stops the old runtime and creates a fresh
+  coordinator that can request reauthentication again after a later rejection.
 
 ## Next
 
-The focused Group-A ports and the selected B1 coordinator command-boundary
-hardening are complete. B2 reauthentication lifecycle completion is the likely
-next focused track, but has not started.
+The focused Group-A ports and B1/B2 lifecycle hardening are complete.
+Options/reload lifecycle hardening is the likely next focused track, but has not
+started.
 
 Release/compatibility hardening and lifecycle work are the likely following
 tracks. The [Phase 3 closeout and Phase 4 decision basis](phase3-closeout-phase4-plan.md)
@@ -96,7 +101,7 @@ The integration has strong synthetic regression coverage, but broad production
 recommendation still needs evidence and policy work:
 
 - define the NG release, versioning, support, and upgrade/migration contract;
-- complete and exercise the reauthentication lifecycle;
+- keep the reauthentication lifecycle covered during future HA API changes;
 - apply options predictably through reload and prove partial-setup behavior;
 - validate real MQTT disconnect/reconnect and long-running lifecycle behavior;
 - test the declared Home Assistant version range;

@@ -21,6 +21,8 @@ def coordinator():
     coord._sensors = {}
     coord._data_task = None
     coord._subscribed = False
+    coord._lifecycle_active = True
+    coord._stop_requested = False
     coord._runtime_state = CoordinatorRuntimeState(
         last_update_time=time.time(),
         start_time=time.time(),

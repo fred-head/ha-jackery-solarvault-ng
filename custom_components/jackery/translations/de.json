@@ -12,7 +12,7 @@
             },
             "reauth_confirm": {
                 "title": "Jackery neu authentifizieren",
-                "description": "Das Gerät hat einen Token-Konflikt gemeldet. Bitte den aktuellen Token eingeben, um die Verbindung wiederherzustellen.",
+                "description": "Die Integration kann die Kommunikation mit dem Gerät nicht mehr authentifizieren. Gib den aktuellen Token ein, um die Verbindung wiederherzustellen.",
                 "data": {
                     "token": "Token"
                 }
