@@ -13,7 +13,7 @@ and architecture documents remain authoritative.
 | Done | Foundation modernization | Phase 1/2 separated calculations, protocol normalization and routing, device classification, runtime state, commands, transports, discovery, and entity concerns while preserving compatibility. |
 | Done | Phase 3 | Privacy-bounded Home Assistant diagnostics and opt-in, memory-only structural protocol discovery are complete. |
 | Done | P4.1 correctness | Receipt-time arbitration now preserves a newer explicit live on-grid zero over an older Type-106 alias. |
-| Done | Upstream audit | 10 Community and 43 Official delta commits were classified semantically; no upstream code was imported. |
+| Done | Upstream audit | 11 Community and 43 Official delta commits were classified semantically; no upstream code was imported. |
 | Done | Group A1 host/child admission | The configured host serial is rejected at the shared child-array admission boundary before cache, freshness, discovery or entity state. |
 | Done | Group A3 poll isolation | Type-100 child-poll publish failures are isolated per category while preserving cadence, order and cancellation behavior. |
 | Done | Group A2 host firmware metadata | Validated top-level host firmware metadata is accepted as a fallback while established body metadata retains precedence. |
@@ -71,11 +71,13 @@ hardware or automatically enable new devices.
 
 ## Investigation backlog
 
+- Community v2.5.0 `/alert` support and its `jackery_alert` event require public
+  payload-field, lifecycle and event-contract validation before any NG-native
+  implementation.
 - Dynamic host-model labels and model changes after setup.
 - Coordinator-level plug communication-mode enforcement; optimistic plug state
   and command acknowledgement/telemetry ordering remain separate concerns.
 - Whether a supported YAML import path is actually needed.
-- Deterministic precedence when top-level and body firmware values disagree.
 - The separately deferred `_grid_net_from_system()` alias/source policy.
 - Maintainability work such as removing the proven-unused `use_cts` fallback,
   correcting stale `maxOutPw` comments, narrowing coordinator APIs, and reducing
