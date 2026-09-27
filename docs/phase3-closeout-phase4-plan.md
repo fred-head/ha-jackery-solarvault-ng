@@ -39,7 +39,9 @@ continues to describe the project as experimental.
 
 The original audit identified three issues before a broad production
 recommendation. The first is resolved, the third now has a checked metadata and
-tooling contract, and the hardware/real-upgrade evidence remains open:
+tooling contract. Pinned upstream-generated registry/recorder migration evidence
+was added later; hardware, actual HACS switching and complete backup/restore
+evidence remain open:
 
 1. At the time of this audit, the accepted foundation reproduced the community
    v2.4.2 standby case:
@@ -54,7 +56,9 @@ tooling contract, and the hardware/real-upgrade evidence remains open:
    establishes the manifest as version authority, declares the evidenced Home
    Assistant 2025.8.0 API floor, freezes the current test environment, and
    replaces unsafe legacy release automation with a fail-closed preflight.
-   It does not publish a release or prove real Community-to-NG upgrades.
+   It does not publish a release. Later golden-state tests cover pinned
+   Community/Official/older-NG identity migration, but not an actual HACS
+   operation or full Home Assistant backup restore.
 
 Phase 4 therefore has several legitimate directions. Production evidence and
 lifecycle hardening have the clearest immediate effect on safe daily use.
@@ -103,8 +107,8 @@ Freshly fetched comparison references at audit time are:
 | MQTT lifecycle policy | Coordinator plus integration setup/unload | Locking, task start/stop, poll cadence and failure cleanup | Strong lifecycle, reload and repeated-reconnect fault-injection coverage | No live broker disconnect/reconnect or long-running soak evidence |
 | SmartMeter HTTP request | `transport/smartmeter_http.py` | URL, timeout, request, status/JSON and numeric allowlist | Mature under synthetic transport tests | Target is an MQTT-learned private IP; no hardware/network matrix |
 | SmartMeter HTTP policy | Coordinator | Target selection, cadence, failure threshold, replacement, entities and availability | Strong synthetic coverage, including flow-owned option reload | State/policy remains coordinator-coupled; no live network/hardware matrix |
-| Config and options flow | `config_flow.py` | Validates host/token input, prevents duplicate hosts, updates reauth tokens and applies changed connection/runtime options through one reload | Full reauth and options reload journeys, cleanup and multi-entry isolation tested | Real device token rejection and exported-entry upgrade evidence remain open |
-| HA setup and migration | `__init__.py`, `child_migration.py`, `identity.py` | Config validation, platform order, host/child registry migration and guarded cleanup | Extensive HA registry tests | Real exported registry snapshots and release-to-release upgrade runs are absent |
+| Config and options flow | `config_flow.py` | Validates host/token input, prevents duplicate hosts, updates reauth tokens and applies changed connection/runtime options through one reload | Full reauth and options reload journeys, cleanup and multi-entry isolation tested | Real device token rejection and actual HACS upgrade evidence remain open |
+| HA setup and migration | `__init__.py`, `child_migration.py`, `identity.py` | Config validation, platform order, host/child registry migration and guarded cleanup | Extensive HA registry tests plus pinned Official/Community/older-NG constructor states and recorder continuity | Actual HACS switching, user exports and complete backup/restore remain open |
 | Entity definitions | `entities/sensor_definitions.py` and platform modules | Static metadata and HA entities; pure transforms separated | Stable compatibility surface | Entities and tests still consume coordinator private fields; `sensor.py` owns entity classes |
 | Reauthentication | Coordinator trigger plus `config_flow.py` | Type-123/401 and heuristic silence trigger, entry-owned flow, token update and reload helper | End-to-end completion, removed-entry, repeated rejection, cleanup and multi-entry regressions | Silence remains heuristic; no real-device rejection run |
 | P3.1 snapshot | `diagnostics_snapshot.py` | Versioned allowlist, aliases, JSON normalization and 64-KiB fail-closed budget | Adversarially hardened | Large explicit schema must be deliberately versioned when extended |
@@ -289,7 +293,7 @@ feature ranking.
 | --- | --- |
 | No NG hardware/golden validation | Every protocol playback is synthetic. Inherited reports exist, but this exact foundation has no device/broker soak or sanitized trace corpus |
 | Known standby correctness delta | Resolved by the merged P4.1 receipt-time arbitration; real hardware validation remains part of the broader evidence gap |
-| Release/upgrade evidence incomplete | The NG metadata, HA floor, version authority and fail-closed release procedure are now defined; no release was created, and exported-registry HACS upgrade/rollback runs remain open |
+| Release/upgrade evidence incomplete | The NG metadata, HA floor, version authority and fail-closed release procedure are defined. Pinned upstream-generated registry/recorder migration is covered, while actual HACS upgrade and complete backup/rollback runs remain open. |
 
 These block a general recommendation, not controlled developer testing.
 
@@ -386,8 +390,9 @@ and declared boundaries rather than marker collection.
 - Command tests prove bytes and local state transitions, not device execution.
 - Energy and routing scenarios are synthetic dictionaries, not sanitized
   production traces.
-- HA registry tests are substantial but use constructed registry states rather
-  than exports from affected installations.
+- HA registry tests now include deterministic states generated by pinned
+  Official 2.0.0, Community 2.5.0 and older NG constructors, plus real SQLite
+  recorder continuity. They remain synthetic and are not user exports.
 
 ### 9.3 Blind spots hidden by 96.09% coverage
 
@@ -395,7 +400,9 @@ and declared boundaries rather than marker collection.
 - Device reconnect, broker restart, packet reordering and long outages.
 - Real-device token rejection and option changes against physical MQTT/HTTP
   endpoints; synthetic HA user journeys are complete.
-- HACS upgrade from a real community installation and rollback behavior.
+- Actual HACS upgrade from a real Official/Community installation and complete
+  Home Assistant backup/rollback behavior. Code-only downgrade is test-proven
+  to be registry-unsafe.
 - Intermediate Home Assistant releases between the evidenced 2025.8.0 floor
   and the locked 2026.2.3 development reference are not each full-suite jobs.
 - Authoritative child-unbinding semantics.
@@ -467,10 +474,11 @@ The metadata/tooling portion of this candidate is now complete. The
 [release/compatibility contract](release-compatibility-contract.md) establishes
 the NG support links, HA 2025.8.0 floor, manifest version authority, `main`
 release source and preflight-only release checks. No release was created;
-hardware and exported-registry upgrade evidence remain open.
+upstream-constructor-generated registry/recorder migration is now covered, while
+hardware, user-export, actual HACS and full-backup evidence remain open.
 
 - **Problem:** metadata and the API compatibility floor are aligned; a real NG
-  release, exported-registry upgrades and physical evidence are still absent.
+  release, actual HACS/backup upgrades and physical evidence are still absent.
 - **Practical benefit:** creates a supportable installation/upgrade target and
   adds physical evidence for established calculation behavior.
 - **Architecture:** manifest/release metadata, CI matrix, documentation and
@@ -481,8 +489,9 @@ hardware and exported-registry upgrade evidence remain open.
   upgrade artifacts and suitable hardware contributors for physical validation.
 - **Hardware:** strongly desirable for standby validation; not required for
   metadata/CI work.
-- **Possible PRs:** exported-registry upgrade qualification, expanded HA version
-  matrix, and hardware-backed validation of established energy scenarios.
+- **Possible PRs:** actual HACS/backup qualification, additional anonymized user
+  exports, expanded HA version matrix, and hardware-backed validation of
+  established energy scenarios.
 - **Acceptance:** the completed contract remains green; exported upgrades
   preserve identity/history; declared HA versions pass their stated evidence
   level; hardware scenarios have sanitized reproducible evidence.
@@ -513,21 +522,26 @@ broker/device disconnect/reconnect and long-duration soak remain open.
 
 ### 12.3 Compatibility and migration qualification
 
-- **Problem:** synthetic migration coverage is strong, but real community-fork
-  registry snapshots, HACS upgrades and supported rollback windows are absent.
+- **Current evidence:** pinned Official 2.0.0, Community 2.5.0 and pre-host-scope
+  NG constructors generate sanitized golden states. Real HA registries and the
+  SQLite recorder prove in-place preservation for mapped identities; Official
+  fields without a proven target remain fail-closed. Code-only downgrade creates
+  parallel child records and is not a safe rollback.
+- **Remaining problem:** actual HACS operations, user registry exports and full
+  Home Assistant backup/recorder restore are absent.
 - **Practical benefit:** protects recorder history, custom names, disabled state
   and device cards for existing users.
 - **Architecture:** identity, registry migration, config-entry versioning and
   release process.
 - **Risk/size:** high regression impact, medium scope.
-- **Prerequisites:** anonymized registry exports and an explicit oldest-supported
-  version policy.
+- **Prerequisites:** backed-up test installations or anonymized registry exports
+  and an explicit oldest-supported version policy.
 - **Hardware:** no; representative HA backups/registry fixtures are needed.
-- **Possible PRs:** fixture format; v1/v2 snapshot playback; upgrade matrix;
-  retirement policy for obsolete cleanup.
-- **Acceptance:** before/after registry snapshots preserve IDs/settings/history,
-  ambiguous ownership never mutates, interrupted upgrades resume, rollback
-  limitations are documented.
+- **Possible PRs:** actual HACS switch/restore run; more historical export
+  fixtures; retirement policy for obsolete cleanup.
+- **Acceptance:** the golden-state matrix remains green; a full backup restores
+  ConfigEntry, registries, recorder and integration code on a real test
+  installation; rollback instructions reflect the code-only downgrade limit.
 
 ### 12.4 Hardware golden fixtures and soak validation
 
@@ -673,8 +687,8 @@ audit conclusion, not an approved Phase 4 roadmap.
 
 ## 15. Questions for maintainer decision
 
-1. Which evidence should follow the completed release/compatibility contract:
-   exported-registry upgrade qualification or live hardware/broker soak?
+1. Which evidence should follow the pinned golden-state upgrade validation:
+   actual HACS/full-backup qualification or live hardware/broker soak?
 2. Which real hardware and firmware combinations can provide sanitized golden
    captures and a multi-day broker/reload soak?
 3. How long must direct upgrades from historical community v1/v2 registry states

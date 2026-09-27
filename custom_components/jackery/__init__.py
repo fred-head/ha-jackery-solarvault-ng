@@ -14,6 +14,10 @@ _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "jackery"
 PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.NUMBER, Platform.BUTTON, Platform.SELECT]
+_MAIN_CONTROL_KEYS = {
+    "switch": {"isAutoStandby", "swEps", "offGridDown", "socForceChg", "isFollowMeterPw"},
+    "number": {"socChgLimit", "socDischgLimit", "defaultPw", "maxOutPw", "maxFeedGrid"},
+}
 
 
 async def _migrate_unique_ids(
@@ -34,8 +38,8 @@ async def _migrate_unique_ids(
     Child identities belong to the separate preflight migration and are left as-is.
     Registry ownership and HA domain/platform identity govern every mutation.
 
-    v2.0.1 bug residue: entities with unique_id jackery_{device_sn}_main_{key} were
-    created by the buggy v2.0.1 migration — they are removed here.
+    Host-prefixed ``main`` controls from Official/v2.0.1 are normalized in
+    place. Sensor-only v2.0.1 ``main`` residues are removed.
     """
     device_sn = entry.data.get("device_sn", "").strip()
     if not device_sn:
@@ -73,7 +77,28 @@ async def _migrate_unique_ids(
 
         if uid.startswith(new_prefix):
             suffix_after_sn = uid[len(new_prefix):]
-            # Remove wrongly-migrated jackery_{sn}_main_* entities from v2.0.1 bug 2
+            # Official 2.0 and the historical v2.0.1 migration used
+            # jackery_{host}_main_{key} for main switches/numbers. Preserve the
+            # registry row while moving it to the platform-qualified NG ID.
+            if entity_entry.domain in _MAIN_CONTROL_KEYS and suffix_after_sn.startswith("main_"):
+                mqtt_key = suffix_after_sn[len("main_"):]
+                if mqtt_key not in _MAIN_CONTROL_KEYS[entity_entry.domain]:
+                    continue
+                target_uid = f"{new_prefix}{entity_entry.domain}_{mqtt_key}"
+                target_id = ent_reg.async_get_entity_id(
+                    entity_entry.domain, entity_entry.platform, target_uid,
+                )
+                if target_id is not None and target_id != entity_entry.entity_id:
+                    _LOGGER.warning(
+                        "Skipping identity migration for %s: target %s already exists; "
+                        "retaining both records",
+                        entity_entry.entity_id, target_id,
+                    )
+                else:
+                    _LOGGER.info("Migrating unique_id: %s → %s", uid, target_uid)
+                    ent_reg.async_update_entity(entity_entry.entity_id, new_unique_id=target_uid)
+                continue
+            # Remove wrongly-migrated sensor residues from v2.0.1 bug 2.
             if (
                 entity_entry.domain == "sensor"
                 and suffix_after_sn.startswith("main_")

@@ -72,6 +72,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Recognize pinned Official 2.0 host-prefixed child identities and main-control
+  IDs during safe in-place registry migration. Known Smart Plug and main-control
+  records retain their device and entity rows, user customization and recorder
+  history; unsupported or conflicting Official child fields remain preserved
+  and fail closed.
 - Reload the owning config entry after changed connection data or runtime
   options, so a fresh coordinator applies token, MQTT topic, SmartMeter HTTP
   polling and protocol-discovery settings after old resources are released.

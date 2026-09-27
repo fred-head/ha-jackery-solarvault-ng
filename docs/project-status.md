@@ -22,6 +22,7 @@ and architecture documents remain authoritative.
 | Done | Options/reload lifecycle hardening | Changed connection data and runtime options now reload the owning entry once, replacing its coordinator and releasing old MQTT/HTTP resources. |
 | Done | MQTT reconnect synthetic validation | Fault-injection tests verify HA-owned reconnect semantics, bounded NG resources, availability recovery, HTTP independence and reload overlap; live broker/device soak remains open. |
 | Done | Release/compatibility contract | NG repository metadata, the HA 2025.8.0 API floor, a single version authority, frozen CI tooling, and a fail-closed preflight-only release procedure are documented and checked. |
+| Done | Upgrade/migration golden-state validation | Pinned Official 2.0.0, Community 2.5.0 and older-NG constructor states preserve tested registry customization and recorder continuity through NG migration; real HACS/backup runs remain open. |
 
 ## Recently completed
 
@@ -67,6 +68,11 @@ and architecture documents remain authoritative.
   evidenced Home Assistant floor is 2025.8.0, the manifest owns the integration
   version, and release tooling fails closed without creating release objects.
   See the [release contract](release-compatibility-contract.md).
+- **Upgrade/migration golden-state validation:** pinned upstream constructors
+  generate sanitized identity fixtures that are replayed through real HA
+  registries and the recorder. Known Official and Community identities migrate
+  in place; unsupported mappings remain fail-closed. See the
+  [upgrade validation](upgrade-migration-validation.md).
 
 ## Next
 
@@ -74,7 +80,9 @@ The focused Group-A ports, B1/B2, Options/reload lifecycle hardening, synthetic
 MQTT disconnect/reconnect validation, and the release/compatibility contract
 are complete. Selection of the next production-readiness workstream remains a
 maintainer decision. Real broker/device soak and exported-registry upgrade
-qualification remain strong evidence candidates.
+qualification remain strong evidence candidates. The constructor-generated
+upgrade matrix is complete; actual HACS switching and full HA backup/restore
+remain separate operational evidence.
 
 The [Phase 3 closeout and Phase 4 decision basis](phase3-closeout-phase4-plan.md)
 contains the decision matrix; this page does not select a full Phase 4 roadmap.
@@ -114,8 +122,8 @@ hardware or automatically enable new devices.
 The integration has strong synthetic regression coverage, but broad production
 recommendation still needs evidence and policy work:
 
-- preserve the documented NG release/version/support contract and qualify it
-  with exported-registry upgrade evidence;
+- preserve the documented NG release/version/support contract and extend the
+  pinned golden-state migration evidence with actual HACS and full-backup runs;
 - keep the reauthentication lifecycle covered during future HA API changes;
 - preserve options reload and partial-setup cleanup across future HA changes;
 - run real broker/device disconnect/reconnect and long-duration soak validation;
@@ -161,4 +169,5 @@ for the full contracts.
 | Test evidence and remaining blind spots | [Test coverage map](test-coverage-map.md) |
 | MQTT reconnect evidence | [MQTT reconnect validation](mqtt-reconnect-validation.md) |
 | Release, compatibility and upgrade policy | [Release and compatibility contract](release-compatibility-contract.md) |
+| Upgrade, migration and rollback evidence | [Upgrade/migration validation](upgrade-migration-validation.md) |
 | User-facing capability and setup | [README](../README.md) |
