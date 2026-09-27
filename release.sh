@@ -1,86 +1,99 @@
 #!/usr/bin/env bash
-# release.sh — vollständige Prüfung vor Release-Tag
-# Aufruf: ./release.sh v2.x.y
+# Fail-closed release preflight. This script never creates tags or releases.
 set -euo pipefail
 
-VERSION=${1:-}
-if [[ -z "$VERSION" ]]; then
-    echo "Fehler: Versionsnummer fehlt."
-    echo "Aufruf: ./release.sh v2.x.y"
+readonly EXPECTED_REPOSITORY="fred-head/ha-jackery-solarvault-ng"
+readonly EXPECTED_BRANCH="main"
+readonly MANIFEST="custom_components/jackery/manifest.json"
+
+fail() {
+    printf 'Release preflight failed: %s\n' "$*" >&2
     exit 1
+}
+
+version_tag=${1:-}
+[[ "$version_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
+    fail "pass an exact semantic version tag (vX.Y.Z)"
+
+[[ -f "$MANIFEST" && -f "hacs.json" && -f "pyproject.toml" ]] || \
+    fail "run this script from the repository root"
+
+origin_url=$(git remote get-url origin 2>/dev/null) || fail "origin is not configured"
+case "$origin_url" in
+    "https://github.com/${EXPECTED_REPOSITORY}"|\
+    "https://github.com/${EXPECTED_REPOSITORY}.git"|\
+    "git@github.com:${EXPECTED_REPOSITORY}"|\
+    "git@github.com:${EXPECTED_REPOSITORY}.git"|\
+    "ssh://git@github.com/${EXPECTED_REPOSITORY}"|\
+    "ssh://git@github.com/${EXPECTED_REPOSITORY}.git") ;;
+    *) fail "origin points to '$origin_url', expected GitHub repository '$EXPECTED_REPOSITORY'" ;;
+esac
+
+branch=$(git branch --show-current)
+[[ "$branch" == "$EXPECTED_BRANCH" ]] || \
+    fail "release source must be '$EXPECTED_BRANCH' (current: '${branch:-detached HEAD}')"
+
+[[ -z "$(git status --porcelain --untracked-files=all)" ]] || \
+    fail "working tree is not clean"
+
+manifest_version=$(python3 -c \
+    'import json, sys; print(json.load(open(sys.argv[1], encoding="utf-8"))["version"])' \
+    "$MANIFEST")
+[[ "$version_tag" == "v$manifest_version" ]] || \
+    fail "tag '$version_tag' does not match manifest version '$manifest_version'"
+
+if git show-ref --verify --quiet "refs/tags/$version_tag"; then
+    fail "tag '$version_tag' already exists locally"
 fi
 
-if [[ ! "$VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
-    echo "Fehler: Ungültiges Versionsformat '$VERSION' (erwartet: vX.Y.Z)"
-    exit 1
+printf '%s\n' "Fetching the release branch and tags from origin..."
+git fetch --quiet origin "$EXPECTED_BRANCH" --tags
+
+local_head=$(git rev-parse HEAD)
+remote_head=$(git rev-parse "origin/$EXPECTED_BRANCH")
+[[ "$local_head" == "$remote_head" ]] || \
+    fail "local HEAD ($local_head) differs from origin/$EXPECTED_BRANCH ($remote_head)"
+
+if git show-ref --verify --quiet "refs/tags/$version_tag"; then
+    fail "tag '$version_tag' already exists on origin"
 fi
 
-echo "=== Release $VERSION ==="
-echo ""
+command -v uv >/dev/null || fail "uv is required"
+command -v gh >/dev/null || fail "GitHub CLI (gh) is required"
 
-# Sicherstellen, dass wir auf main sind und alles gepusht ist
-BRANCH=$(git rev-parse --abbrev-ref HEAD)
-if [[ "$BRANCH" != "main" ]]; then
-    echo "Fehler: Nicht auf Branch 'main' (aktuell: $BRANCH)"
-    echo "Bitte zuerst auf main mergen."
-    exit 1
-fi
+printf '%s\n' "Checking locked dependencies and release metadata..."
+uv lock --check
+uv sync --frozen --all-groups
+uv run python tools/check_release_contract.py
 
-UNPUSHED=$(git log origin/main..HEAD --oneline 2>/dev/null | wc -l)
-if [[ "$UNPUSHED" -gt 0 ]]; then
-    echo "Fehler: $UNPUSHED Commit(s) noch nicht gepusht:"
-    git log origin/main..HEAD --oneline
-    exit 1
-fi
-
-# Tag darf noch nicht existieren
-if git rev-parse "$VERSION" &>/dev/null; then
-    echo "Fehler: Tag '$VERSION' existiert bereits."
-    exit 1
-fi
-
-echo "--- Ruff ---"
-uv run ruff check custom_components/jackery/
-echo "OK"
-
-echo ""
-echo "--- mypy ---"
-uv run mypy custom_components/jackery/ --no-error-summary 2>&1 | tail -3
-echo "OK"
-
-echo ""
-echo "--- Translations ---"
-python tools/check_translations.py
-echo "OK"
-
-echo ""
-echo "--- Tests ---"
+printf '%s\n' "Running release quality gates..."
+uv run ruff check custom_components/jackery tests tools
+uv run mypy custom_components/jackery
+uv run python tools/check_translations.py
 uv run pytest tests/ -q --tb=short
-echo "OK"
+uv run python -m compileall -q custom_components/jackery
+bash -n release.sh
 
-echo ""
-echo "--- CI-Status (letzte 5 Runs) ---"
-gh run list --repo csoscd/ha-solarvault --limit 5
-echo ""
+printf '%s\n' "Checking the Validate workflow for $local_head..."
+successful_run=$(gh run list \
+    --repo "$EXPECTED_REPOSITORY" \
+    --branch "$EXPECTED_BRANCH" \
+    --commit "$local_head" \
+    --workflow validate.yml \
+    --limit 20 \
+    --json conclusion,headSha,status \
+    --jq ".[] | select(.headSha == \"$local_head\" and .status == \"completed\" and .conclusion == \"success\") | .headSha" \
+    | head -n 1)
+[[ "$successful_run" == "$local_head" ]] || \
+    fail "no successful Validate workflow run exists for HEAD $local_head"
 
-read -rp "CI grün für diesen Stand? [j/N] " ci_ok
-if [[ "${ci_ok,,}" != "j" ]]; then
-    echo "Abgebrochen."
-    exit 1
-fi
+cat <<EOF
+Release preflight passed for $version_tag at $local_head.
 
-echo ""
-echo "--- Tag erstellen und pushen ---"
-git tag -a "$VERSION" -m "Release $VERSION"
-git push origin "$VERSION"
-echo "Tag $VERSION gepusht."
+This script intentionally did not create or push anything. After final review,
+the maintainer may create the immutable release objects manually:
 
-echo ""
-echo "--- GitHub Release erstellen ---"
-gh release create "$VERSION" \
-    --title "$VERSION" \
-    --generate-notes \
-    --repo csoscd/ha-solarvault
-
-echo ""
-echo "Release $VERSION erfolgreich erstellt."
+  git tag -a $version_tag -m "Release $version_tag"
+  git push origin $version_tag
+  gh release create $version_tag --repo $EXPECTED_REPOSITORY --title $version_tag --generate-notes
+EOF

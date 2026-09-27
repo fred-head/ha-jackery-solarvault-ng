@@ -20,11 +20,11 @@ no command test proves device execution. Current residual gaps are:
 | Hardware/protocol | Sanitized startup/steady-state/failure fixtures for Pro Max, SolarVault 3, HTO907A, Shelly, HTO910A, BP2500 and Smart Plug |
 | Energy | Hardware-backed on-grid source transitions and the separately deferred `_grid_net_from_system()` alias policy |
 | Lifecycle | Actual broker disconnect/reconnect and multi-day reload/unload soak |
-| Config/auth | Automatic options application and complete reauth/reload/failure flow |
+| Config/auth | Synthetic options reload and reauth journeys are complete; real-device token rejection remains unverified |
 | Upgrade | Real registry/config snapshots from supported historical releases and HACS upgrade/rollback |
 | Commands | Device acknowledgement, rejection, timeout and optimistic rollback semantics |
 | Child removal | Authoritative Type-101 membership/unbinding evidence |
-| HA compatibility | Version matrix down to the advertised HACS minimum |
+| HA compatibility | HA 2025.8.0 API/import plus focused lifecycle evidence and full locked HA 2026.2.3 suite; intermediate releases are not each full-suite targets |
 | Quality gate | CI's configured coverage floor is still 50%, well below the observed 96.09% |
 
 The chronological sections below explain how coverage was built. The old
