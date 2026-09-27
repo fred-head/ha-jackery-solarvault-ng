@@ -164,6 +164,7 @@ async def test_conflicts_preserve_entire_child_and_allow_safe_sibling(hass, regi
     before_devices = {d.id: snapshot(d) for d in devices.devices.values() if d.id != safe_device.id}
     safe_ids = {e.entity_id for e, _ in safe_records}
     before_entities = {e.entity_id: snapshot(e) for e in entities.entities.values() if e.entity_id not in safe_ids}
+    caplog.clear()
     result = migrate_child_identities(hass, entry)
     assert not result.allows(serial)
     assert result.allows("SAFE")
