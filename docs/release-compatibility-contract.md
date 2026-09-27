@@ -6,7 +6,7 @@ SolarVault NG is an experimental, pre-stable custom integration. This contract
 makes repository metadata and release operations consistent; it does not make
 the integration production-proven and does not publish a release. Real
 SolarVault/broker soak evidence, a sanitized hardware fixture matrix, and
-upgrade testing from exported Home Assistant registries remain open.
+real HACS/backup upgrade tests remain open.
 
 The compatibility audit used foundation
 `529c14f49af7faa197004309d903201c760e398d`.
@@ -106,24 +106,35 @@ it could stage unrelated files, push automatically, and replace tags.
 
 For upgrades within NG, existing config entries, host and child identifiers,
 entity unique IDs, device associations, user registry settings, and recorder
-history are intended to survive a reload or migration. Synthetic Home Assistant
-tests cover in-place main and child unique-ID migration, conflict refusal,
-interrupted migration recovery, idempotence, registry ownership, multi-entry
-isolation, and recorder continuity.
+history are intended to survive a reload or migration. The focused
+[upgrade/migration validation](upgrade-migration-validation.md) now derives
+sanitized golden identity states from the actual constructors at pinned
+Official 2.0.0, Community 2.5.0 and pre-host-scope NG commits. It replays those
+states through real HA registries and the SQLite recorder.
 
-The same tests give useful confidence for installations inherited from the
-Community fork because NG retains the established domain and config-entry
-shape. They do not prove every real upgrade path. The project has not yet run a
-HACS upgrade and rollback against anonymized exported registries/backups from
-each historical Community release. Ambiguous ownership continues to fail
-closed rather than guessing, and no rollback guarantee beyond Home Assistant's
-normal backup restore is claimed.
+Under those tested conditions, Community 2.5.0 and the selected older NG state
+migrate in place without duplicate devices/entities or loss of ConfigEntry,
+registry-row, entity-ID, user customization or recorder continuity. Official
+2.0.0 main sensor/control and known Smart Plug identities do the same after NG
+learned its host-prefixed child and main-control formats. An Official generic-CT
+field without a proven NG entity mapping remains retained and blocked rather
+than guessed. Ambiguous
+ownership and target conflicts continue to fail closed.
+
+Code-only downgrade after NG migration is not registry-safe: older Official or
+Community identity constructors can create parallel child records and split
+history. A complete pre-upgrade backup is therefore the intended rollback
+boundary. Semantic fixture restoration is tested, but the project has not yet
+performed an actual HACS switch or complete Home Assistant backup/recorder
+restore on an installation. No broader rollback guarantee is claimed.
 
 ## Remaining evidence
 
 - Real broker disconnect/reconnect with a SolarVault and long-duration soak.
 - Sanitized hardware/firmware fixtures across the supported device matrix.
-- Exported-registry HACS upgrade and rollback qualification.
+- Actual HACS upgrades and complete Home Assistant backup/recorder restores;
+  upstream-constructor-generated registry and recorder migration evidence is
+  covered separately.
 - Periodic compatibility runs across more Home Assistant releases between the
   evidenced floor and current development reference.
 - A maintainer decision on command acknowledgement, timeout, and rollback.

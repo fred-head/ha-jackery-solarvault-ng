@@ -21,7 +21,7 @@ no command test proves device execution. Current residual gaps are:
 | Energy | Hardware-backed on-grid source transitions and the separately deferred `_grid_net_from_system()` alias policy |
 | Lifecycle | Actual broker disconnect/reconnect and multi-day reload/unload soak |
 | Config/auth | Synthetic options reload and reauth journeys are complete; real-device token rejection remains unverified |
-| Upgrade | Real registry/config snapshots from supported historical releases and HACS upgrade/rollback |
+| Upgrade | Pinned Official 2.0.0, Community 2.5.0 and older-NG constructor states now cover real HA registries and recorder continuity; actual HACS switching, user exports and full backup/restore remain open |
 | Commands | Device acknowledgement, rejection, timeout and optimistic rollback semantics |
 | Child removal | Authoritative Type-101 membership/unbinding evidence |
 | HA compatibility | HA 2025.8.0 API/import plus focused lifecycle evidence and full locked HA 2026.2.3 suite; intermediate releases are not each full-suite targets |
@@ -32,6 +32,17 @@ behavior/gap matrix and source index at the end are retained as Phase 0/1
 evidence and must not be read as the current test inventory. See
 [phase3-closeout-phase4-plan.md](phase3-closeout-phase4-plan.md) for the complete
 closeout assessment.
+
+The upgrade/migration evidence matrix adds 15 focused cases. Deterministic,
+sanitized fixtures are generated from exact pinned source constructors rather
+than handwritten legacy-ID guesses. The tests preserve selected ConfigEntry,
+Device Registry and Entity Registry rows, user names, disabled state, icons and
+areas, and use the HA SQLite recorder to prove history continuity under the same
+entity IDs. They also cover idempotency, target conflict refusal, current-NG
+discovery reuse, semantic pre-upgrade snapshot restoration and the duplicate
+records caused by a code-only downgrade. See the
+[upgrade/migration validation](upgrade-migration-validation.md) for its explicit
+synthetic-versus-real-world evidence boundary.
 
 The P4.1 standby/live-zero matrix adds 20 focused cases. It first reproduced the
 real `_handle_message()` → cache/evidence → calculation → `JackerySensor`

@@ -49,7 +49,7 @@ Complete cloud-independent provisioning is not implemented or guaranteed. Provis
 ### Next
 
 - Keep the completed release/compatibility contract and lifecycle hardening covered as Home Assistant evolves
-- Qualify real broker/device reconnect, long-duration soak and exported-registry upgrades
+- Qualify real broker/device reconnect, long-duration soak, HACS upgrades and full backup restores
 - Keep hardware and capability expansion dependent on real-device evidence
 
 ### Long term
@@ -174,6 +174,13 @@ Both devices send identical MQTT field names and expose the same **19 sensors**:
 ## Installation
 
 SolarVault NG is currently an experimental development project rather than a stable HACS release. Install it as a custom repository only if you are comfortable testing an evolving integration and recovering from possible regressions.
+
+Create a Home Assistant backup before replacing Official or Community
+integration code with NG. Pinned golden-state tests preserve the selected
+registry customizations and recorder history during forward migration, but a
+code-only downgrade can create parallel child identities and is not a safe
+rollback. See the
+[upgrade/migration validation](docs/upgrade-migration-validation.md).
 
 The evidenced minimum is **Home Assistant 2025.8.0**. The current development
 suite is locked to Home Assistant 2026.2.3. See the
