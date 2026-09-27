@@ -21,6 +21,7 @@ and architecture documents remain authoritative.
 | Done | Group B2 reauthentication lifecycle | Runtime reauthentication uses the entry-owned Home Assistant API, remains isolated per active coordinator, and replaces runtime state through an actual reload. |
 | Done | Options/reload lifecycle hardening | Changed connection data and runtime options now reload the owning entry once, replacing its coordinator and releasing old MQTT/HTTP resources. |
 | Done | MQTT reconnect synthetic validation | Fault-injection tests verify HA-owned reconnect semantics, bounded NG resources, availability recovery, HTTP independence and reload overlap; live broker/device soak remains open. |
+| Done | Release/compatibility contract | NG repository metadata, the HA 2025.8.0 API floor, a single version authority, frozen CI tooling, and a fail-closed preflight-only release procedure are documented and checked. |
 
 ## Recently completed
 
@@ -62,15 +63,20 @@ and architecture documents remain authoritative.
   retain one coordinator and one logical callback per topic, recover on new
   telemetry, and preserve HTTP and multi-entry isolation. See the
   [validation report](mqtt-reconnect-validation.md).
+- **Release/compatibility contract:** support links now identify NG, the
+  evidenced Home Assistant floor is 2025.8.0, the manifest owns the integration
+  version, and release tooling fails closed without creating release objects.
+  See the [release contract](release-compatibility-contract.md).
 
 ## Next
 
-The focused Group-A ports, B1/B2, Options/reload lifecycle hardening and
-synthetic MQTT disconnect/reconnect validation are complete. Selection of the
-next production-readiness workstream remains a maintainer decision.
+The focused Group-A ports, B1/B2, Options/reload lifecycle hardening, synthetic
+MQTT disconnect/reconnect validation, and the release/compatibility contract
+are complete. Selection of the next production-readiness workstream remains a
+maintainer decision. Real broker/device soak and exported-registry upgrade
+qualification remain strong evidence candidates.
 
-Release/compatibility hardening and lifecycle work are the likely following
-tracks. The [Phase 3 closeout and Phase 4 decision basis](phase3-closeout-phase4-plan.md)
+The [Phase 3 closeout and Phase 4 decision basis](phase3-closeout-phase4-plan.md)
 contains the decision matrix; this page does not select a full Phase 4 roadmap.
 
 ## Needs hardware evidence
@@ -108,11 +114,13 @@ hardware or automatically enable new devices.
 The integration has strong synthetic regression coverage, but broad production
 recommendation still needs evidence and policy work:
 
-- define the NG release, versioning, support, and upgrade/migration contract;
+- preserve the documented NG release/version/support contract and qualify it
+  with exported-registry upgrade evidence;
 - keep the reauthentication lifecycle covered during future HA API changes;
 - preserve options reload and partial-setup cleanup across future HA changes;
 - run real broker/device disconnect/reconnect and long-duration soak validation;
-- test the declared Home Assistant version range;
+- periodically test the evidenced Home Assistant floor and current development
+  reference as those APIs evolve;
 - establish sanitized golden fixtures and a hardware/firmware matrix;
 - decide whether command acknowledgement, timeout, and rollback warrant a
   dedicated workstream.
@@ -152,4 +160,5 @@ for the full contracts.
 | Upstream deltas and candidate groups | [Best-of-both-worlds audit](upstream-best-of-both-worlds-audit.md) |
 | Test evidence and remaining blind spots | [Test coverage map](test-coverage-map.md) |
 | MQTT reconnect evidence | [MQTT reconnect validation](mqtt-reconnect-validation.md) |
+| Release, compatibility and upgrade policy | [Release and compatibility contract](release-compatibility-contract.md) |
 | User-facing capability and setup | [README](../README.md) |

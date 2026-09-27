@@ -62,6 +62,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 - Extract energy-flow formulas and grid-source calculation into a standalone,
   Home-Assistant-independent calculation module without changing runtime behavior.
 
+### Changed
+
+- Define the experimental NG release and compatibility contract: support links
+  now point to the NG repository, Home Assistant 2025.8.0 is the evidenced API
+  floor, the manifest is the sole integration-version authority, CI consumes a
+  frozen Python 3.13.5 toolchain, and release tooling is a fail-closed preflight
+  that never stages files, replaces tags, pushes, or publishes automatically.
+
 ### Fixed
 
 - Reload the owning config entry after changed connection data or runtime

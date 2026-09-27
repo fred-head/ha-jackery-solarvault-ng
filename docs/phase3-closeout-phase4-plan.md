@@ -38,7 +38,8 @@ broker or device run, and no SolarVault NG production soak. The README correctly
 continues to describe the project as experimental.
 
 The original audit identified three issues before a broad production
-recommendation. The first is now resolved; the other two remain open:
+recommendation. The first is resolved, the third now has a checked metadata and
+tooling contract, and the hardware/real-upgrade evidence remains open:
 
 1. At the time of this audit, the accepted foundation reproduced the community
    v2.4.2 standby case:
@@ -49,10 +50,11 @@ recommendation. The first is now resolved; the other two remain open:
 2. No NG hardware/golden-fixture matrix proves the supported combinations and
    long-running lifecycle behavior. Existing hardware statements are inherited
    reports, not validation performed on this foundation.
-3. Release and upgrade identity are not yet coherent for a stable NG release:
-   the manifest remains `2.4.0`, still points documentation and issues to the
-   community repository, and advertises Home Assistant 2024.1 through HACS even
-   though this foundation is tested against the locked 2026-era environment.
+3. The later release/compatibility hardening points support metadata to NG,
+   establishes the manifest as version authority, declares the evidenced Home
+   Assistant 2025.8.0 API floor, freezes the current test environment, and
+   replaces unsafe legacy release automation with a fail-closed preflight.
+   It does not publish a release or prove real Community-to-NG upgrades.
 
 Phase 4 therefore has several legitimate directions. Production evidence and
 lifecycle hardening have the clearest immediate effect on safe daily use.
@@ -100,11 +102,11 @@ Freshly fetched comparison references at audit time are:
 | MQTT transport | `transport/mqtt.py` | HA subscribe, publish, JSON and owned unsubscribe handles | Mature under synthetic HA lifecycle and reconnect fault injection | Broker connectivity/reconnect is delegated to HA; no live broker/device evidence |
 | MQTT lifecycle policy | Coordinator plus integration setup/unload | Locking, task start/stop, poll cadence and failure cleanup | Strong lifecycle, reload and repeated-reconnect fault-injection coverage | No live broker disconnect/reconnect or long-running soak evidence |
 | SmartMeter HTTP request | `transport/smartmeter_http.py` | URL, timeout, request, status/JSON and numeric allowlist | Mature under synthetic transport tests | Target is an MQTT-learned private IP; no hardware/network matrix |
-| SmartMeter HTTP policy | Coordinator | Target selection, cadence, failure threshold, replacement, entities and availability | Strong synthetic coverage | State/policy remains coordinator-coupled; options need reload to take effect reliably |
-| Config and options flow | `config_flow.py` | Validates host/token input, prevents duplicate hosts, updates reauth tokens and stores HTTP/discovery options | Basic paths and option persistence tested | No update listener applies option changes automatically; complete reauth journey is unproven |
+| SmartMeter HTTP policy | Coordinator | Target selection, cadence, failure threshold, replacement, entities and availability | Strong synthetic coverage, including flow-owned option reload | State/policy remains coordinator-coupled; no live network/hardware matrix |
+| Config and options flow | `config_flow.py` | Validates host/token input, prevents duplicate hosts, updates reauth tokens and applies changed connection/runtime options through one reload | Full reauth and options reload journeys, cleanup and multi-entry isolation tested | Real device token rejection and exported-entry upgrade evidence remain open |
 | HA setup and migration | `__init__.py`, `child_migration.py`, `identity.py` | Config validation, platform order, host/child registry migration and guarded cleanup | Extensive HA registry tests | Real exported registry snapshots and release-to-release upgrade runs are absent |
 | Entity definitions | `entities/sensor_definitions.py` and platform modules | Static metadata and HA entities; pure transforms separated | Stable compatibility surface | Entities and tests still consume coordinator private fields; `sensor.py` owns entity classes |
-| Reauthentication | Coordinator trigger plus `config_flow.py` | Type-123/401 and silence trigger, token update and reload helper | Basic path exists | Completion, removed-entry, repeat-trigger and token-rejection flows lack end-to-end coverage |
+| Reauthentication | Coordinator trigger plus `config_flow.py` | Type-123/401 and heuristic silence trigger, entry-owned flow, token update and reload helper | End-to-end completion, removed-entry, repeated rejection, cleanup and multi-entry regressions | Silence remains heuristic; no real-device rejection run |
 | P3.1 snapshot | `diagnostics_snapshot.py` | Versioned allowlist, aliases, JSON normalization and 64-KiB fail-closed budget | Adversarially hardened | Large explicit schema must be deliberately versioned when extended |
 | P3.2 observation | `diagnostics_observation.py` | Fixed bounded route/error and HTTP observations | Mature and read-only | Broker connectivity and command outcomes deliberately remain unknown |
 | P3.3 HA adapter | `diagnostics.py`, `diagnostics_adapter.py` | Entry-scoped read-only aggregation and HA endpoint | Strong privacy/side-effect tests | Adapter is large because it explicitly maps owners; do not replace with generic dumping |
@@ -287,7 +289,7 @@ feature ranking.
 | --- | --- |
 | No NG hardware/golden validation | Every protocol playback is synthetic. Inherited reports exist, but this exact foundation has no device/broker soak or sanitized trace corpus |
 | Known standby correctness delta | Resolved by the merged P4.1 receipt-time arbitration; real hardware validation remains part of the broader evidence gap |
-| Release/upgrade contract not finalized | Manifest remains 2.4.0 and points at the community docs/issues; NG HACS/HA compatibility and upgrade path have not been declared and exercised as a release |
+| Release/upgrade evidence incomplete | The NG metadata, HA floor, version authority and fail-closed release procedure are now defined; no release was created, and exported-registry HACS upgrade/rollback runs remain open |
 
 These block a general recommendation, not controlled developer testing.
 
@@ -296,11 +298,11 @@ These block a general recommendation, not controlled developer testing.
 | Finding | Current evidence |
 | --- | --- |
 | Options reload (resolved after this audit) | The later Options/reload lifecycle change applies changed data and options through one flow-owned reload, with no update listener |
-| Reauth completion | Trigger and token-update helper exist, but there is no full flow/reload/rejection/removed-entry regression |
+| Reauth completion (resolved after this audit) | Entry-owned reauth, full token-update/reload, repeated rejection, stopped/removed-entry safety and multi-entry isolation now have lifecycle regressions |
 | MQTT reconnect | HA owns reconnect behavior. Controlled fault injection now verifies retained logical callbacks, recovery, bounded resources, HTTP/multi-entry isolation and reload overlap; live broker/device soak remains open. |
 | Command failure semantics | Optimistic controls retain tentative cache/UI values after publish errors; no acknowledgement, timeout or rollback exists |
 | Child unbinding/stale registry cleanup | Partial-merge semantics preserve children; empty/omitted Type-101 is not authoritative, so normal cache-fed reconciliation rarely proves removal |
-| Supported HA range | Tests target the locked current environment; the advertised HACS minimum 2024.1.0 is not covered by a compatibility matrix |
+| Supported HA range | HA 2025.8.0 is the evidenced API floor and passes integration imports plus 17 focused lifecycle tests; HA 2025.7.0 lacks `OptionsFlowWithReload`; the complete suite targets locked HA 2026.2.3 |
 | Capability gates | Current entities may expose controls unsupported by a device; community v2.4.3 supplies evidence but local policy is not decided |
 
 ### Useful improvement
@@ -336,7 +338,7 @@ These block a general recommendation, not controlled developer testing.
 
 | Debt item | Current status | Phase 4 relevance |
 | --- | --- | --- |
-| Complete reauth workflow | Trigger/form exist; completion and failure lifecycle unproven | High for production hardening |
+| Complete reauth workflow | Resolved after this audit with entry-owned HA flow and end-to-end reload tests | Completed lifecycle workstream |
 | `use_cts` constructor fallback | No production or test caller passes it; retained as an internal legacy fallback | Low-risk cleanup only after compatibility search |
 | `maxOutPw` comments | `number.py` still says it moved to a select; sensor definitions mention a removed `JackeryMaxFeedInSelect` | Documentation/comment cleanup, no behavior change |
 | Narrow coordinator APIs | Entities read `_data_cache`, identity, source and listener internals directly | High architectural leverage, medium/high regression risk |
@@ -348,7 +350,7 @@ These block a general recommendation, not controlled developer testing.
 | Compatibility aliases | Coordinator private properties re-expose the runtime owner; sensor definitions and helpers are re-exported | Intentional migration bridge; remove only with downstream policy |
 | Old v2 migration paths | Obsolete-select and v2.0.1 residue cleanup still execute | Intentional until a minimum supported upgrade version is chosen |
 | Logging plan | Proposed rate/privacy policy is unimplemented; some logs include serials or IPs | Useful independent hardening, especially for public bug reports |
-| Project metadata | Manifest docs/issues and version still identify the community release line | Must be resolved for an NG release |
+| Project metadata | NG links, HA floor and version authority are coherent; current `2.4.0` remains intentionally unchanged until a release-version PR | Contract complete; release and real upgrade qualification remain separate |
 | Stale internal wording | P3.2 docstrings still refer to a “future” adapter although P3.3 exists | Low-priority source-comment cleanup; not changed by this audit |
 
 No evidence was found that `CoordinatorRuntimeState` duplicates the cache: the
@@ -391,9 +393,11 @@ and declared boundaries rather than marker collection.
 
 - Physical meaning and timing of fields across firmware versions.
 - Device reconnect, broker restart, packet reordering and long outages.
-- Complete options and reauth user journeys.
+- Real-device token rejection and option changes against physical MQTT/HTTP
+  endpoints; synthetic HA user journeys are complete.
 - HACS upgrade from a real community installation and rollback behavior.
-- Home Assistant versions down to the advertised minimum.
+- Intermediate Home Assistant releases between the evidenced 2025.8.0 floor
+  and the locked 2026.2.3 development reference are not each full-suite jobs.
 - Authoritative child-unbinding semantics.
 - Command rejection, delayed acknowledgement and contradictory telemetry.
 - Performance and log volume during multi-day operation.
@@ -459,24 +463,29 @@ These candidates are alternatives or composable tracks, not a selected roadmap.
 
 ### 12.1 Production evidence and release hardening
 
-- **Problem:** release/version/support metadata and the HA compatibility claim
-  are not aligned with NG; the previously known standby calculation delta is
-  resolved by P4.1.
+The metadata/tooling portion of this candidate is now complete. The
+[release/compatibility contract](release-compatibility-contract.md) establishes
+the NG support links, HA 2025.8.0 floor, manifest version authority, `main`
+release source and preflight-only release checks. No release was created;
+hardware and exported-registry upgrade evidence remain open.
+
+- **Problem:** metadata and the API compatibility floor are aligned; a real NG
+  release, exported-registry upgrades and physical evidence are still absent.
 - **Practical benefit:** creates a supportable installation/upgrade target and
   adds physical evidence for established calculation behavior.
 - **Architecture:** manifest/release metadata, CI matrix, documentation and
   hardware-backed validation.
 - **Risk/size:** medium risk, medium scope; formula/source changes require strict
   regression isolation.
-- **Prerequisites:** decide supported HA versions and release/version policy;
-  obtain suitable hardware contributors for physical validation.
+- **Prerequisites:** the version/support policy is complete; obtain anonymized
+  upgrade artifacts and suitable hardware contributors for physical validation.
 - **Hardware:** strongly desirable for standby validation; not required for
   metadata/CI work.
-- **Possible PRs:** HA version matrix; NG release metadata/docs; hardware-backed
-  validation of established energy scenarios.
-- **Acceptance:** live-zero source priority is explicit; all historical energy
-  scenarios pass; declared HA versions pass CI; manifest/support links/version
-  identify the intended release; clean upgrade and rollback instructions exist.
+- **Possible PRs:** exported-registry upgrade qualification, expanded HA version
+  matrix, and hardware-backed validation of established energy scenarios.
+- **Acceptance:** the completed contract remains green; exported upgrades
+  preserve identity/history; declared HA versions pass their stated evidence
+  level; hardware scenarios have sanitized reproducible evidence.
 
 ### 12.2 Reauth, options and connection lifecycle completion
 
@@ -484,23 +493,23 @@ The reauth and options-flow portions of this historical candidate are now
 implemented. Synthetic reconnect lifecycle validation is complete; real
 broker/device disconnect/reconnect and long-duration soak remain open.
 
-- **Problem:** options application and reauth completion are only partly covered;
-  reconnect behavior is delegated to HA and covered by fault injection without
-  live broker/device evidence.
+- **Problem:** options application and reauth completion are covered; reconnect
+  behavior is delegated to HA and covered by fault injection without live
+  broker/device evidence.
 - **Practical benefit:** fewer manual reloads and more predictable recovery from
   credential, broker and HA lifecycle events.
-- **Architecture:** config/options flow, setup update listener, coordinator
-  lifecycle, HA MQTT integration boundary.
+- **Architecture:** flow-owned config-entry reload, coordinator lifecycle, and
+  the HA MQTT integration boundary; no general update listener.
 - **Risk/size:** medium risk, medium scope.
-- **Prerequisites:** decide automatic reload semantics and identify a stable HA
-  broker/connectivity test surface.
+- **Prerequisites:** reload semantics and the HA-owned reconnect boundary are
+  defined; a stable live broker/device soak environment is still needed.
 - **Hardware:** no for flow/reload; a local test broker is enough for reconnect;
   device helpful for token rejection.
-- **Possible PRs:** options reload; completed reauth flow; broker restart harness;
-  truthful connectivity diagnostics only after evidence.
-- **Acceptance:** one reload per effective option change, no duplicate tasks or
-  subscriptions, token update recovers or reports failure, removed entries do
-  not start flows, broker restart restores one delivery path per entry.
+- **Possible PRs:** live broker restart/device soak harness; truthful
+  connectivity diagnostics only after evidence.
+- **Acceptance:** the synthetic reload/reauth/resource contracts remain green;
+  live broker restart restores one delivery path per entry without task or
+  subscription growth.
 
 ### 12.3 Compatibility and migration qualification
 
@@ -664,8 +673,8 @@ audit conclusion, not an approved Phase 4 roadmap.
 
 ## 15. Questions for maintainer decision
 
-1. After the high-confidence Group-A ports, should the next workstream be a
-   production/release hardening series centered on a supported HA/release policy?
+1. Which evidence should follow the completed release/compatibility contract:
+   exported-registry upgrade qualification or live hardware/broker soak?
 2. Which real hardware and firmware combinations can provide sanitized golden
    captures and a multi-day broker/reload soak?
 3. How long must direct upgrades from historical community v1/v2 registry states
@@ -688,7 +697,8 @@ audit conclusion, not an approved Phase 4 roadmap.
 - Real ordering/cadence of Type-23/101/102/106/107 payloads for each hardware
   family.
 - Broker reconnect behavior across supported Home Assistant/MQTT versions.
-- The oldest Home Assistant version compatible with the current Python/API use.
+- Whether periodic full-suite jobs should cover additional Home Assistant
+  releases between the evidenced 2025.8.0 floor and current development lock.
 - Which onboarding/pairing steps are cloud-runtime dependencies versus one-time
   bootstrap dependencies on current firmware.
 

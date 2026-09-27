@@ -48,8 +48,8 @@ Complete cloud-independent provisioning is not implemented or guaranteed. Provis
 
 ### Next
 
-- Prepare selective, high-confidence ports identified by the completed public upstream audit
-- Follow with release, compatibility and lifecycle hardening
+- Keep the completed release/compatibility contract and lifecycle hardening covered as Home Assistant evolves
+- Qualify real broker/device reconnect, long-duration soak and exported-registry upgrades
 - Keep hardware and capability expansion dependent on real-device evidence
 
 ### Long term
@@ -175,6 +175,11 @@ Both devices send identical MQTT field names and expose the same **19 sensors**:
 
 SolarVault NG is currently an experimental development project rather than a stable HACS release. Install it as a custom repository only if you are comfortable testing an evolving integration and recovering from possible regressions.
 
+The evidenced minimum is **Home Assistant 2025.8.0**. The current development
+suite is locked to Home Assistant 2026.2.3. See the
+[release and compatibility contract](docs/release-compatibility-contract.md)
+for the API boundary, test evidence and pre-stable release policy.
+
 ### Prerequisites
 
 Before the integration can receive data, **two things must be in place**:
@@ -250,6 +255,7 @@ Restarting the SolarVault (via the Jackery app or directly on the device) causes
 
 - **Implemented architecture**: [docs/architecture.md](docs/architecture.md)
 - **Current development status**: [docs/project-status.md](docs/project-status.md)
+- **Release and compatibility contract**: [docs/release-compatibility-contract.md](docs/release-compatibility-contract.md)
 - **Entity reference**: [docs/entity-reference.md](docs/entity-reference.md)
 - **Current capability inventory**: [docs/current-capability-inventory.md](docs/current-capability-inventory.md)
 - **Jackery original integration**: https://github.com/Jackery-Official/jackery
@@ -266,7 +272,7 @@ Restarting the SolarVault (via the Jackery app or directly on the device) causes
 ### Running the tests
 
 ```bash
-uv sync --group test
+uv sync --frozen --group test
 uv run pytest tests/ -v
 ```
 
@@ -275,10 +281,10 @@ Tests cover calculations, normalization and routing, coordinator state, MQTT and
 ### Linting and type checking
 
 ```bash
-uv sync --group lint
+uv sync --frozen --group lint
 uv run ruff check custom_components/jackery/   # linter + import order
 uv run mypy custom_components/jackery/         # type checker
-python tools/check_translations.py            # translation completeness
+uv run python tools/check_translations.py      # translation completeness
 ```
 
 ### CI pipeline
@@ -289,6 +295,11 @@ The configured GitHub Actions jobs run on every push and pull request:
 |-----|--------|
 | **Lint** | Ruff, mypy, translation completeness (`tools/check_translations.py`) |
 | **Tests** | pytest with coverage (`--cov-fail-under=50`) |
+
+The manifest is the sole integration-version authority. Releases may be tagged
+only from a reviewed `main` commit after the fail-closed `release.sh` preflight;
+the script never creates or pushes a tag or GitHub release itself. See the
+[release contract](docs/release-compatibility-contract.md) for the procedure.
 [Dependabot](https://docs.github.com/en/code-security/dependabot) is configured to keep GitHub Actions versions up to date (weekly, Mondays).
 
 ---

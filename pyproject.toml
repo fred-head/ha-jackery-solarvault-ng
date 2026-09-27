@@ -1,8 +1,10 @@
 [project]
-name = "ha-solarvault"
-version = "2.0.0"
-description = "Home Assistant custom integration for Jackery SolarVault via MQTT"
-requires-python = ">=3.13"
+# This package describes the repository's test/tooling environment. The
+# integration release version is authoritative only in manifest.json.
+name = "ha-jackery-solarvault-ng-tooling"
+version = "0.0.0"
+description = "Development tooling for the Jackery SolarVault NG integration"
+requires-python = ">=3.13.2,<3.14"
 dependencies = [
     "paho-mqtt>=2.1.0",
 ]
