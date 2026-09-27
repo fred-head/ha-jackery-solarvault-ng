@@ -19,7 +19,12 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.jackery import DOMAIN, PLATFORMS
 from custom_components.jackery import sensor as sensor_module
-from custom_components.jackery.sensor import JackeryDataCoordinator
+from custom_components.jackery.sensor import (
+    OFFLINE_TIMEOUT,
+    SMARTMETER_HTTP_SENSOR_CONFIGS,
+    JackeryDataCoordinator,
+    JackerySmartMeterHttpSensor,
+)
 
 from .conftest import FakeMqttMsg
 
@@ -31,6 +36,10 @@ class Subscriptions:
 
     def __init__(self):
         self.records = []
+        self.connected = True
+        self.connection_transitions = []
+        self.publish_attempts = []
+        self.published = []
         self.fail_at = None
         self.pause_at = None
         self.entered = asyncio.Event()
@@ -60,9 +69,34 @@ class Subscriptions:
     def active(self):
         return [record for record in self.records if record.active]
 
-    def send(self, host, channel="status", prefix="hb", value=42):
+    def disconnect(self):
+        self.connected = False
+        self.connection_transitions.append("disconnected")
+
+    def reconnect(self):
+        self.connected = True
+        self.connection_transitions.append("reconnected")
+
+    async def publish(self, hass, topic, payload, qos, retain):
+        attempt = SimpleNamespace(topic=topic, payload=payload, qos=qos, retain=retain)
+        self.publish_attempts.append(attempt)
+        if not self.connected:
+            raise HomeAssistantError("synthetic broker disconnected")
+        self.published.append(attempt)
+
+    def send(self, host, channel="status", prefix="hb", value=42, *, body=None, message_type=2):
+        if not self.connected:
+            return 0
         topic = f"{prefix}/device/{host}/{channel}"
-        msg = FakeMqttMsg(topic, json.dumps({"type": 2, "body": {"batSoc": value}}))
+        msg = FakeMqttMsg(
+            topic,
+            json.dumps(
+                {
+                    "type": message_type,
+                    "body": {"batSoc": value} if body is None else body,
+                }
+            ),
+        )
         deliveries = 0
         for record in list(self.active):
             if all(a == b or a == "+" for a, b in zip(record.topic.split("/"), topic.split("/"), strict=True)):
@@ -435,6 +469,272 @@ async def entries(hass, monkeypatch, enable_custom_integrations):
         if entry.state is ConfigEntryState.LOADED:
             await hass.config_entries.async_unload(entry.entry_id)
     await hass.async_block_till_done()
+
+
+async def test_broker_reconnect_reuses_callbacks_tasks_and_coordinator(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    original_handles = list(broker.active)
+    poll_task = coordinator._data_task
+    http_task = coordinator._smartmeter_http_task
+    handle_message = Mock(wraps=coordinator._handle_message)
+    coordinator._handle_message = handle_message
+
+    assert broker.send("HOST_A", value=40) == 1
+    for cycle in range(5):
+        broker.disconnect()
+        assert broker.send("HOST_A", value=90 + cycle) == 0
+        assert hass.data[DOMAIN][entry.entry_id]["coordinator"] is coordinator
+        assert list(broker.active) == original_handles
+        assert coordinator._data_task is poll_task and not poll_task.done()
+        assert coordinator._smartmeter_http_task is http_task and not http_task.done()
+
+        broker.reconnect()
+        assert broker.send("HOST_A", value=41 + cycle) == 1
+        assert coordinator._data_cache["batSoc"] == 41 + cycle
+
+    assert handle_message.call_count == 6
+    assert broker.attempts == 2
+    assert len(broker.records) == len(broker.active) == 2
+    assert broker.connection_transitions == [
+        transition
+        for _ in range(5)
+        for transition in ("disconnected", "reconnected")
+    ]
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert not broker.active
+    assert all(record.remove.call_count == 1 for record in original_handles)
+
+
+async def test_long_broker_outage_preserves_entities_and_recovers_by_evidence(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+
+    assert broker.send("HOST_A", value=40) == 1
+    assert broker.send(
+        "HOST_A",
+        body={
+            "plugs": [
+                {
+                    "deviceSn": "PLUG_A",
+                    "devType": 6,
+                    "subType": 0,
+                    "commMode": 1,
+                    "sysSwitch": 1,
+                    "outPw": 10,
+                }
+            ]
+        },
+        message_type=101,
+    ) == 1
+    await hass.async_block_till_done()
+    main = coordinator._sensors["battery_soc"]
+    child_entities = [
+        entity
+        for entity in coordinator._sensors.values()
+        if getattr(entity, "_plug_sn", None) == "PLUG_A"
+    ]
+    assert main.available and child_entities and all(entity.available for entity in child_entities)
+    registrations = dict(coordinator._sensors)
+
+    broker.disconnect()
+    coordinator._runtime_state.last_update_time -= OFFLINE_TIMEOUT + 1
+    coordinator._subdevice_last_seen["PLUG_A"] -= OFFLINE_TIMEOUT + 1
+    assert coordinator._runtime_state.host_is_stale(
+        coordinator._runtime_state.last_update_time + OFFLINE_TIMEOUT + 1,
+        OFFLINE_TIMEOUT,
+    )
+    coordinator._mark_all_offline()
+    coordinator._update_subdevice_availability()
+    assert not main.available
+    assert all(not entity.available for entity in child_entities)
+    assert coordinator._sensors == registrations
+
+    broker.reconnect()
+    assert broker.send("HOST_A", value=41) == 1
+    assert main.available and main.native_value == 41
+    assert all(not entity.available for entity in child_entities)
+    assert broker.send(
+        "HOST_A",
+        body={
+            "deviceSn": "PLUG_A",
+            "devType": 6,
+            "subType": 0,
+            "commMode": 1,
+            "sysSwitch": 1,
+            "outPw": 11,
+        },
+        message_type=102,
+    ) == 1
+    assert all(entity.available for entity in child_entities)
+    assert coordinator._sensors == registrations
+
+
+async def test_poll_publish_failures_recover_without_replacing_poll_task(
+    hass,
+    entries,
+    monkeypatch,
+):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    poll_task = coordinator._data_task
+    monkeypatch.setattr("homeassistant.components.mqtt.async_publish", broker.publish)
+    monkeypatch.setattr(sensor_module.asyncio, "sleep", AsyncMock())
+
+    broker.disconnect()
+    await coordinator._send_poll_requests()
+    failed_attempts = len(broker.publish_attempts)
+    assert failed_attempts == 6
+    assert not broker.published
+    assert coordinator._data_task is poll_task and not poll_task.done()
+
+    broker.reconnect()
+    await coordinator._send_poll_requests()
+    assert len(broker.publish_attempts) == failed_attempts + 5
+    assert len(broker.published) == 5
+    assert coordinator._data_task is poll_task and not poll_task.done()
+
+
+async def test_http_updates_remain_independent_during_broker_disconnect(
+    hass,
+    entries,
+    monkeypatch,
+):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    http_task = coordinator._smartmeter_http_task
+    http = JackerySmartMeterHttpSensor(
+        "METER",
+        "frequency",
+        SMARTMETER_HTTP_SENSOR_CONFIGS["frequency"],
+        coordinator,
+        entry.entry_id,
+    )
+    monkeypatch.setattr(http, "async_write_ha_state", Mock())
+    await http.async_added_to_hass()
+    try:
+        broker.disconnect()
+        for value in (50, 51, 52):
+            coordinator._distribute_http_data("METER", {"freq": value})
+            assert http.available and http.native_value == value
+            assert coordinator._smartmeter_http_task is http_task and not http_task.done()
+        assert broker.send("HOST_A", value=90) == 0
+
+        broker.reconnect()
+        assert broker.send("HOST_A", value=42) == 1
+        assert coordinator._data_cache["batSoc"] == 42
+        assert http.available and http.native_value == 52
+        assert coordinator._smartmeter_http_task is http_task and not http_task.done()
+    finally:
+        await http.async_will_remove_from_hass()
+
+
+async def test_shared_broker_reconnect_preserves_multi_entry_isolation(hass, entries):
+    configs, broker = entries
+    for entry in configs:
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinators = [hass.data[DOMAIN][entry.entry_id]["coordinator"] for entry in configs]
+    tasks = [(coordinator._data_task, coordinator._smartmeter_http_task) for coordinator in coordinators]
+    handles = list(broker.active)
+
+    broker.disconnect()
+    assert broker.send("HOST_A", value=50) == broker.send("HOST_B", value=60) == 0
+    broker.reconnect()
+    assert broker.send("HOST_A", value=51) == 1
+    assert broker.send("HOST_B", value=61) == 1
+    assert coordinators[0]._data_cache["batSoc"] == 51
+    assert coordinators[1]._data_cache["batSoc"] == 61
+    assert hass.data[DOMAIN][configs[0].entry_id]["coordinator"] is coordinators[0]
+    assert hass.data[DOMAIN][configs[1].entry_id]["coordinator"] is coordinators[1]
+    assert list(broker.active) == handles
+    for coordinator, (poll_task, http_task) in zip(coordinators, tasks, strict=True):
+        assert coordinator._data_task is poll_task and not poll_task.done()
+        assert coordinator._smartmeter_http_task is http_task and not http_task.done()
+
+
+async def test_options_reload_while_disconnected_does_not_resurrect_old_callbacks(
+    hass,
+    entries,
+):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    original_callback = Mock(wraps=original._handle_message)
+    original._handle_message = original_callback
+    original_handles = list(broker.active)
+
+    broker.disconnect()
+    await submit_options(hass, entry, topic_prefix="newroot")
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert replacement is not original and not original._lifecycle_active
+    assert all(not record.active and record.remove.call_count == 1 for record in original_handles)
+    assert len(broker.active) == 2
+
+    broker.reconnect()
+    assert broker.send("HOST_A", prefix="hb", value=90) == 0
+    assert broker.send("HOST_A", prefix="newroot", value=43) == 1
+    assert replacement._data_cache["batSoc"] == 43
+    original_callback.assert_not_called()
+
+
+async def test_reauth_reload_while_disconnected_does_not_resurrect_old_callbacks(
+    hass,
+    entries,
+):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    original_callback = Mock(wraps=original._handle_message)
+    original._handle_message = original_callback
+
+    broker.disconnect()
+    broker.reconnect()
+    assert broker.send(
+        "HOST_A",
+        body={"errorCode": 401},
+        message_type=123,
+    ) == 1
+    await hass.async_block_till_done()
+    flows = reauth_flows(hass, entry)
+    assert len(flows) == 1
+    original_calls = original_callback.call_count
+
+    broker.disconnect()
+    original_handles = list(broker.active)
+    result = await hass.config_entries.flow.async_configure(
+        flows[0]["flow_id"],
+        user_input={"token": "replacement-token"},
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    await hass.async_block_till_done()
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert replacement is not original and not original._lifecycle_active
+    assert all(not record.active and record.remove.call_count == 1 for record in original_handles)
+
+    broker.reconnect()
+    assert broker.send("HOST_A", value=44) == 1
+    assert replacement._data_cache["batSoc"] == 44
+    assert original_callback.call_count == original_calls
 
 
 @pytest.mark.parametrize("order", [(0, 1), (1, 0)])

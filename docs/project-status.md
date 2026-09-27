@@ -20,6 +20,7 @@ and architecture documents remain authoritative.
 | Done | Group B1 coordinator plug guard | Direct coordinator callers now share the entity layer's fail-closed Smart Plug MQTT communication-mode policy. |
 | Done | Group B2 reauthentication lifecycle | Runtime reauthentication uses the entry-owned Home Assistant API, remains isolated per active coordinator, and replaces runtime state through an actual reload. |
 | Done | Options/reload lifecycle hardening | Changed connection data and runtime options now reload the owning entry once, replacing its coordinator and releasing old MQTT/HTTP resources. |
+| Done | MQTT reconnect synthetic validation | Fault-injection tests verify HA-owned reconnect semantics, bounded NG resources, availability recovery, HTTP independence and reload overlap; live broker/device soak remains open. |
 
 ## Recently completed
 
@@ -57,12 +58,16 @@ and architecture documents remain authoritative.
 - **Options/reload lifecycle hardening:** the Options Flow applies changed token,
   topic and runtime settings through one entry reload. Unchanged submissions do
   not reload; the previous coordinator releases its subscriptions and HTTP task.
+- **MQTT reconnect synthetic validation:** repeated fault-injected disconnects
+  retain one coordinator and one logical callback per topic, recover on new
+  telemetry, and preserve HTTP and multi-entry isolation. See the
+  [validation report](mqtt-reconnect-validation.md).
 
 ## Next
 
-The focused Group-A ports, B1/B2 and Options/reload lifecycle hardening are
-complete. Real MQTT disconnect/reconnect validation is the likely next
-production-readiness track; it has not started.
+The focused Group-A ports, B1/B2, Options/reload lifecycle hardening and
+synthetic MQTT disconnect/reconnect validation are complete. Selection of the
+next production-readiness workstream remains a maintainer decision.
 
 Release/compatibility hardening and lifecycle work are the likely following
 tracks. The [Phase 3 closeout and Phase 4 decision basis](phase3-closeout-phase4-plan.md)
@@ -106,7 +111,7 @@ recommendation still needs evidence and policy work:
 - define the NG release, versioning, support, and upgrade/migration contract;
 - keep the reauthentication lifecycle covered during future HA API changes;
 - preserve options reload and partial-setup cleanup across future HA changes;
-- validate real MQTT disconnect/reconnect and long-running lifecycle behavior;
+- run real broker/device disconnect/reconnect and long-duration soak validation;
 - test the declared Home Assistant version range;
 - establish sanitized golden fixtures and a hardware/firmware matrix;
 - decide whether command acknowledgement, timeout, and rollback warrant a
@@ -146,4 +151,5 @@ for the full contracts.
 | P4.1 live-zero behavior | [P4.1 audit](p4-standby-live-zero-audit.md), [energy-source policy](energy-source-policy.md) |
 | Upstream deltas and candidate groups | [Best-of-both-worlds audit](upstream-best-of-both-worlds-audit.md) |
 | Test evidence and remaining blind spots | [Test coverage map](test-coverage-map.md) |
+| MQTT reconnect evidence | [MQTT reconnect validation](mqtt-reconnect-validation.md) |
 | User-facing capability and setup | [README](../README.md) |

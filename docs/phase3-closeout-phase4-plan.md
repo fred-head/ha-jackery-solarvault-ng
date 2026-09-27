@@ -97,8 +97,8 @@ Freshly fetched comparison references at audit time are:
 | Energy calculation | `calculations/energy_flow.py` | Pure source selection and derived energy flow | Broad synthetic coverage | P4.1 resolved the known standby source-priority gap; no golden physical scenarios |
 | Device classification | `devices/classification.py` | Route-aware family/model classification and static plug filter | Mature for known matrix | Several paths are heuristic; no generic capability model or dynamic reclassification |
 | Child membership | `ChildDiscoveryState` in `discovery.py` | Known/expansion membership and missing timers; no HA objects | Unit-tested | Merged-cache semantics prevent ordinary empty/omitted reports from proving unbinding |
-| MQTT transport | `transport/mqtt.py` | HA subscribe, publish, JSON and owned unsubscribe handles | Mature for mocked HA lifecycle | Broker connectivity/reconnect is delegated to HA and not exercised against a broker |
-| MQTT lifecycle policy | Coordinator plus integration setup/unload | Locking, task start/stop, poll cadence and failure cleanup | Strong mocked lifecycle coverage | No live broker disconnect/reconnect or long-running soak evidence |
+| MQTT transport | `transport/mqtt.py` | HA subscribe, publish, JSON and owned unsubscribe handles | Mature under synthetic HA lifecycle and reconnect fault injection | Broker connectivity/reconnect is delegated to HA; no live broker/device evidence |
+| MQTT lifecycle policy | Coordinator plus integration setup/unload | Locking, task start/stop, poll cadence and failure cleanup | Strong lifecycle, reload and repeated-reconnect fault-injection coverage | No live broker disconnect/reconnect or long-running soak evidence |
 | SmartMeter HTTP request | `transport/smartmeter_http.py` | URL, timeout, request, status/JSON and numeric allowlist | Mature under synthetic transport tests | Target is an MQTT-learned private IP; no hardware/network matrix |
 | SmartMeter HTTP policy | Coordinator | Target selection, cadence, failure threshold, replacement, entities and availability | Strong synthetic coverage | State/policy remains coordinator-coupled; options need reload to take effect reliably |
 | Config and options flow | `config_flow.py` | Validates host/token input, prevents duplicate hosts, updates reauth tokens and stores HTTP/discovery options | Basic paths and option persistence tested | No update listener applies option changes automatically; complete reauth journey is unproven |
@@ -297,7 +297,7 @@ These block a general recommendation, not controlled developer testing.
 | --- | --- |
 | Options reload (resolved after this audit) | The later Options/reload lifecycle change applies changed data and options through one flow-owned reload, with no update listener |
 | Reauth completion | Trigger and token-update helper exist, but there is no full flow/reload/rejection/removed-entry regression |
-| MQTT reconnect | HA owns reconnect behavior, but tests use an in-memory subscription model rather than an actual broker loss/recovery |
+| MQTT reconnect | HA owns reconnect behavior. Controlled fault injection now verifies retained logical callbacks, recovery, bounded resources, HTTP/multi-entry isolation and reload overlap; live broker/device soak remains open. |
 | Command failure semantics | Optimistic controls retain tentative cache/UI values after publish errors; no acknowledgement, timeout or rollback exists |
 | Child unbinding/stale registry cleanup | Partial-merge semantics preserve children; empty/omitted Type-101 is not authoritative, so normal cache-fed reconciliation rarely proves removal |
 | Supported HA range | Tests target the locked current environment; the advertised HACS minimum 2024.1.0 is not covered by a compatibility matrix |
@@ -378,8 +378,8 @@ and declared boundaries rather than marker collection.
 
 ### 9.2 Primarily unit-tested or simulated paths
 
-- MQTT transport tests use mocked HA subscription/publication; no Mosquitto or
-  reconnecting broker is involved.
+- MQTT transport tests now include repeated disconnect/reconnect fault injection
+  at the HA boundary; no Mosquitto, live broker or physical device is involved.
 - HTTP uses fake sessions/responses; no HTO907A endpoint is queried.
 - Command tests prove bytes and local state transitions, not device execution.
 - Energy and routing scenarios are synthetic dictionaries, not sanitized
@@ -481,10 +481,12 @@ These candidates are alternatives or composable tracks, not a selected roadmap.
 ### 12.2 Reauth, options and connection lifecycle completion
 
 The reauth and options-flow portions of this historical candidate are now
-implemented. Real broker disconnect/reconnect validation remains open.
+implemented. Synthetic reconnect lifecycle validation is complete; real
+broker/device disconnect/reconnect and long-duration soak remain open.
 
 - **Problem:** options application and reauth completion are only partly covered;
-  reconnect behavior is delegated to HA without broker-level evidence.
+  reconnect behavior is delegated to HA and covered by fault injection without
+  live broker/device evidence.
 - **Practical benefit:** fewer manual reloads and more predictable recovery from
   credential, broker and HA lifecycle events.
 - **Architecture:** config/options flow, setup update listener, coordinator
