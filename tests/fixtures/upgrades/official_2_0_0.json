@@ -1,0 +1,148 @@
+{
+  "config_entry": {
+    "data": {
+      "device_sn": "SVHOST0001",
+      "token": "synthetic-upgrade-token",
+      "topic_prefix": "hb"
+    },
+    "entry_id": "01UPGRADEFIXTURE00000000000000",
+    "unique_id": "SVHOST0001"
+  },
+  "devices": [
+    {
+      "area": "Energy room",
+      "identifiers": [
+        [
+          "jackery",
+          "01UPGRADEFIXTURE00000000000000"
+        ],
+        [
+          "jackery",
+          "SVHOST0001"
+        ]
+      ],
+      "key": "main",
+      "manufacturer": "Jackery",
+      "model": "Energy Monitor",
+      "name": "Jackery SVHOST0001",
+      "name_by_user": "My SolarVault",
+      "serial_number": "SVHOST0001",
+      "via_device": null
+    },
+    {
+      "area": "Utility room",
+      "identifiers": [
+        [
+          "jackery",
+          "sub_SVHOST0001_PLUG0001"
+        ]
+      ],
+      "key": "plug",
+      "manufacturer": "Jackery",
+      "model": "Sub-device Type 6",
+      "name": "Jackery SVHOST0001 Plug PLUG0001",
+      "name_by_user": "My plug",
+      "serial_number": null,
+      "via_device": [
+        "jackery",
+        "SVHOST0001"
+      ]
+    },
+    {
+      "area": "Utility room",
+      "identifiers": [
+        [
+          "jackery",
+          "sub_SVHOST0001_METER0001"
+        ]
+      ],
+      "key": "meter",
+      "manufacturer": "Jackery",
+      "model": "Sub-device Type 2",
+      "name": "Jackery SVHOST0001 CT METER0001",
+      "name_by_user": "My meter",
+      "serial_number": null,
+      "via_device": [
+        "jackery",
+        "SVHOST0001"
+      ]
+    }
+  ],
+  "entities": [
+    {
+      "customization": {
+        "area": "Energy room",
+        "entity_id": "sensor.my_solarvault_soc",
+        "icon": "mdi:battery-heart",
+        "name": "My SolarVault SOC"
+      },
+      "device_key": "main",
+      "domain": "sensor",
+      "role": "main_soc",
+      "unique_id": "jackery_SVHOST0001_battery_soc"
+    },
+    {
+      "customization": {
+        "area": "Energy room",
+        "entity_id": "switch.backup_output",
+        "name": "Backup output"
+      },
+      "device_key": "main",
+      "domain": "switch",
+      "role": "main_eps_switch",
+      "unique_id": "jackery_SVHOST0001_main_swEps"
+    },
+    {
+      "customization": {
+        "area": "Workshop",
+        "disabled_by": "user",
+        "entity_id": "sensor.workshop_plug_power",
+        "icon": "mdi:gauge",
+        "name": "Workshop plug power"
+      },
+      "device_key": "plug",
+      "domain": "sensor",
+      "role": "plug_power",
+      "unique_id": "jackery_SVHOST0001_plug_PLUG0001_power"
+    },
+    {
+      "customization": {
+        "area": "Workshop",
+        "entity_id": "switch.workshop_plug",
+        "name": "Workshop plug"
+      },
+      "device_key": "plug",
+      "domain": "switch",
+      "role": "plug_switch",
+      "unique_id": "jackery_SVHOST0001_plug_PLUG0001_switch"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.grid_meter_power",
+        "name": "Grid meter power"
+      },
+      "device_key": "meter",
+      "domain": "sensor",
+      "role": "meter_power",
+      "unique_id": "jackery_SVHOST0001_ct_METER0001_powertotalforward"
+    }
+  ],
+  "provenance": {
+    "generation_method": "pinned upstream entity constructors executed in isolation",
+    "generator": "tools/generate_upgrade_fixtures.py",
+    "home_assistant_version": "2026.2.3",
+    "source_commit": "af97223ff17fc8f14314cbc6da7213a5eee7004d",
+    "source_files_sha256": "8764d45926bab2d33384ea8d9ab8d2bc94f7fe8fd587d10f8b09db943719ea60",
+    "source_repository": "https://github.com/Jackery-Official/jackery",
+    "upstream_manifest_version": "2.0.0"
+  },
+  "schema_version": 1,
+  "synthetic_identities": {
+    "children": [
+      "METER0001",
+      "PLUG0001"
+    ],
+    "host": "SVHOST0001"
+  }
+}

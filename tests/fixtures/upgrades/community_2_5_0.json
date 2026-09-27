@@ -1,0 +1,206 @@
+{
+  "config_entry": {
+    "data": {
+      "device_sn": "SVHOST0001",
+      "token": "synthetic-upgrade-token",
+      "topic_prefix": "hb"
+    },
+    "entry_id": "01UPGRADEFIXTURE00000000000000",
+    "unique_id": "SVHOST0001"
+  },
+  "devices": [
+    {
+      "area": "Energy room",
+      "identifiers": [
+        [
+          "jackery",
+          "SVHOST0001"
+        ]
+      ],
+      "key": "main",
+      "manufacturer": "Jackery",
+      "model": "Energy Monitor",
+      "name": "Jackery",
+      "name_by_user": "My SolarVault",
+      "serial_number": null,
+      "via_device": null
+    },
+    {
+      "area": "Utility room",
+      "identifiers": [
+        [
+          "jackery",
+          "sub_PLUG0001"
+        ]
+      ],
+      "key": "plug",
+      "manufacturer": "Jackery",
+      "model": "Sub-device Type 6",
+      "name": "Jackery Plug PLUG0001",
+      "name_by_user": "My plug",
+      "serial_number": null,
+      "via_device": [
+        "jackery",
+        "SVHOST0001"
+      ]
+    },
+    {
+      "area": "Utility room",
+      "identifiers": [
+        [
+          "jackery",
+          "sub_METER0001"
+        ]
+      ],
+      "key": "meter",
+      "manufacturer": "Jackery",
+      "model": "Sub-device Type 3",
+      "name": "Jackery SmartMeter METER0001",
+      "name_by_user": "My meter",
+      "serial_number": null,
+      "via_device": [
+        "jackery",
+        "SVHOST0001"
+      ]
+    },
+    {
+      "area": "Energy room",
+      "identifiers": [
+        [
+          "jackery",
+          "sub_BATTERY0001"
+        ]
+      ],
+      "key": "battery",
+      "manufacturer": "Jackery",
+      "model": "Sub-device Type 1",
+      "name": "Jackery Battery BATTERY0001",
+      "name_by_user": "My battery",
+      "serial_number": null,
+      "via_device": [
+        "jackery",
+        "SVHOST0001"
+      ]
+    },
+    {
+      "area": "Utility room",
+      "identifiers": [
+        [
+          "jackery",
+          "sub_COLLECTOR0001"
+        ]
+      ],
+      "key": "collector",
+      "manufacturer": "Jackery",
+      "model": "Sub-device Type 4",
+      "name": "Jackery Collector COLLECTOR0001",
+      "name_by_user": "My collector",
+      "serial_number": null,
+      "via_device": [
+        "jackery",
+        "SVHOST0001"
+      ]
+    }
+  ],
+  "entities": [
+    {
+      "customization": {
+        "area": "Energy room",
+        "entity_id": "sensor.my_solarvault_soc",
+        "icon": "mdi:battery-heart",
+        "name": "My SolarVault SOC"
+      },
+      "device_key": "main",
+      "domain": "sensor",
+      "role": "main_soc",
+      "unique_id": "jackery_SVHOST0001_battery_soc"
+    },
+    {
+      "customization": {
+        "area": "Energy room",
+        "entity_id": "switch.backup_output",
+        "name": "Backup output"
+      },
+      "device_key": "main",
+      "domain": "switch",
+      "role": "main_eps_switch",
+      "unique_id": "jackery_SVHOST0001_switch_swEps"
+    },
+    {
+      "customization": {
+        "area": "Workshop",
+        "disabled_by": "user",
+        "entity_id": "sensor.workshop_plug_power",
+        "icon": "mdi:gauge",
+        "name": "Workshop plug power"
+      },
+      "device_key": "plug",
+      "domain": "sensor",
+      "role": "plug_power",
+      "unique_id": "jackery_plug_PLUG0001_power"
+    },
+    {
+      "customization": {
+        "area": "Workshop",
+        "entity_id": "switch.workshop_plug",
+        "name": "Workshop plug"
+      },
+      "device_key": "plug",
+      "domain": "switch",
+      "role": "plug_switch",
+      "unique_id": "jackery_plug_PLUG0001_switch"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.grid_meter_power",
+        "name": "Grid meter power"
+      },
+      "device_key": "meter",
+      "domain": "sensor",
+      "role": "meter_power",
+      "unique_id": "jackery_smartmeter_METER0001_importtotal"
+    },
+    {
+      "customization": {
+        "area": "Energy room",
+        "entity_id": "sensor.expansion_battery_energy",
+        "name": "Expansion battery energy"
+      },
+      "device_key": "battery",
+      "domain": "sensor",
+      "role": "battery_energy",
+      "unique_id": "jackery_battery_BATTERY0001_chargeenergy"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.collector_import_power",
+        "name": "Collector import power"
+      },
+      "device_key": "collector",
+      "domain": "sensor",
+      "role": "collector_power",
+      "unique_id": "jackery_collector_COLLECTOR0001_importpower"
+    }
+  ],
+  "provenance": {
+    "generation_method": "pinned upstream entity constructors executed in isolation",
+    "generator": "tools/generate_upgrade_fixtures.py",
+    "home_assistant_version": "2026.2.3",
+    "source_commit": "77d218f6f531c1b5cd0b2ae5b9f2edfe0c61879c",
+    "source_files_sha256": "f052bde3c0f637699666c0e478d8cfe0f5127b188c6b7be5743ab7be7e4d57f4",
+    "source_repository": "https://github.com/csoscd/ha-solarvault",
+    "upstream_manifest_version": "2.5.0"
+  },
+  "schema_version": 1,
+  "synthetic_identities": {
+    "children": [
+      "METER0001",
+      "PLUG0001",
+      "BATTERY0001",
+      "COLLECTOR0001"
+    ],
+    "host": "SVHOST0001"
+  }
+}
