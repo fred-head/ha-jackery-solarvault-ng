@@ -719,6 +719,30 @@ Every availability behavior change requires tests.
 
 Every command encoding change requires tests.
 
+## Test Workspace and Cache Location
+
+Local test and validation runs must use a persistent, disk-backed temporary
+directory. Do not place test environments, pytest workspaces, compatibility
+environments, coverage data, logs, generated fixtures, upstream checkouts, or
+tool caches under `/tmp` when it is mounted as RAM-backed `tmpfs`.
+
+On the maintainer development host, `TMPDIR`, `TEMP`, and `TMP` must resolve to:
+
+```text
+/home/fredmin/.cache/tmp
+```
+
+Before a long or full-suite run, verify that this directory is writable and
+that Python's `tempfile.gettempdir()` resolves to the persistent path. Stop and
+report instead of falling back to `/tmp` when the persistent path is not
+available.
+
+Keep the project virtual environment in `.venv` and the uv download cache under
+`~/.cache/uv`. Never point `UV_CACHE_DIR`, `UV_PROJECT_ENVIRONMENT`, pytest
+temporary roots, compatibility environments, or `COVERAGE_FILE` at `/tmp`.
+Focused tests should use `--no-cov` unless coverage evidence is required; run
+the complete coverage suite only when the task's quality gates require it.
+
 ---
 
 # Test Layers
