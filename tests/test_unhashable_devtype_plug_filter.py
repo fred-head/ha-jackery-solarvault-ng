@@ -47,6 +47,7 @@ def test_sensor_compatibility_export_matches_classifier(dev_type):
 
 async def test_switch_platform_skips_malformed_types_without_writable_controls(hass):
     coordinator = Mock()
+    coordinator.hass = hass
     coordinator._device_sn = "HOST"
     coordinator.child_identity_allowed.return_value = True
     coordinator.get_subdevices.return_value = [

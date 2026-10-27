@@ -64,6 +64,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Changed
 
+- Centralize Home Assistant Device Registry compatibility behind feature
+  detection. Keep HA 2025.8.0 as the minimum and use config-entry-scoped lookup,
+  singular ownership and `via_device_id` on current HA versions. Automated
+  minimum-version and HA 2026.10.4 API validation passes; a real HA OS
+  2026.10.4 upgrade and second-restart retest reported no Jackery Device
+  Registry deprecation warnings.
 - Define the experimental NG release and compatibility contract: support links
   now point to the NG repository, Home Assistant 2025.8.0 is the evidenced API
   floor, the manifest is the sole integration-version authority, CI consumes a
@@ -72,6 +78,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
 ### Fixed
 
+- Use the supported `mdi:battery` icon for the Battery Count sensor.
+- Migrate the pinned Official 2.0.0 Auto Standby select identity in place to
+  the current constructor ID, retaining the existing entity row and all user
+  registry settings. Preserve the Official Work Mode sensor as a read-only
+  compatibility entity only when its exact sensor row belongs to the current
+  entry and exclusively owned main device; fresh NG setups still create only
+  the writable Work Mode select.
+- Migrate the exact Official 2.0.0 Reboot and Average SOC identities in place
+  on the exclusively owned main device. Map the ten observed Official devType=3
+  CT identities to current SmartMeter constructor IDs only when the persisted
+  Official Type 3 device and parent linkage prove the mapping; preflight all
+  entities atomically and retain unknown or conflicting records fail-closed.
 - Recognize pinned Official 2.0 host-prefixed child identities and main-control
   IDs during safe in-place registry migration. Known Smart Plug and main-control
   records retain their device and entity rows, user customization and recorder

@@ -22,7 +22,8 @@ and architecture documents remain authoritative.
 | Done | Options/reload lifecycle hardening | Changed connection data and runtime options now reload the owning entry once, replacing its coordinator and releasing old MQTT/HTTP resources. |
 | Done | MQTT reconnect synthetic validation | Fault-injection tests verify HA-owned reconnect semantics, bounded NG resources, availability recovery, HTTP independence and reload overlap; live broker/device soak remains open. |
 | Done | Release/compatibility contract | NG repository metadata, the HA 2025.8.0 API floor, a single version authority, frozen CI tooling, and a fail-closed preflight-only release procedure are documented and checked. |
-| Done | Upgrade/migration golden-state validation | Pinned Official 2.0.0, Community 2.5.0 and older-NG constructor states preserve tested registry customization and recorder continuity through NG migration; real HACS/backup runs remain open. |
+| Real HA verified | Device Registry compatibility hardening | HA 2025.8.0 remains the minimum; legacy and current Device Registry models are tested through the central compatibility layer. HA OS 2026.10.4 retest reported no Jackery Device Registry deprecation warnings. |
+| Automated and real HA verified | Upgrade/migration validation | Pinned Official 2.0.0, Community 2.5.0 and older-NG constructor states preserve tested registry customization and recorder continuity. Official 2.0.0 manual code replacement and a Pre-NG full-backup restore passed on HA OS 2026.10.4; HACS and Community real upgrades remain open. |
 
 ## Recently completed
 
@@ -68,21 +69,23 @@ and architecture documents remain authoritative.
   evidenced Home Assistant floor is 2025.8.0, the manifest owns the integration
   version, and release tooling fails closed without creating release objects.
   See the [release contract](release-compatibility-contract.md).
-- **Upgrade/migration golden-state validation:** pinned upstream constructors
-  generate sanitized identity fixtures that are replayed through real HA
-  registries and the recorder. Known Official and Community identities migrate
-  in place; unsupported mappings remain fail-closed. See the
+- **Upgrade/migration validation:** pinned upstream constructors generate
+  sanitized identity fixtures replayed through real HA registries and the
+  recorder. A Pre-NG Official full-backup restore and the manual Official 2.0.0
+  to NG code-replacement upgrade are verified on real HA OS 2026.10.4, including
+  Auto Standby, the Work Mode compatibility sensor, a second restart and a
+  warning-free Jackery Device Registry path. HACS switching, a Community 2.5.0
+  real upgrade and a longer device soak remain open. See the
   [upgrade validation](upgrade-migration-validation.md).
 
 ## Next
 
 The focused Group-A ports, B1/B2, Options/reload lifecycle hardening, synthetic
-MQTT disconnect/reconnect validation, and the release/compatibility contract
-are complete. Selection of the next production-readiness workstream remains a
-maintainer decision. Real broker/device soak and exported-registry upgrade
-qualification remain strong evidence candidates. The constructor-generated
-upgrade matrix is complete; actual HACS switching and full HA backup/restore
-remain separate operational evidence.
+MQTT disconnect/reconnect validation, release/compatibility contract, and the
+manual Official 2.0.0 -> NG real-HA upgrade are complete. Selection of the next
+production-readiness workstream remains a maintainer decision. Actual HACS
+switching, a Community 2.5.0 real upgrade, a longer broker/device soak and
+restoring a post-NG backup as rollback remain separate operational evidence.
 
 The [Phase 3 closeout and Phase 4 decision basis](phase3-closeout-phase4-plan.md)
 contains the decision matrix; this page does not select a full Phase 4 roadmap.
@@ -123,10 +126,11 @@ The integration has strong synthetic regression coverage, but broad production
 recommendation still needs evidence and policy work:
 
 - preserve the documented NG release/version/support contract and extend the
-  pinned golden-state migration evidence with actual HACS and full-backup runs;
+  migration evidence with actual HACS and Community 2.5.0 upgrade runs;
 - keep the reauthentication lifecycle covered during future HA API changes;
 - preserve options reload and partial-setup cleanup across future HA changes;
 - run real broker/device disconnect/reconnect and long-duration soak validation;
+- verify restore from a post-NG backup as a rollback operation;
 - periodically test the evidenced Home Assistant floor and current development
   reference as those APIs evolve;
 - establish sanitized golden fixtures and a hardware/firmware matrix;

@@ -112,6 +112,7 @@
       },
       "device_key": "main",
       "domain": "sensor",
+      "original_name": null,
       "role": "main_soc",
       "unique_id": "jackery_SVHOST0001_battery_soc"
     },
@@ -123,6 +124,7 @@
       },
       "device_key": "main",
       "domain": "switch",
+      "original_name": "EPS Output",
       "role": "main_eps_switch",
       "unique_id": "jackery_SVHOST0001_switch_swEps"
     },
@@ -136,6 +138,7 @@
       },
       "device_key": "plug",
       "domain": "sensor",
+      "original_name": null,
       "role": "plug_power",
       "unique_id": "jackery_plug_PLUG0001_power"
     },
@@ -147,6 +150,7 @@
       },
       "device_key": "plug",
       "domain": "switch",
+      "original_name": "Switch",
       "role": "plug_switch",
       "unique_id": "jackery_plug_PLUG0001_switch"
     },
@@ -158,6 +162,7 @@
       },
       "device_key": "meter",
       "domain": "sensor",
+      "original_name": null,
       "role": "meter_power",
       "unique_id": "jackery_smartmeter_METER0001_importtotal"
     },
@@ -169,6 +174,7 @@
       },
       "device_key": "battery",
       "domain": "sensor",
+      "original_name": null,
       "role": "battery_energy",
       "unique_id": "jackery_battery_BATTERY0001_chargeenergy"
     },
@@ -180,6 +186,7 @@
       },
       "device_key": "collector",
       "domain": "sensor",
+      "original_name": null,
       "role": "collector_power",
       "unique_id": "jackery_collector_COLLECTOR0001_importpower"
     }
@@ -189,7 +196,7 @@
     "generator": "tools/generate_upgrade_fixtures.py",
     "home_assistant_version": "2026.2.3",
     "source_commit": "ed89e745fd7ceab35a52593122f28969cafd3bba",
-    "source_files_sha256": "3402145270f8d768cd8e9ed0e83e007b47956cb8b26719a5e49c95ac2ce09e1b",
+    "source_files_sha256": "007c7d9373fd4e771ba283bf287eaa6c092a62758192e2cba92382c15709fca2",
     "source_repository": "https://github.com/fred-head/ha-jackery-solarvault-ng",
     "upstream_manifest_version": "2.4.0"
   },

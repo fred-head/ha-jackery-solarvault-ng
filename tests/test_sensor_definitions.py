@@ -29,6 +29,11 @@ def test_sensor_definition_group_shape_is_unchanged() -> None:
     assert len(sensor_definitions.SMARTMETER_HTTP_SENSOR_CONFIGS) == 16
 
 
+def test_battery_count_uses_a_supported_battery_icon() -> None:
+    """The battery count sensor uses a valid, broadly supported HA icon."""
+    assert sensor_definitions.SENSORS["battery_count"]["icon"] == "mdi:battery"
+
+
 def test_sensor_definitions_depend_only_on_ha_metadata() -> None:
     """Declarative metadata must not depend on runtime or entity implementations."""
     path = Path(sensor_definitions.__file__)

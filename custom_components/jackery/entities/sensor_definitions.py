@@ -119,7 +119,7 @@ SENSORS: dict[str, MainSensorConfig] = {
         "json_key": "batNum",
         "name": "Battery Count",
         "unit": None,
-        "icon": "mdi:battery-multiple",
+        "icon": "mdi:battery",
         "device_class": None,
         "state_class": SensorStateClass.MEASUREMENT,
     },

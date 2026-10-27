@@ -7,7 +7,9 @@ from unittest.mock import AsyncMock, Mock
 
 import aiohttp
 import pytest
+from pytest_homeassistant_custom_component.common import MockConfigEntry
 
+from custom_components.jackery import DOMAIN
 from custom_components.jackery import sensor as sensor_module
 from custom_components.jackery.sensor import (
     SMARTMETER_HTTP_SENSOR_CONFIGS,
@@ -132,11 +134,16 @@ def test_dispatch_does_not_hide_callback_programming_errors():
         coordinator._distribute_data({})
 
 
-async def test_http_poll_health_and_stop_survive_mqtt_updates(mixed_sensors, monkeypatch):
+async def test_http_poll_health_and_stop_survive_mqtt_updates(mixed_sensors, monkeypatch, hass):
     """MQTT between real HTTP polls must not reset the three-failure threshold."""
     coordinator, battery, http, solar = mixed_sensors
-    entry = SimpleNamespace(options={"smartmeter_http_poll": True, "smartmeter_poll_interval": 10})
-    coordinator.hass = SimpleNamespace(config_entries=SimpleNamespace(async_get_entry=Mock(return_value=entry)))
+    coordinator.hass = hass
+    coordinator.config_entry_id = "http-poll-entry"
+    MockConfigEntry(
+        domain=DOMAIN,
+        entry_id=coordinator.config_entry_id,
+        options={"smartmeter_http_poll": True, "smartmeter_poll_interval": 10},
+    ).add_to_hass(hass)
     coordinator._data_cache["cts"] = [
         {"deviceSn": "METER", "devType": 3, "subType": 5, "wip": "192.0.2.1"}
     ]
@@ -155,8 +162,12 @@ async def test_http_poll_health_and_stop_survive_mqtt_updates(mixed_sensors, mon
 
     paused = asyncio.Queue()
     resume = asyncio.Queue()
+    original_sleep = asyncio.sleep
 
     async def poll_pause(delay):
+        if delay != 10:
+            await original_sleep(delay)
+            return
         assert delay == 10
         await paused.put(None)
         await resume.get()
@@ -200,11 +211,16 @@ async def test_http_poll_health_and_stop_survive_mqtt_updates(mixed_sensors, mon
 
 
 @pytest.fixture
-async def http_poll(mixed_sensors, monkeypatch):
+async def http_poll(mixed_sensors, monkeypatch, hass):
     """Run the production HTTP loop one completed attempt at a time."""
     coordinator, _, http, _ = mixed_sensors
-    entry = SimpleNamespace(options={"smartmeter_poll_interval": 10})
-    coordinator.hass = SimpleNamespace(config_entries=SimpleNamespace(async_get_entry=Mock(return_value=entry)))
+    coordinator.hass = hass
+    coordinator.config_entry_id = "http-poll-entry"
+    MockConfigEntry(
+        domain=DOMAIN,
+        entry_id=coordinator.config_entry_id,
+        options={"smartmeter_poll_interval": 10},
+    ).add_to_hass(hass)
     meter = {"deviceSn": "METER", "devType": 3, "subType": 5, "wip": "192.0.2.1"}
     coordinator._data_cache["cts"] = [meter]
     coordinator._http_sm_sensor_sns_created.add("METER")
@@ -214,8 +230,12 @@ async def http_poll(mixed_sensors, monkeypatch):
     session = SimpleNamespace(get=Mock(return_value=request))
     monkeypatch.setattr(sensor_module, "async_get_clientsession", Mock(return_value=session))
     paused, resume = asyncio.Queue(), asyncio.Queue()
+    original_sleep = asyncio.sleep
 
     async def sleep(delay):
+        if delay == 0:
+            await original_sleep(delay)
+            return
         await paused.put(delay)
         await resume.get()
 

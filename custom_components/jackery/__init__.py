@@ -10,6 +10,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
+from .identity import auto_standby_select_unique_id
+
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "jackery"
@@ -41,6 +43,13 @@ async def _migrate_unique_ids(
     Host-prefixed ``main`` controls from Official/v2.0.1 are normalized in
     place. Sensor-only v2.0.1 ``main`` residues are removed.
     """
+    from .registry_identity import (
+        device_owned_by_entry,
+        find_devices_by_identifier,
+        find_owned_main_entity,
+        get_device_by_id,
+    )
+
     device_sn = entry.data.get("device_sn", "").strip()
     if not device_sn:
         return
@@ -66,14 +75,70 @@ async def _migrate_unique_ids(
         if entity_entry.platform != DOMAIN or not uid or not uid.startswith("jackery_") or uid.startswith("jackery_child:"):
             continue
 
-        device = device_reg.async_get(entity_entry.device_id) if entity_entry.device_id else None
+        device = get_device_by_id(device_reg, entity_entry.device_id) if entity_entry.device_id else None
         if device:
-            if device.config_entries != {entry_id}:
+            if not device_owned_by_entry(device, entry_id):
                 _LOGGER.warning("Skipping identity migration for entity %s: device ownership is ambiguous", entity_entry.entity_id)
                 continue
             # The device identifier stores the whole serial; never split serials at underscores.
             if any(domain == DOMAIN and identifier.startswith(("sub_", "child:")) for domain, identifier in device.identifiers):
                 continue
+
+        # Exact Official 2.0.0 main-device identities. Keep each existing
+        # registry row (and its entity_id/history) while adopting the current
+        # constructor's unique_id. Cross-domain Work Mode is intentionally not
+        # included here.
+        target_uid = None
+        if (
+            entity_entry.domain == "button"
+            and uid == f"jackery_{device_sn}_main_reboot"
+        ):
+            target_uid = f"jackery_{device_sn}_reboot"
+        elif (
+            entity_entry.domain == "sensor"
+            and uid == f"jackery_{device_sn}_average_soc"
+        ):
+            target_uid = f"jackery_{device_sn}_bms_soc"
+        elif (
+            entity_entry.domain == "select"
+            and uid == f"jackery_{device_sn}_main_autoStandby"
+        ):
+            target_uid = auto_standby_select_unique_id(device_sn)
+        if target_uid is not None:
+            if (
+                device is None
+                or (DOMAIN, device_sn) not in device.identifiers
+            ):
+                _LOGGER.warning(
+                    "Skipping Official main identity migration for %s: linked main-device ownership is unproven",
+                    entity_entry.entity_id,
+                )
+                continue
+            if entity_entry.domain == "select" and find_owned_main_entity(
+                hass,
+                domain="select",
+                host=device_sn,
+                platform=DOMAIN,
+                config_entry_id=entry_id,
+                unique_id=uid,
+            ) is None:
+                _LOGGER.warning(
+                    "Skipping Official Auto Standby migration for %s: main-device ownership is unproven",
+                    entity_entry.entity_id,
+                )
+                continue
+            target_id = ent_reg.async_get_entity_id(
+                entity_entry.domain, entity_entry.platform, target_uid,
+            )
+            if target_id is not None and target_id != entity_entry.entity_id:
+                _LOGGER.warning(
+                    "Skipping Official main identity migration for %s: target %s already exists; retaining both records",
+                    entity_entry.entity_id, target_id,
+                )
+            else:
+                _LOGGER.info("Migrating unique_id: %s → %s", uid, target_uid)
+                ent_reg.async_update_entity(entity_entry.entity_id, new_unique_id=target_uid)
+            continue
 
         if uid.startswith(new_prefix):
             suffix_after_sn = uid[len(new_prefix):]
@@ -167,10 +232,15 @@ async def _migrate_unique_ids(
         ent_reg.async_update_entity(entity_entry.entity_id, new_unique_id=target_uid)
 
     # Global identifiers require exclusive ownership before an in-place update.
-    old_device = device_reg.async_get_device(identifiers={(DOMAIN, entry_id)})
-    if old_device:
-        target_device = device_reg.async_get_device(identifiers={(DOMAIN, device_sn)})
-        if old_device.config_entries != {entry_id} or (target_device and target_device.id != old_device.id):
+    old_devices = find_devices_by_identifier(device_reg, (DOMAIN, entry_id))
+    target_devices = find_devices_by_identifier(device_reg, (DOMAIN, device_sn))
+    if old_devices:
+        old_device = old_devices[0] if len(old_devices) == 1 else None
+        if (
+            old_device is None
+            or not device_owned_by_entry(old_device, entry_id)
+            or any(target.id != old_device.id for target in target_devices)
+        ):
             _LOGGER.warning("Skipping main device migration for entry %s: ownership or target conflict", entry_id)
             return
         device_reg.async_update_device(

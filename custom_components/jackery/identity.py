@@ -3,6 +3,16 @@
 from urllib.parse import quote, unquote
 
 
+def auto_standby_select_unique_id(host: str) -> str:
+    """Return the persistent identity emitted by the current Auto Standby constructor."""
+    return f"jackery_{host}_auto_standby_select"
+
+
+def official_work_mode_sensor_unique_id(host: str) -> str:
+    """Return the pinned Official 2.0.0 read-only Work Mode sensor identity."""
+    return f"jackery_{host}_work_mode"
+
+
 def child_device_identifier(host: str, child: str) -> str:
     """Scope a physical child to its host without altering either serial."""
     return f"child:{quote(host, safe='')}:{quote(child, safe='')}"
