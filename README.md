@@ -44,7 +44,7 @@ Complete cloud-independent provisioning is not implemented or guaranteed. Provis
 - Maintain robust MQTT and protocol handling
 - Preserve SmartMeter and child-device support
 - Expand automated regression coverage around known device and lifecycle behavior
-- Provide privacy-bounded Home Assistant diagnostics and an opt-in, memory-only developer protocol-discovery mode
+- Provide privacy-bounded Home Assistant diagnostics, an opt-in memory-only protocol-discovery mode, and a separate experimental persistent MQTT-alert observer
 
 ### Next
 
@@ -231,6 +231,46 @@ Before the integration can receive data, **two things must be in place**:
 ---
 
 ## Troubleshooting
+
+### Experimental MQTT alert observer
+
+The alert observer is disabled by default. Enable it under **Settings → Devices
+& Services → Jackery → Configure → Experimental MQTT alert capture**. It adds
+one passive subscription for the configured host's exact
+**<prefix>/device/<device_sn>/alert** topic. It does not interpret payloads,
+create alarm entities or Home Assistant events, run automations, or publish
+MQTT messages.
+
+Captured records are available from the usual **Settings → Devices & Services
+→ Jackery → Download diagnostics** action in Home Assistant. When enabled, the
+download has a separate **experimental_alert_capture** section. Its
+**total_received** and **stored_count** fields show whether messages have arrived.
+The export aliases the topic as **{prefix}/device/{host}/alert**.
+
+Capture uses private Home Assistant storage isolated by config entry. It keeps
+up to 100 events, at most 4 KiB of payload per event, and at most 256 KiB for
+the serialized capture record. Oversize payloads are explicitly marked as
+truncated; the oldest events are removed first when a limit is reached. The
+diagnostics export has an additional 24 KiB budget and reports
+**export_omitted_count** when not every stored event fits. A configured-host
+fingerprint keeps records with the same host across reloads and prefix changes;
+changing the host serial clears that entry's old capture. Older records without
+a verified host binding are discarded. Disabling the option or removing the
+entry deletes the stored data, including pending delayed saves.
+
+**Privacy:** this experimental section contains raw MQTT payload bytes encoded
+as Base64. Base64 is not anonymization; payloads may include serial numbers or
+other sensitive information. Review the section before sharing a diagnostics
+download, and do not post it publicly without checking every payload. Turning
+the option off deletes the persisted capture. Removing the Jackery config
+entry also deletes it. Ordinary integration reloads and Home Assistant
+restarts keep the records.
+
+Protocol Discovery remains an independent option. It collects bounded,
+value-free structure in memory and resets on reload; either feature can be
+enabled without the other. An empty alert capture does not show that the topic
+is unavailable: the local broker may not publish it, or no alert may have
+occurred while capture was enabled.
 
 ### SmartMeter 3P: no measurement data (all sensors show 0 W / unavailable)
 

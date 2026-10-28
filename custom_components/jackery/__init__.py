@@ -271,6 +271,18 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("Invalid Jackery configuration field types; setup aborted")
         return False
 
+    from .alert_capture import (
+        OPTION_ALERT_CAPTURE_ENABLED,
+        AlertCapture,
+        async_delete_alert_capture,
+        build_alert_topic,
+    )
+
+    alert_capture_enabled = entry.options.get(OPTION_ALERT_CAPTURE_ENABLED) is True
+    if not alert_capture_enabled:
+        # Disabling this opt-in explicitly purges persisted raw MQTT data.
+        await async_delete_alert_capture(hass, entry.entry_id)
+
     if not await mqtt.async_wait_for_mqtt_client(hass):
         _LOGGER.error(
             "MQTT integration is not available or not configured. "
@@ -294,6 +306,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
     from .sensor import JackeryDataCoordinator
 
+    alert_capture = None
+    if alert_capture_enabled:
+        alert_topic = build_alert_topic(topic_prefix, device_sn)
+        alert_capture = AlertCapture(hass, entry.entry_id, alert_topic, device_sn)
+        await alert_capture.async_load()
+
     coordinator = JackeryDataCoordinator(
         hass,
         topic_prefix,
@@ -303,6 +321,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         protocol_discovery_enabled=(
             entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is True
         ),
+        alert_capture=alert_capture,
     )
     coordinator.config_entry_id = entry.entry_id
     coordinator._child_migration = child_migration
@@ -335,14 +354,34 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
     coordinator = entry_data.get("coordinator")
+    from .alert_capture import (
+        OPTION_ALERT_CAPTURE_ENABLED,
+        async_delete_alert_capture,
+    )
+
     try:
         if coordinator:
             await coordinator.async_stop()
     finally:
-        # A faulty unsubscribe must not prevent entity references being released.
-        unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+        try:
+            if entry.options.get(OPTION_ALERT_CAPTURE_ENABLED) is not True:
+                capture = getattr(coordinator, "_alert_capture", None)
+                if capture is not None:
+                    await capture.async_clear()
+                else:
+                    await async_delete_alert_capture(hass, entry.entry_id)
+        finally:
+            # A faulty unsubscribe must not prevent entity references being released.
+            unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove any opt-in raw alert records when a config entry is deleted."""
+    from .alert_capture import async_delete_alert_capture
+
+    await async_delete_alert_capture(hass, entry.entry_id)

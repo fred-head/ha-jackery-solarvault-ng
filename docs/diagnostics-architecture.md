@@ -634,6 +634,59 @@ serials, topics, URLs, addresses and payload fragments never appear. Discovery
 does not log observations, persist data, perform I/O or gain operational
 authority.
 
+### 8.3 Experimental persistent alert capture
+
+The alert_capture_enabled setting is separate and disabled by default. When
+enabled and a literal configured host serial is available, the coordinator
+adds one exact subscription for
+<configured-prefix>/device/<configured-serial>/alert. A missing or unsafe
+host/prefix fails closed; the observer never adopts a host from incoming
+traffic. Its callback checks exact topic equality and sends the message to a
+dedicated capture owner. Alert traffic does not enter the normal status/event
+handler and cannot update cache, freshness, reauthentication, discovery,
+availability or entities. The payload is never decoded or classified, and the
+observer has no command, event-bus or alarm-entity behavior.
+
+The capture owner uses Home Assistant Store with `private=True` and a key
+scoped to one config entry. This flag is available in the supported HA 2025.8
+API and keeps the existing Store key/path, so the file remains readable when
+upgrading from the earlier non-private Store setting. Writes are debounced and
+flushed before unload. Restore checks a versioned SHA-256 fingerprint of the
+configured host serial; the serial itself is not added as binding metadata or
+exported. The topic prefix is not part of the fingerprint, so changing the
+prefix keeps the same host's history while the coordinator replaces its
+subscription. A changed host fingerprint clears only that entry's old
+capture. Missing or invalid host identity fails closed and also clears data
+that cannot safely be assigned. Existing version-1 records without a host
+binding are read but discarded for the same reason. New bound records restore
+after Home Assistant restart and normal integration reload.
+
+The serialized capture data is limited to 100 events, 4 KiB of stored payload
+per event and 256 KiB in total. Payloads larger than 4 KiB retain only the
+leading bytes and carry their original byte count plus an explicit truncation
+flag. When the event or storage budget is reached, oldest records are evicted
+and both drop and overflow counts increase. Disabling the option or removing
+the config entry drains/cancels pending writes and deletes the persisted raw
+records; a delayed save cannot recreate the file after deletion.
+
+This is a deliberately separate exception to the safe-to-share P3 snapshot.
+The nine standard root sections and their version-2 allowlists remain unchanged.
+Only when the option is enabled, diagnostics.py appends the version-1
+experimental_alert_capture extension. It explicitly warns that its Base64
+payloads are raw, potentially sensitive data and should not be shared publicly
+without review. Event topics are replaced with the fixed
+{prefix}/device/{host}/alert alias. The extension is reduced within an
+additional 24-KiB total-output budget before any standard diagnostics are
+removed; export_omitted_count reports stored records left out of the download.
+The full result is therefore bounded by the existing 64-KiB snapshot budget
+plus this 24-KiB experimental allowance. With capture disabled, the output is
+unchanged.
+
+Protocol Discovery remains memory-only, value-free and independent. Enabling
+one mode does not enable, share state with or reset the other. An empty capture
+only says that no matching message was recorded during the enabled period; it
+does not establish that the local broker never publishes this topic.
+
 ## 9. Test strategy
 
 ### 9.1 Snapshot contract tests
@@ -662,9 +715,12 @@ SERIAL_SECRET_CANARY
 ```
 
 Serialize the complete final output and assert that no canary or encoded/partial
-variant occurs anywhere, including dictionary keys. Also assert that raw serial
-hashes, entity IDs, topic prefixes and URL components are absent. Testing only
-individual redaction helpers is insufficient.
+variant occurs anywhere in the normal export while capture is disabled, or in
+the standard nine sections when capture is enabled. The separate opt-in alert
+extension is covered by explicit privacy-warning, topic-alias, bounded-payload
+and encoded-raw-data tests. Also assert that raw serial hashes, entity IDs,
+topic prefixes and URL components remain absent outside that extension.
+Testing only individual redaction helpers is insufficient.
 
 ### 9.3 Side-effect tests
 

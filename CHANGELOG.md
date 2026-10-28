@@ -27,6 +27,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   only bounded message/device identifiers and value-free structural signatures,
   resets on reload, exports through the versioned diagnostics allowlist and
   never stores raw payloads, unknown field names or unknown scalar values.
+- Add an independent, disabled-by-default experimental MQTT alert observer. It
+  captures opaque host alert payload bytes in private per-entry Home Assistant
+  storage with explicit event, payload, storage and diagnostics-export limits.
+  A versioned host fingerprint preserves history across prefix changes and
+  clears it on host changes; unbound legacy data is discarded. The normal
+  diagnostics contract stays unchanged while enabled exports add a separately
+  versioned, privacy-warned raw-data section; disabling or removing the entry
+  deletes persisted capture data.
 
 ### Refactored
 
