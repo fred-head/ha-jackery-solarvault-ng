@@ -247,12 +247,16 @@ download has a separate **experimental_alert_capture** section. Its
 **total_received** and **stored_count** fields show whether messages have arrived.
 The export aliases the topic as **{prefix}/device/{host}/alert**.
 
-Capture uses Home Assistant storage isolated by config entry. It keeps up to
-100 events, at most 4 KiB of payload per event, and at most 256 KiB for the
-serialized capture record. Oversize payloads are explicitly marked as
+Capture uses private Home Assistant storage isolated by config entry. It keeps
+up to 100 events, at most 4 KiB of payload per event, and at most 256 KiB for
+the serialized capture record. Oversize payloads are explicitly marked as
 truncated; the oldest events are removed first when a limit is reached. The
 diagnostics export has an additional 24 KiB budget and reports
-**export_omitted_count** when not every stored event fits.
+**export_omitted_count** when not every stored event fits. A configured-host
+fingerprint keeps records with the same host across reloads and prefix changes;
+changing the host serial clears that entry's old capture. Older records without
+a verified host binding are discarded. Disabling the option or removing the
+entry deletes the stored data, including pending delayed saves.
 
 **Privacy:** this experimental section contains raw MQTT payload bytes encoded
 as Base64. Base64 is not anonymization; payloads may include serial numbers or

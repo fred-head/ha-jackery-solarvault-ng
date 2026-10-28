@@ -516,7 +516,7 @@ async def test_alert_capture_is_a_separate_opt_in_diagnostics_extension(
         options={**entry.options, "alert_capture_enabled": True},
     )
     topic = "mqtt/private/topic/device/HOST_SERIAL_CANARY/alert"
-    capture = AlertCapture(hass, entry.entry_id, topic)
+    capture = AlertCapture(hass, entry.entry_id, topic, "HOST_SERIAL_CANARY")
     await capture.async_load()
     raw_payload = b'{"deviceSn":"SERIAL_RAW_CANARY","unknown":true}'
     capture.observe(

@@ -647,15 +647,27 @@ handler and cannot update cache, freshness, reauthentication, discovery,
 availability or entities. The payload is never decoded or classified, and the
 observer has no command, event-bus or alarm-entity behavior.
 
-The capture owner uses Home Assistant Store with a key scoped to one config
-entry. It debounces writes, flushes before unload, restores records after
-restart/reload and safely ignores malformed or unsupported stored records.
+The capture owner uses Home Assistant Store with `private=True` and a key
+scoped to one config entry. This flag is available in the supported HA 2025.8
+API and keeps the existing Store key/path, so the file remains readable when
+upgrading from the earlier non-private Store setting. Writes are debounced and
+flushed before unload. Restore checks a versioned SHA-256 fingerprint of the
+configured host serial; the serial itself is not added as binding metadata or
+exported. The topic prefix is not part of the fingerprint, so changing the
+prefix keeps the same host's history while the coordinator replaces its
+subscription. A changed host fingerprint clears only that entry's old
+capture. Missing or invalid host identity fails closed and also clears data
+that cannot safely be assigned. Existing version-1 records without a host
+binding are read but discarded for the same reason. New bound records restore
+after Home Assistant restart and normal integration reload.
+
 The serialized capture data is limited to 100 events, 4 KiB of stored payload
 per event and 256 KiB in total. Payloads larger than 4 KiB retain only the
 leading bytes and carry their original byte count plus an explicit truncation
 flag. When the event or storage budget is reached, oldest records are evicted
 and both drop and overflow counts increase. Disabling the option or removing
-the config entry deletes the persisted raw records.
+the config entry drains/cancels pending writes and deletes the persisted raw
+records; a delayed save cannot recreate the file after deletion.
 
 This is a deliberately separate exception to the safe-to-share P3 snapshot.
 The nine standard root sections and their version-2 allowlists remain unchanged.

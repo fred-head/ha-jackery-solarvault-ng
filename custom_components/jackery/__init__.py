@@ -309,7 +309,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     alert_capture = None
     if alert_capture_enabled:
         alert_topic = build_alert_topic(topic_prefix, device_sn)
-        alert_capture = AlertCapture(hass, entry.entry_id, alert_topic)
+        alert_capture = AlertCapture(hass, entry.entry_id, alert_topic, device_sn)
         await alert_capture.async_load()
 
     coordinator = JackeryDataCoordinator(

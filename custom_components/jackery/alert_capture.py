@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import base64
 import binascii
+import hashlib
 import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
@@ -34,6 +35,7 @@ _PRIVACY_WARNING: Final = (
     "Contains experimental raw MQTT data that may include serial numbers or "
     "other sensitive information. Review before sharing publicly."
 )
+_HOST_IDENTITY_VERSION: Final = 1
 
 
 def build_alert_topic(topic_prefix: object, device_sn: object) -> str | None:
@@ -59,6 +61,25 @@ def build_alert_topic(topic_prefix: object, device_sn: object) -> str | None:
     except UnicodeEncodeError:
         return None
     return topic
+
+
+def _host_identity(device_sn: object) -> str | None:
+    """Return a stable SHA-256 fingerprint for a valid configured host."""
+    if (
+        not isinstance(device_sn, str)
+        or not device_sn
+        or device_sn != device_sn.strip()
+        or any(
+            character in "/+#\x00" or ord(character) < 32 or ord(character) == 127
+            for character in device_sn
+        )
+    ):
+        return None
+    try:
+        encoded = device_sn.encode("utf-8")
+    except UnicodeEncodeError:
+        return None
+    return hashlib.sha256(b"jackery-alert-host-v1\0" + encoded).hexdigest()
 
 
 def _counter(value: object) -> int:
@@ -136,13 +157,25 @@ class AlertCapture:
         hass: HomeAssistant,
         entry_id: str,
         expected_topic: str | None,
+        device_sn: object,
     ) -> None:
         self._store: Store[dict[str, Any]] = Store(
             hass,
             ALERT_CAPTURE_VERSION,
             f"{DOMAIN}.{entry_id}.experimental_alert_capture",
+            private=True,
         )
-        self._expected_topic = expected_topic
+        self._host_identity = _host_identity(device_sn)
+        topic_suffix = f"/device/{device_sn}/alert" if self._host_identity is not None else None
+        self._expected_topic = (
+            expected_topic
+            if isinstance(expected_topic, str)
+            and topic_suffix is not None
+            and expected_topic.endswith(topic_suffix)
+            and len(expected_topic) > len(topic_suffix)
+            else None
+        )
+        self._cleared = False
         self._events: list[dict[str, Any]] = []
         self._total_received = 0
         self._dropped_count = 0
@@ -155,9 +188,21 @@ class AlertCapture:
         return self._expected_topic
 
     async def async_load(self) -> None:
-        """Restore only records matching the current bounded storage contract."""
+        """Restore only records bound to this configured host identity."""
         data = await self._store.async_load()
-        if not isinstance(data, Mapping) or data.get("capture_version") != ALERT_CAPTURE_VERSION:
+        if data is None:
+            return
+        if (
+            self._host_identity is None
+            or not isinstance(data, Mapping)
+            or data.get("capture_version") != ALERT_CAPTURE_VERSION
+            or data.get("host_identity_version") != _HOST_IDENTITY_VERSION
+            or data.get("host_identity") != self._host_identity
+        ):
+            # Version-1 stores written before host binding (or stores from a
+            # different host) cannot safely be attributed to this device.
+            await self.async_clear()
+            self._cleared = False
             return
 
         restored: list[dict[str, Any]] = []
@@ -184,7 +229,7 @@ class AlertCapture:
         received_at: datetime | None = None,
     ) -> bool:
         """Record a matching MQTT delivery without decoding its payload."""
-        if topic != self._expected_topic:
+        if self._cleared or self._host_identity is None or topic != self._expected_topic:
             return False
 
         self._total_received = min(_MAX_COUNTER, self._total_received + 1)
@@ -239,12 +284,16 @@ class AlertCapture:
         await self._store.async_save(self._serialize())
 
     async def async_clear(self) -> None:
-        """Delete both pending writes and persisted raw capture data."""
+        """Delete pending writes and persisted raw capture data without a save race."""
+        self._cleared = True
         self._events.clear()
         self._total_received = 0
         self._dropped_count = 0
         self._overflow_count = 0
         self._truncated_count = 0
+        # Saving the empty state first waits for an already-running delayed
+        # write and cancels its timer. The subsequent remove is then final.
+        await self._store.async_save(self._serialize())
         await self._store.async_remove()
 
     def _schedule_save(self) -> None:
@@ -253,6 +302,8 @@ class AlertCapture:
     def _serialize(self) -> dict[str, Any]:
         return {
             "capture_version": ALERT_CAPTURE_VERSION,
+            "host_identity_version": _HOST_IDENTITY_VERSION,
+            "host_identity": self._host_identity,
             "total_received": self._total_received,
             "dropped_count": self._dropped_count,
             "overflow_count": self._overflow_count,
@@ -276,6 +327,7 @@ async def async_delete_alert_capture(hass: HomeAssistant, entry_id: str) -> None
         hass,
         ALERT_CAPTURE_VERSION,
         f"{DOMAIN}.{entry_id}.experimental_alert_capture",
+        private=True,
     )
     await store.async_remove()
 

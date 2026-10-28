@@ -70,7 +70,9 @@ async def async_get_config_entry_diagnostics(
         if capture is None:
             # Diagnostics remain readable for an enabled but currently unloaded
             # entry; this loads the existing store without starting a listener.
-            capture = AlertCapture(hass, entry.entry_id, None)
+            capture = AlertCapture(
+                hass, entry.entry_id, None, entry.data.get("device_sn")
+            )
             await capture.async_load()
         redacted_snapshot["experimental_alert_capture"] = (
             build_alert_capture_export(capture.snapshot(), redacted_snapshot)

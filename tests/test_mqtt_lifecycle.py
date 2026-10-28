@@ -1117,7 +1117,7 @@ async def test_alert_capture_option_is_exact_passive_persistent_and_independent(
         for record in broker.records
         if record.topic.endswith("/alert")
     )
-    cleared = AlertCapture(hass, entry.entry_id, None)
+    cleared = AlertCapture(hass, entry.entry_id, None, "HOST_A")
     await cleared.async_load()
     assert cleared.snapshot()["stored_count"] == 0
 
@@ -1125,7 +1125,9 @@ async def test_alert_capture_option_is_exact_passive_persistent_and_independent(
 async def test_alert_subscribe_partial_failure_unwinds_all_callbacks(hass, monkeypatch):
     broker = Subscriptions()
     monkeypatch.setattr("homeassistant.components.mqtt.async_subscribe", broker.subscribe)
-    capture = AlertCapture(hass, "alert-subscribe-failure", "hb/device/HOST_A/alert")
+    capture = AlertCapture(
+        hass, "alert-subscribe-failure", "hb/device/HOST_A/alert", "HOST_A"
+    )
     await capture.async_load()
     coordinator = JackeryDataCoordinator(
         hass,
