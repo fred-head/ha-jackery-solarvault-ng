@@ -585,7 +585,9 @@ class ProtocolDiscoveryState:
             if not isinstance(kind, str) or kind not in _JSON_TYPES:
                 return None
             if kind == "integer":
-                if (
+                # None is the privacy-preserving bucket for integers outside
+                # the supported range; their original numeric value is omitted.
+                if protocol_value is not None and (
                     type(protocol_value) is not int
                     or not 0 <= protocol_value <= MAX_SAFE_PROTOCOL_INTEGER
                     or protocol_value in _KNOWN_MESSAGE_TYPES
@@ -722,7 +724,14 @@ class ProtocolDiscoveryState:
                     key,
                     DiscoveryObservation(value.count, value.first_seen_at, value.last_seen_at),
                 )
-                for key, value in sorted(self._message_types.items())
+                for key, value in sorted(
+                    self._message_types.items(),
+                    key=lambda item: (
+                        item[0].kind,
+                        item[0].value is None,
+                        item[0].value if item[0].value is not None else 0,
+                    ),
+                )
             ),
             unknown_device_types=tuple(
                 DeviceTypeDiscovery(

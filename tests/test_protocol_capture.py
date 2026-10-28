@@ -209,6 +209,58 @@ async def test_structure_counters_first_last_seen_and_raw_events_restore(hass) -
     await restored.async_clear()
 
 
+async def test_out_of_range_integer_bucket_preserves_full_capture_across_reload(hass) -> None:
+    capture = _capture(hass, entry_id="integer-roundtrip-entry")
+    await capture.async_load()
+    payloads = [
+        b'{"type":147,"body":{"batSoc":50}}',
+        b'{"type":70000,"body":{"batSoc":51}}',
+    ]
+    assert _observe(
+        capture,
+        payloads[0],
+        message_type=147,
+        body={"batSoc": 50},
+        now=100,
+    )
+    assert _observe(
+        capture,
+        payloads[1],
+        message_type=70_000,
+        body={"batSoc": 51},
+        now=200,
+    )
+    expected_discovery = capture.snapshot()
+    expected_raw = capture.raw_snapshot()
+    assert [(item.key.kind, item.key.value) for item in expected_discovery.unknown_message_types] == [
+        ("integer", 147),
+        ("integer", None),
+    ]
+    await capture.async_flush()
+
+    restored = _capture(hass, entry_id="integer-roundtrip-entry")
+    await restored.async_load()
+
+    assert restored.snapshot() == expected_discovery
+    restored_buckets = {
+        (item.key.kind, item.key.value): item.observation
+        for item in restored.snapshot().unknown_message_types
+    }
+    assert (restored_buckets[("integer", 147)].count,
+            restored_buckets[("integer", 147)].first_seen_at,
+            restored_buckets[("integer", 147)].last_seen_at) == (1, 100, 100)
+    assert (restored_buckets[("integer", None)].count,
+            restored_buckets[("integer", None)].first_seen_at,
+            restored_buckets[("integer", None)].last_seen_at) == (1, 200, 200)
+    restored_raw = restored.raw_snapshot()
+    assert restored_raw == expected_raw
+    assert restored_raw["total_captured"] == expected_raw["total_captured"] == 2
+    assert restored_raw["stored_count"] == expected_raw["stored_count"] == 2
+    assert [base64.b64decode(item["payload_base64"]) for item in restored_raw["events"]] == payloads
+    assert await restored._store.async_load() is not None
+    await restored.async_clear()
+
+
 async def test_overflow_and_traversal_counts_survive_restore(hass) -> None:
     capture = _capture(hass, entry_id="overflow-entry")
     await capture.async_load()
