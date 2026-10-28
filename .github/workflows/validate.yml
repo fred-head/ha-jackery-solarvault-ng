@@ -22,7 +22,7 @@ jobs:
         uses: home-assistant/actions/hassfest@master
 
   tests:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Tests
     steps:
       - name: Checkout the repository
@@ -43,7 +43,7 @@ jobs:
         run: uv run pytest tests/ -v
 
   lint:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     name: Lint
     steps:
       - name: Checkout the repository
