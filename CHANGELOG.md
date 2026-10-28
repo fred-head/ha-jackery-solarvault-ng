@@ -23,10 +23,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   mutation inputs. Runtime collections are copied at the HA adapter boundary so
   diagnostics cannot retain or mutate live cache/child views, while the existing
   64-KiB contract, fixed allowlists and side-effect-free behavior remain intact.
-- Add an opt-in, memory-only protocol discovery mode for developers. It records
-  only bounded message/device identifiers and value-free structural signatures,
-  resets on reload, exports through the versioned diagnostics allowlist and
-  never stores raw payloads, unknown field names or unknown scalar values.
+- Extend opt-in protocol discovery with persistent, host-bound structural
+  history and sampled original MQTT payload bytes. Structural observations stay
+  value-free; raw records use Base64, fixed reason categories, ring/storage
+  limits and a separate privacy-warned diagnostics section. Reloads and HA
+  restarts preserve history; deactivation or host changes clear this feature's
+  data without affecting Alert Capture.
 - Add an independent, disabled-by-default experimental MQTT alert observer. It
   captures opaque host alert payload bytes in private per-entry Home Assistant
   storage with explicit event, payload, storage and diagnostics-export limits.

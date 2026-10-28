@@ -19,6 +19,11 @@ from .alert_capture import (
 )
 from .diagnostics_adapter import collect_diagnostics_inputs
 from .diagnostics_snapshot import build_diagnostics_snapshot
+from .protocol_capture import (
+    ProtocolDiscoveryCapture,
+    build_protocol_capture_export,
+)
+from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
 from .sensor import JackeryDataCoordinator
 
 _FINAL_REDACTION_KEYS = {
@@ -70,12 +75,23 @@ async def async_get_config_entry_diagnostics(
         if capture is None:
             # Diagnostics remain readable for an enabled but currently unloaded
             # entry; this loads the existing store without starting a listener.
-            capture = AlertCapture(
-                hass, entry.entry_id, None, entry.data.get("device_sn")
+            capture = AlertCapture(hass, entry.entry_id, None, entry.data.get("device_sn"))
+            await capture.async_load()
+        redacted_snapshot["experimental_alert_capture"] = build_alert_capture_export(
+            capture.snapshot(), redacted_snapshot
+        )
+    if entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is True:
+        capture = getattr(coordinator, "_protocol_discovery_capture", None)
+        if capture is None:
+            capture = ProtocolDiscoveryCapture(
+                hass,
+                entry.entry_id,
+                entry.data.get("topic_prefix", "hb"),
+                entry.data.get("device_sn"),
             )
             await capture.async_load()
-        redacted_snapshot["experimental_alert_capture"] = (
-            build_alert_capture_export(capture.snapshot(), redacted_snapshot)
+        redacted_snapshot["experimental_protocol_capture"] = build_protocol_capture_export(
+            capture.raw_snapshot(), redacted_snapshot
         )
     return redacted_snapshot
 

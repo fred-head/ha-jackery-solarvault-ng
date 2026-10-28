@@ -31,16 +31,17 @@
         "step": {
             "init": {
                 "title": "Jackery Options",
-                "description": "Reconfigure connection, optional SmartMeter HTTP polling, and developer diagnostics. Experimental alert capture stores bounded raw data that may contain sensitive information.",
+                "description": "Reconfigure connection, optional SmartMeter HTTP polling, and developer diagnostics. Protocol discovery persistently records selected raw MQTT messages; the data may contain sensitive information and should be reviewed before sharing.",
                 "data": {
                     "token": "Token",
                     "topic_prefix": "MQTT Topic Prefix",
                     "smartmeter_http_poll": "Poll SmartMeter via HTTP (voltage, current, reactive power, …)",
                     "smartmeter_poll_interval": "SmartMeter poll interval (seconds)",
-                    "protocol_discovery_enabled": "Enable developer protocol discovery (bounded structural metadata only; no raw MQTT payloads; memory-only and reset on reload)",
+                    "protocol_discovery_enabled": "Experimental protocol discovery with persistent recording of relevant unknown MQTT messages",
                     "alert_capture_enabled": "Experimental MQTT alert capture"
                 },
                 "data_description": {
+                    "protocol_discovery_enabled": "Records bounded structural observations and selected raw MQTT payloads persistently. Raw data may contain sensitive information; review diagnostics carefully before sharing.",
                     "alert_capture_enabled": "Passively records unknown MQTT alert messages locally as bounded raw data. Records may contain sensitive information and should be reviewed before sharing. Recommended for developers and testers only."
                 }
             }

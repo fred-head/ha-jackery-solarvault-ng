@@ -82,6 +82,7 @@ from .protocol.routing import (
 from .protocol.routing import (
     subdevice_serial as _subdevice_sn,
 )
+from .protocol_capture import ProtocolDiscoveryCapture
 from .protocol_discovery import ProtocolDiscoverySnapshot, ProtocolDiscoveryState
 from .registry_identity import (
     build_device_info,
@@ -200,6 +201,7 @@ class JackeryDataCoordinator:
         device_sn: str | None,
         *,
         protocol_discovery_enabled: bool = False,
+        protocol_discovery_capture: ProtocolDiscoveryCapture | None = None,
         alert_capture: AlertCapture | None = None,
     ) -> None:
         self.hass = hass
@@ -221,9 +223,13 @@ class JackeryDataCoordinator:
             start_time=time.time(),
         )
         self._diagnostics_observation = DiagnosticsObservationState()
+        self._protocol_discovery_capture = protocol_discovery_capture
         self._protocol_discovery = (
-            ProtocolDiscoveryState() if protocol_discovery_enabled else None
+            protocol_discovery_capture.state
+            if protocol_discovery_capture is not None
+            else ProtocolDiscoveryState() if protocol_discovery_enabled else None
         )
+        self._protocol_discovery_active = False
         self._alert_capture = alert_capture
         self._alert_capture_active = False
 
@@ -318,6 +324,7 @@ class JackeryDataCoordinator:
             if self._subscribed:
                 return
             self._stop_requested = False
+            self._protocol_discovery_active = self._protocol_discovery_capture is not None
             try:
                 @callback
                 def message_received(msg):
@@ -364,6 +371,7 @@ class JackeryDataCoordinator:
         self._lifecycle_active = False
         self._subscribed = False
         self._alert_capture_active = False
+        self._protocol_discovery_active = False
         errors: list[Exception] = []
         had_subscriptions = self._mqtt_transport.unsubscribe_count > 0
         try:
@@ -383,6 +391,11 @@ class JackeryDataCoordinator:
         if self._alert_capture is not None:
             try:
                 await self._alert_capture.async_flush()
+            except Exception as error:
+                errors.append(error)
+        if self._protocol_discovery_capture is not None:
+            try:
+                await self._protocol_discovery_capture.async_flush()
             except Exception as error:
                 errors.append(error)
         if errors:
@@ -425,13 +438,15 @@ class JackeryDataCoordinator:
 
             try:
                 parsed = parse_envelope(msg.payload)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._capture_invalid_protocol_message(topic, sn, msg)
                 self._diagnostics_observation.record_protocol_error(
                     ProtocolErrorBucket.INVALID_JSON
                 )
                 _LOGGER.warning(f"Invalid JSON payload on {topic}")
                 return
             if parsed is None:
+                self._capture_invalid_protocol_message(topic, sn, msg)
                 self._diagnostics_observation.record_protocol_error(
                     ProtocolErrorBucket.INVALID_ENVELOPE
                 )
@@ -448,7 +463,29 @@ class JackeryDataCoordinator:
             # Discovery observes only host-owned, parsed and structurally accepted
             # envelopes.  It cannot affect routing or any operational state.
             protocol_discovery = self._protocol_discovery
-            if protocol_discovery is not None:
+            protocol_capture = getattr(self, "_protocol_discovery_capture", None)
+            if (
+                protocol_capture is not None
+                and getattr(self, "_protocol_discovery_active", False)
+                and self._device_sn == sn
+            ):
+                try:
+                    protocol_capture.observe(
+                        topic=topic,
+                        payload=getattr(msg, "payload", None),
+                        raw_envelope=parsed.raw_data,
+                        body=parsed.body,
+                        message_type=parsed.decision.message_type,
+                        now=received_at,
+                        qos=getattr(msg, "qos", None),
+                        retain=getattr(msg, "retain", None),
+                    )
+                except Exception:
+                    _LOGGER.warning(
+                        "Protocol discovery capture failed for entry %s",
+                        self.config_entry_id,
+                    )
+            elif protocol_discovery is not None:
                 protocol_discovery.observe(
                     parsed.raw_data,
                     parsed.body,
@@ -492,6 +529,30 @@ class JackeryDataCoordinator:
                 ProtocolErrorBucket.HANDLER_ERROR
             )
             _LOGGER.error(f"Error handling message: {e}")
+
+    def _capture_invalid_protocol_message(self, topic: str, sn: str, msg: Any) -> None:
+        """Capture malformed bytes only for a configured, exact host topic."""
+        capture = getattr(self, "_protocol_discovery_capture", None)
+        if (
+            not getattr(self, "_protocol_discovery_active", False)
+            or capture is None
+            or self._device_sn is None
+            or self._device_sn != sn
+        ):
+            return
+        try:
+            capture.observe_invalid(
+                topic=topic,
+                payload=getattr(msg, "payload", None),
+                now=time.time(),
+                qos=getattr(msg, "qos", None),
+                retain=getattr(msg, "retain", None),
+            )
+        except Exception:
+            _LOGGER.warning(
+                "Protocol discovery capture failed for entry %s",
+                self.config_entry_id,
+            )
 
     def _apply_message_route(
         self,

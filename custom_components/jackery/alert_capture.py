@@ -9,8 +9,6 @@ from __future__ import annotations
 
 import base64
 import binascii
-import hashlib
-import json
 from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import Any, Final
@@ -19,6 +17,8 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.storage import Store
 
 from . import DOMAIN
+from .capture_storage import async_remove_store_without_save_race, host_fingerprint
+from .capture_storage import compact_size as _compact_size
 
 OPTION_ALERT_CAPTURE_ENABLED: Final = "alert_capture_enabled"
 ALERT_CAPTURE_VERSION: Final = 1
@@ -27,7 +27,7 @@ MAX_ALERT_PAYLOAD_BYTES: Final = 4 * 1024
 MAX_ALERT_STORAGE_BYTES: Final = 256 * 1024
 MAX_ALERT_TOPIC_BYTES: Final = 512
 MAX_ALERT_EXPORT_BYTES: Final = 24 * 1024
-MAX_TOTAL_DIAGNOSTICS_BYTES: Final = 64 * 1024 + MAX_ALERT_EXPORT_BYTES
+MAX_TOTAL_DIAGNOSTICS_BYTES: Final = 64 * 1024 + 2 * MAX_ALERT_EXPORT_BYTES
 ALERT_SAVE_DELAY_SECONDS: Final = 1.0
 ALERT_TOPIC_ALIAS: Final = "{prefix}/device/{host}/alert"
 _MAX_COUNTER: Final = 2_147_483_647
@@ -65,39 +65,13 @@ def build_alert_topic(topic_prefix: object, device_sn: object) -> str | None:
 
 def _host_identity(device_sn: object) -> str | None:
     """Return a stable SHA-256 fingerprint for a valid configured host."""
-    if (
-        not isinstance(device_sn, str)
-        or not device_sn
-        or device_sn != device_sn.strip()
-        or any(
-            character in "/+#\x00" or ord(character) < 32 or ord(character) == 127
-            for character in device_sn
-        )
-    ):
-        return None
-    try:
-        encoded = device_sn.encode("utf-8")
-    except UnicodeEncodeError:
-        return None
-    return hashlib.sha256(b"jackery-alert-host-v1\0" + encoded).hexdigest()
+    return host_fingerprint(device_sn, "jackery-alert-host-v1")
 
 
 def _counter(value: object) -> int:
     if type(value) is not int:
         return 0
     return min(_MAX_COUNTER, max(0, value))
-
-
-def _compact_size(value: Any) -> int:
-    return len(
-        json.dumps(
-            value,
-            allow_nan=False,
-            ensure_ascii=False,
-            separators=(",", ":"),
-            sort_keys=True,
-        ).encode("utf-8")
-    )
 
 
 def _validated_event(value: object) -> dict[str, Any] | None:
@@ -293,8 +267,7 @@ class AlertCapture:
         self._truncated_count = 0
         # Saving the empty state first waits for an already-running delayed
         # write and cancels its timer. The subsequent remove is then final.
-        await self._store.async_save(self._serialize())
-        await self._store.async_remove()
+        await async_remove_store_without_save_race(self._store, self._serialize())
 
     def _schedule_save(self) -> None:
         self._store.async_delay_save(self._serialize, delay=ALERT_SAVE_DELAY_SECONDS)

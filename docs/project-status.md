@@ -11,7 +11,7 @@ and architecture documents remain authoritative.
 | Status | Area | Summary |
 | --- | --- | --- |
 | Done | Foundation modernization | Phase 1/2 separated calculations, protocol normalization and routing, device classification, runtime state, commands, transports, discovery, and entity concerns while preserving compatibility. |
-| Done | Phase 3 | Privacy-bounded Home Assistant diagnostics and opt-in, memory-only structural protocol discovery are complete. |
+| Done | Phase 3 | Privacy-bounded Home Assistant diagnostics and opt-in persistent structural discovery with sampled raw MQTT examples are complete. |
 | Done | P4.1 correctness | Receipt-time arbitration now preserves a newer explicit live on-grid zero over an older Type-106 alias. |
 | Done | Upstream audit | 11 Community and 43 Official delta commits were classified semantically; no upstream code was imported. |
 | Done | Group A1 host/child admission | The configured host serial is rejected at the shared child-array admission boundary before cache, freshness, discovery or entity state. |
@@ -151,7 +151,8 @@ work, and no private reverse-engineering details belong in this public status.
 - Keep one authoritative owner for each runtime state.
 - Keep transport, protocol, calculation, and Home Assistant concerns separated.
 - Preserve the diagnostics allowlist, aliases, size bound, and privacy boundary.
-- Keep protocol discovery opt-in, read-only, bounded, and memory-only.
+- Keep protocol discovery opt-in, read-only, host-bound and bounded; sample raw
+  payloads only for relevant findings and expose them only in warned diagnostics.
 - Keep child identity host-bound and migration conflict-safe.
 - Determine freshness from accepted evidence rather than cache presence.
 - Do not introduce global mutable runtime state.

@@ -33,6 +33,10 @@ from custom_components.jackery.diagnostics_observation import (
 )
 from custom_components.jackery.diagnostics_snapshot import TOP_LEVEL_SECTIONS
 from custom_components.jackery.identity import child_device_identifier
+from custom_components.jackery.protocol_capture import (
+    MAX_PROTOCOL_EXPORT_BYTES,
+    ProtocolDiscoveryCapture,
+)
 from custom_components.jackery.sensor import JackeryDataCoordinator
 
 pytestmark = pytest.mark.usefixtures("enable_custom_integrations")
@@ -545,6 +549,84 @@ async def test_alert_capture_is_a_separate_opt_in_diagnostics_extension(
     assert "mqtt/private/topic" not in _serialized(active_snapshot)
     assert "SERIAL_RAW_CANARY" not in caplog.text
     assert _compact_size(active_snapshot) <= MAX_TOTAL_DIAGNOSTICS_BYTES
+
+
+async def test_both_raw_capture_extensions_are_bounded_and_separately_versioned(
+    hass,
+    monkeypatch,
+) -> None:
+    entry = _entry(hass, host="HOST_SERIAL_CANARY", entry_id="both-captures-entry")
+    hass.config_entries.async_update_entry(
+        entry,
+        options={
+            **entry.options,
+            "alert_capture_enabled": True,
+            "protocol_discovery_enabled": True,
+        },
+    )
+    coordinator = _coordinator(hass, entry, host="HOST_SERIAL_CANARY")
+    monkeypatch.setattr(diagnostics_module.time, "time", lambda: NOW)
+
+    protocol_topic = "mqtt/private/topic/device/HOST_SERIAL_CANARY/status"
+    protocol = ProtocolDiscoveryCapture(
+        hass,
+        entry.entry_id,
+        "mqtt/private/topic",
+        "HOST_SERIAL_CANARY",
+    )
+    await protocol.async_load()
+    for index in range(8):
+        assert protocol.observe_invalid(
+            topic=protocol_topic,
+            payload=f"protocol-{index}-".encode() + b"p" * 4_000,
+            now=NOW + index * 3600,
+            qos=1,
+            retain=False,
+        )
+    await protocol.async_flush()
+
+    alert_topic = "mqtt/private/topic/device/HOST_SERIAL_CANARY/alert"
+    alert = AlertCapture(hass, entry.entry_id, alert_topic, "HOST_SERIAL_CANARY")
+    await alert.async_load()
+    for index in range(5):
+        assert alert.observe(
+            topic=alert_topic,
+            payload=f"alert-{index}-".encode() + b"a" * 4_000,
+            qos=1,
+            retain=False,
+        )
+    await alert.async_flush()
+
+    coordinator._protocol_discovery_capture = protocol
+    coordinator._protocol_discovery = protocol.state
+    coordinator._alert_capture = alert
+    snapshot = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert tuple(snapshot) == (
+        *TOP_LEVEL_SECTIONS,
+        "experimental_alert_capture",
+        "experimental_protocol_capture",
+    )
+    assert tuple(key for key in snapshot if key in TOP_LEVEL_SECTIONS) == TOP_LEVEL_SECTIONS
+    alert_export = snapshot["experimental_alert_capture"]
+    protocol_export = snapshot["experimental_protocol_capture"]
+    assert alert_export["capture_version"] == 1
+    assert protocol_export["capture_version"] == 1
+    assert protocol_export["discovery_version"] == 1
+    assert alert_export["privacy_warning"]
+    assert protocol_export["privacy_warning"]
+    assert alert_export["events"][0]["topic"] == "{prefix}/device/{host}/alert"
+    assert protocol_export["events"][0]["topic"] == "{prefix}/device/{host}/status"
+    assert protocol_export["events"][0]["discovery_reason"] == "invalid_envelope"
+    assert base64.b64decode(protocol_export["events"][0]["payload_base64"]).startswith(
+        b"protocol-"
+    )
+    assert _compact_size(alert_export) <= 24 * 1024
+    assert _compact_size(protocol_export) <= MAX_PROTOCOL_EXPORT_BYTES
+    assert _compact_size(snapshot) <= MAX_TOTAL_DIAGNOSTICS_BYTES
+    assert protocol_export["export_omitted_count"] > 0
+    assert "HOST_SERIAL_CANARY" not in _serialized(snapshot)
+    assert "mqtt/private/topic" not in _serialized(snapshot)
 
 
 async def test_task_lifecycle_is_normalized_without_task_details(

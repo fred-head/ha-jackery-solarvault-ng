@@ -28,6 +28,7 @@ from custom_components.jackery.diagnostics_snapshot import (
     ProtocolDiscoveryDiagnosticsInput,
     build_diagnostics_snapshot,
 )
+from custom_components.jackery.protocol_capture import ProtocolDiscoveryCapture
 from custom_components.jackery.protocol_discovery import (
     DISCOVERY_DETAIL_BUDGET_BYTES,
     MAX_DEVICE_TYPE_BUCKETS,
@@ -448,7 +449,9 @@ def test_disabled_hot_path_has_no_state_and_enabled_mode_preserves_runtime(
 
 def test_disabled_mode_never_calls_structural_summarizer(hass, monkeypatch) -> None:
     observe = Mock(side_effect=AssertionError("summarizer must remain cold"))
+    raw_observe = Mock(side_effect=AssertionError("raw recorder must remain cold"))
     monkeypatch.setattr(ProtocolDiscoveryState, "observe", observe)
+    monkeypatch.setattr(ProtocolDiscoveryCapture, "observe", raw_observe)
     coordinator = JackeryDataCoordinator(
         hass,
         "hb",
@@ -464,6 +467,7 @@ def test_disabled_mode_never_calls_structural_summarizer(hass, monkeypatch) -> N
     _receive(coordinator, 147, {"unknown": {"nested": [1, 2, 3]}})
 
     observe.assert_not_called()
+    raw_observe.assert_not_called()
     assert coordinator._protocol_discovery is None
     assert coordinator.protocol_discovery_snapshot() is None
     assert coordinator._data_cache["batSoc"] == 50
