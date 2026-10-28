@@ -12,6 +12,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.loader import async_get_integration
 
 from . import DOMAIN
+from .alert_capture import (
+    OPTION_ALERT_CAPTURE_ENABLED,
+    AlertCapture,
+    build_alert_capture_export,
+)
 from .diagnostics_adapter import collect_diagnostics_inputs
 from .diagnostics_snapshot import build_diagnostics_snapshot
 from .sensor import JackeryDataCoordinator
@@ -59,7 +64,18 @@ async def async_get_config_entry_diagnostics(
         now=now,
     )
     snapshot = build_diagnostics_snapshot(inputs, now=now)
-    return async_redact_data(snapshot, _FINAL_REDACTION_KEYS)
+    redacted_snapshot = async_redact_data(snapshot, _FINAL_REDACTION_KEYS)
+    if entry.options.get(OPTION_ALERT_CAPTURE_ENABLED) is True:
+        capture = getattr(coordinator, "_alert_capture", None)
+        if capture is None:
+            # Diagnostics remain readable for an enabled but currently unloaded
+            # entry; this loads the existing store without starting a listener.
+            capture = AlertCapture(hass, entry.entry_id, None)
+            await capture.async_load()
+        redacted_snapshot["experimental_alert_capture"] = (
+            build_alert_capture_export(capture.snapshot(), redacted_snapshot)
+        )
+    return redacted_snapshot
 
 
 __all__ = ["async_get_config_entry_diagnostics"]

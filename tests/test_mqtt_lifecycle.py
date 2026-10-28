@@ -19,6 +19,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.jackery import DOMAIN, PLATFORMS
 from custom_components.jackery import sensor as sensor_module
+from custom_components.jackery.alert_capture import AlertCapture
 from custom_components.jackery.sensor import (
     OFFLINE_TIMEOUT,
     SMARTMETER_HTTP_SENSOR_CONFIGS,
@@ -113,6 +114,7 @@ DEFAULT_OPTIONS = {
     "smartmeter_http_poll": True,
     "smartmeter_poll_interval": 10,
     "protocol_discovery_enabled": False,
+    "alert_capture_enabled": False,
 }
 
 
@@ -996,6 +998,158 @@ async def test_options_protocol_discovery_toggle_resets_runtime(hass, entries):
     assert replacement is not enabled
     assert replacement._protocol_discovery is None
     assert old_state is enabled._protocol_discovery
+
+
+async def test_alert_capture_option_is_exact_passive_persistent_and_independent(
+    hass,
+    entries,
+):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    disabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert disabled._alert_capture is None
+    assert len(broker.active) == 2
+
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ) as reload:
+        await submit_options(
+            hass,
+            entry,
+            alert_capture_enabled=True,
+            protocol_discovery_enabled=True,
+        )
+    enabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert entry.options["alert_capture_enabled"] is True
+    assert enabled._alert_capture is not None
+    assert enabled._protocol_discovery is not None
+    alert_topic = "hb/device/HOST_A/alert"
+    assert {record.topic for record in broker.active} == {
+        "hb/device/HOST_A/status",
+        "hb/device/HOST_A/event",
+        alert_topic,
+    }
+    alert_record = next(record for record in broker.active if record.topic == alert_topic)
+
+    state_before = dict(enabled._data_cache)
+    last_update_before = enabled._last_update_time
+    ever_received_before = enabled._ever_received
+    broker.publish_attempts.clear()
+    alert_record.callback(
+        SimpleNamespace(
+            topic=alert_topic,
+            payload=b"{unknown alert payload",
+            qos=1,
+            retain=False,
+        )
+    )
+    assert enabled._alert_capture.snapshot()["total_received"] == 1
+    assert enabled._data_cache == state_before
+    assert enabled._last_update_time == last_update_before
+    assert enabled._ever_received is ever_received_before
+    assert not enabled._reauth_started
+    assert broker.publish_attempts == []
+
+    # The callback also checks exact topic equality, independently of broker
+    # subscription matching, and does not adopt another device or prefix.
+    alert_record.callback(
+        SimpleNamespace(
+            topic="hb/device/FOREIGN/alert",
+            payload=b"foreign host",
+            qos=0,
+            retain=False,
+        )
+    )
+    alert_record.callback(
+        SimpleNamespace(
+            topic="other/device/HOST_A/alert",
+            payload=b"foreign prefix",
+            qos=0,
+            retain=False,
+        )
+    )
+    assert enabled._alert_capture.snapshot()["total_received"] == 1
+
+    old_handles = list(broker.active)
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ) as reload:
+        await submit_options(
+            hass,
+            entry,
+            topic_prefix="newroot",
+            alert_capture_enabled=True,
+            protocol_discovery_enabled=True,
+        )
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert {record.topic for record in broker.active} == {
+        "newroot/device/HOST_A/status",
+        "newroot/device/HOST_A/event",
+        "newroot/device/HOST_A/alert",
+    }
+    assert all(not record.active and record.remove.call_count == 1 for record in old_handles)
+    assert replacement._alert_capture.snapshot()["stored_count"] == 1
+    assert replacement._alert_capture.snapshot()["total_received"] == 1
+    assert replacement._protocol_discovery is not None
+
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ) as reload:
+        await submit_options(
+            hass,
+            entry,
+            alert_capture_enabled=False,
+            protocol_discovery_enabled=True,
+        )
+    final = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert final._alert_capture is None
+    assert final._protocol_discovery is not None
+    assert entry.options["alert_capture_enabled"] is False
+    assert not any(record.topic.endswith("/alert") for record in broker.active)
+    assert all(
+        not record.active and record.remove.call_count == 1
+        for record in broker.records
+        if record.topic.endswith("/alert")
+    )
+    cleared = AlertCapture(hass, entry.entry_id, None)
+    await cleared.async_load()
+    assert cleared.snapshot()["stored_count"] == 0
+
+
+async def test_alert_subscribe_partial_failure_unwinds_all_callbacks(hass, monkeypatch):
+    broker = Subscriptions()
+    monkeypatch.setattr("homeassistant.components.mqtt.async_subscribe", broker.subscribe)
+    capture = AlertCapture(hass, "alert-subscribe-failure", "hb/device/HOST_A/alert")
+    await capture.async_load()
+    coordinator = JackeryDataCoordinator(
+        hass,
+        "hb",
+        "synthetic",
+        "localhost",
+        "HOST_A",
+        alert_capture=capture,
+    )
+    monkeypatch.setattr(coordinator, "_periodic_data_request", idle)
+    broker.fail_at = 3
+
+    with pytest.raises(HomeAssistantError, match="subscribe failure"):
+        await coordinator.async_start()
+
+    assert not broker.active
+    assert [record.topic for record in broker.records] == [
+        "hb/device/HOST_A/status",
+        "hb/device/HOST_A/event",
+    ]
+    assert all(record.remove.call_count == 1 for record in broker.records)
+    assert not coordinator._alert_capture_active
+    assert not coordinator._subscribed
+    assert broker.publish_attempts == []
 
 
 async def test_options_noop_does_not_reload(hass, entries):

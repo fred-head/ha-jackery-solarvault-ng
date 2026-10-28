@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import inspect
 import json
 from copy import deepcopy
@@ -17,6 +18,11 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.jackery import DOMAIN
 from custom_components.jackery import diagnostics as diagnostics_module
+from custom_components.jackery.alert_capture import (
+    MAX_TOTAL_DIAGNOSTICS_BYTES,
+    AlertCapture,
+    _compact_size,
+)
 from custom_components.jackery.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -492,6 +498,53 @@ async def test_diagnostics_collection_has_no_runtime_or_registry_side_effects(
     assert coordinator.diagnostics_observation() == observation_before
     assert coordinator._sensors == listeners_before
     assert asyncio.all_tasks() == tasks_before
+
+
+async def test_alert_capture_is_a_separate_opt_in_diagnostics_extension(
+    hass,
+    monkeypatch,
+    caplog,
+) -> None:
+    entry = _entry(hass, host="HOST_SERIAL_CANARY", entry_id="alert-export-entry")
+    coordinator = _coordinator(hass, entry, host="HOST_SERIAL_CANARY")
+    monkeypatch.setattr(diagnostics_module.time, "time", lambda: NOW)
+    normal_snapshot = await async_get_config_entry_diagnostics(hass, entry)
+    assert tuple(normal_snapshot) == TOP_LEVEL_SECTIONS
+
+    hass.config_entries.async_update_entry(
+        entry,
+        options={**entry.options, "alert_capture_enabled": True},
+    )
+    topic = "mqtt/private/topic/device/HOST_SERIAL_CANARY/alert"
+    capture = AlertCapture(hass, entry.entry_id, topic)
+    await capture.async_load()
+    raw_payload = b'{"deviceSn":"SERIAL_RAW_CANARY","unknown":true}'
+    capture.observe(
+        topic=topic,
+        payload=raw_payload,
+        qos=1,
+        retain=False,
+    )
+    coordinator._alert_capture = capture
+
+    active_snapshot = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert tuple(active_snapshot) == (*TOP_LEVEL_SECTIONS, "experimental_alert_capture")
+    assert {
+        key: value for key, value in active_snapshot.items() if key in TOP_LEVEL_SECTIONS
+    } == normal_snapshot
+    alert_section = active_snapshot["experimental_alert_capture"]
+    assert alert_section["enabled"] is True
+    assert alert_section["stored_count"] == 1
+    event = alert_section["events"][0]
+    assert event["topic"] == "{prefix}/device/{host}/alert"
+    assert event["payload_encoding"] == "base64"
+    assert base64.b64decode(event["payload_base64"]) == raw_payload
+    assert "SERIAL_RAW_CANARY" not in _serialized(active_snapshot)
+    assert "HOST_SERIAL_CANARY" not in _serialized(active_snapshot)
+    assert "mqtt/private/topic" not in _serialized(active_snapshot)
+    assert "SERIAL_RAW_CANARY" not in caplog.text
+    assert _compact_size(active_snapshot) <= MAX_TOTAL_DIAGNOSTICS_BYTES
 
 
 async def test_task_lifecycle_is_normalized_without_task_details(

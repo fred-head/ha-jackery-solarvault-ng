@@ -9,6 +9,7 @@ from homeassistant import config_entries
 from homeassistant.components import mqtt
 
 from . import DOMAIN
+from .alert_capture import OPTION_ALERT_CAPTURE_ENABLED
 from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
 
 _LOGGER = logging.getLogger(__name__)
@@ -116,6 +117,9 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 OPTION_PROTOCOL_DISCOVERY_ENABLED: user_input[
                     OPTION_PROTOCOL_DISCOVERY_ENABLED
                 ],
+                OPTION_ALERT_CAPTURE_ENABLED: user_input[
+                    OPTION_ALERT_CAPTURE_ENABLED
+                ],
             }
             options_changed = any(
                 new_options[key] != current_options.get(key, default)
@@ -123,6 +127,7 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     ("smartmeter_http_poll", False),
                     ("smartmeter_poll_interval", DEFAULT_SMARTMETER_POLL_INTERVAL),
                     (OPTION_PROTOCOL_DISCOVERY_ENABLED, False),
+                    (OPTION_ALERT_CAPTURE_ENABLED, False),
                 )
             )
             data_updates: dict[str, Any] = {}
@@ -162,6 +167,10 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     default=current_options.get(
                         OPTION_PROTOCOL_DISCOVERY_ENABLED, False
                     ),
+                ): bool,
+                vol.Required(
+                    OPTION_ALERT_CAPTURE_ENABLED,
+                    default=current_options.get(OPTION_ALERT_CAPTURE_ENABLED, False),
                 ): bool,
             }
         )

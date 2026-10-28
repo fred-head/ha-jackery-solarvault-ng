@@ -31,13 +31,17 @@
         "step": {
             "init": {
                 "title": "Jackery Optionen",
-                "description": "Verbindung, optionales SmartMeter-HTTP-Polling und Entwicklerdiagnose konfigurieren.",
+                "description": "Verbindung, optionales SmartMeter-HTTP-Polling und Entwicklerdiagnose konfigurieren. Die experimentelle Alert-Aufzeichnung speichert begrenzte Rohdaten, die vertrauliche Informationen enthalten können.",
                 "data": {
                     "token": "Token",
                     "topic_prefix": "MQTT-Topic-Präfix",
                     "smartmeter_http_poll": "SmartMeter per HTTP abfragen (Spannung, Strom, Blindleistung, …)",
                     "smartmeter_poll_interval": "SmartMeter-Abfrageintervall (Sekunden)",
-                    "protocol_discovery_enabled": "Entwickler-Protokollerkennung aktivieren (nur begrenzte Strukturinformationen; keine MQTT-Rohdaten; nur im Arbeitsspeicher und bei Reload zurückgesetzt)"
+                    "protocol_discovery_enabled": "Entwickler-Protokollerkennung aktivieren (nur begrenzte Strukturinformationen; keine MQTT-Rohdaten; nur im Arbeitsspeicher und bei Reload zurückgesetzt)",
+                    "alert_capture_enabled": "Experimentelle MQTT-Alert-Aufzeichnung"
+                },
+                "data_description": {
+                    "alert_capture_enabled": "Zeichnet unbekannte MQTT-Alert-Nachrichten passiv und lokal als begrenzte Rohdaten auf. Die Daten können vertrauliche Informationen enthalten und sind vor dem Teilen zu prüfen. Nur für Entwickler und Tester empfohlen."
                 }
             }
         }
