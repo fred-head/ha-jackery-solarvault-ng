@@ -19,6 +19,15 @@ from .identity import (
     parse_child_device_identifier,
     parse_child_unique_id,
 )
+from .registry_identity import (
+    device_owned_by_entry,
+    device_parent_id,
+    device_references_entry,
+    find_devices_by_identifier,
+    get_device_by_id,
+    iter_all_devices,
+    update_device_identifiers,
+)
 
 _LOGGER = logging.getLogger(__name__)
 _FAMILIES = {
@@ -26,6 +35,18 @@ _FAMILIES = {
     "collector": "collector", "plug": "plug",
 }
 _PREFIXES = {**{family: family for family in _FAMILIES}, "SmartMeter": "smartmeter", "Battery": "battery"}
+_OFFICIAL_TYPE3_CT_KEYS = {
+    "powertotalforward": "import_total",
+    "poweraforward": "import_l1",
+    "powerbforward": "import_l2",
+    "powercforward": "import_l3",
+    "powertotalreverse": "export_total",
+    "powerareverse": "export_l1",
+    "powerbreverse": "export_l2",
+    "powercreverse": "export_l3",
+    "energyforward": "import_energy_total",
+    "energyreverse": "export_energy_total",
+}
 
 
 @dataclass
@@ -122,6 +143,65 @@ def _official_device_serial(
     return raw_serial
 
 
+def _is_official_type3_ct_device(
+    device: dr.DeviceEntry | None,
+    devices: dr.DeviceRegistry,
+    host: str,
+    serial: str,
+    linked_entities: list[er.RegistryEntry],
+) -> bool:
+    """Require Official Type 3 registry evidence and its exact main parent."""
+    if device is None:
+        return False
+    official_identifier = (DOMAIN, f"sub_{host}_{serial}")
+    own_identifiers = {(domain, identifier) for domain, identifier in device.identifiers if domain == DOMAIN}
+    if own_identifiers != {official_identifier}:
+        return False
+
+    child_entry_type = getattr(dr, "ChildDeviceEntry", None)
+    modern_child = isinstance(child_entry_type, type) and isinstance(device, child_entry_type)
+    if modern_child:
+        # Modern HA's child registry intentionally does not store model or
+        # manufacturer. Require all ten observed Official identities instead
+        # of guessing devType from a serial or a display name.
+        prefix = f"jackery_{host}_ct_{serial}_"
+        observed_suffixes = {
+            entity.unique_id.removeprefix(prefix)
+            for entity in linked_entities
+            if entity.domain == "sensor"
+            and entity.platform == DOMAIN
+            and entity.unique_id.startswith(prefix)
+        }
+        if observed_suffixes != set(_OFFICIAL_TYPE3_CT_KEYS):
+            return False
+    elif getattr(device, "model", None) != "Sub-device Type 3" or getattr(device, "manufacturer", None) != "Jackery":
+        return False
+
+    parent_id = device_parent_id(device)
+    if parent_id is None:
+        return False
+    parent = get_device_by_id(devices, parent_id)
+    # The caller's full preflight separately verifies exclusive ConfigEntry
+    # ownership for every non-null parent before any plan can be applied.
+    return bool(
+        parent
+        and (DOMAIN, host) in parent.identifiers
+    )
+
+
+def _official_type3_ct_target(uid: str, host: str, serial: str) -> str | None:
+    """Translate only the ten observed Official Type 3 CT identities."""
+    prefix = f"jackery_{host}_ct_{serial}_"
+    if not uid.startswith(prefix):
+        return None
+    sensor_key = _OFFICIAL_TYPE3_CT_KEYS.get(uid.removeprefix(prefix))
+    if sensor_key is None:
+        return None
+    # This matches JackerySubDeviceSensor: family ``smartmeter`` and a key with
+    # underscores removed, both passed through the production identity helper.
+    return child_unique_id(host, serial, "smartmeter", sensor_key.replace("_", ""))
+
+
 def _known_field(domain: str, family: str, key: str, keys: dict[str, set[str]], http_keys: set[str]) -> bool:
     """Use the same HA domain and canonical field tokens as entity creation."""
     return (
@@ -175,8 +255,10 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
     child_devices: dict[str, list[dr.DeviceEntry]] = {}
     child_entities: dict[str, dict[str, er.RegistryEntry]] = {}
     main_identifiers = {(DOMAIN, host), (DOMAIN, entry.entry_id)}
-    main_target = devices.async_get_device(identifiers={(DOMAIN, host)})
-    if parse_child_device_identifier(host) and main_target and main_target.config_entries != {entry.entry_id}:
+    main_targets = find_devices_by_identifier(devices, (DOMAIN, host))
+    if parse_child_device_identifier(host) and main_targets and (
+        len(main_targets) != 1 or not device_owned_by_entry(main_targets[0], entry.entry_id)
+    ):
         _conflict(result, entry.entry_id, None, "main-child-namespace-conflict")
         raise ConfigEntryError(
             "The configured host identity overlaps an existing child owned by another entry. "
@@ -196,7 +278,9 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
     # Also inspect foreign new-format targets for this host, before HA can claim
     # them through entity device_info on setup. Foreign legacy children remain
     # available for their actual owner's later migration to a different namespace.
-    for device in devices.devices.values():
+    # Include foreign records as well: their identifiers can occupy a target
+    # even though scoped ownership prevents this entry from claiming them.
+    for device in iter_all_devices(devices):
         identifiers = [identifier for domain, identifier in device.identifiers if domain == DOMAIN]
         linked_entities = list(
             er.async_entries_for_device(entities, device.id, include_disabled_entities=True)
@@ -206,7 +290,7 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
         if device.identifiers.intersection(main_identifiers) and len(identifiers) == 1:
             continue
         scoped = [decoded_device for identifier in identifiers if (decoded_device := parse_child_device_identifier(identifier))]
-        if entry.entry_id not in device.config_entries and device.id not in referenced and not any(h == host for h, _ in scoped):
+        if not device_references_entry(device, entry.entry_id) and device.id not in referenced and not any(h == host for h, _ in scoped):
             continue
         serials = {
             _official_device_serial(identifier[len("sub_"):], host, linked_entities)
@@ -230,13 +314,18 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
         child_devices.setdefault(serial, []).append(device)
         child_entities.setdefault(serial, {}).update({e.entity_id: e for e in linked_entities})
         result.protected_entities.update(child_entities[serial])
-        if device.config_entries != {entry.entry_id}:
+        if not device_owned_by_entry(device, entry.entry_id):
             _conflict(result, entry.entry_id, serial, "foreign-or-shared-device")
         if any(h != host for h, _ in scoped):
             _conflict(result, entry.entry_id, serial, "host-identifier-mismatch")
-        if device.via_device_id:
-            parent = devices.async_get(device.via_device_id)
-            if parent is None or parent.config_entries != {entry.entry_id} or not parent.identifiers.intersection({(DOMAIN, host), (DOMAIN, entry.entry_id)}):
+        parent_id = device_parent_id(device)
+        if parent_id:
+            parent = get_device_by_id(devices, parent_id)
+            if (
+                parent is None
+                or not device_owned_by_entry(parent, entry.entry_id)
+                or not parent.identifiers.intersection({(DOMAIN, host), (DOMAIN, entry.entry_id)})
+            ):
                 _conflict(result, entry.entry_id, serial, "parent-ownership-mismatch")
 
     # Resolve unlinked records conservatively as well: leaving one legacy record
@@ -245,7 +334,7 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
         if entity.platform != DOMAIN or entity.device_id in by_device:
             continue
         uid = entity.unique_id
-        linked_device = devices.async_get(entity.device_id) if entity.device_id else None
+        linked_device = get_device_by_id(devices, entity.device_id) if entity.device_id else None
         if linked_device and linked_device.identifiers.intersection(main_identifiers):
             # The registry link disambiguates a main host named e.g. "plug"
             # from a legacy plug prefix. Unlinked ambiguous records are refused.
@@ -294,9 +383,13 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
             _conflict(result, entry.entry_id, serial, "duplicate-device-target")
             continue
         planned_device = associated[0] if associated else None
+        official_type3_ct = _is_official_type3_ct_device(
+            planned_device, devices, host, serial,
+            list(child_entities.get(serial, {}).values()),
+        )
         target_identifier = (DOMAIN, child_device_identifier(host, serial))
-        target_device = devices.async_get_device(identifiers={target_identifier})
-        if target_device is not None and (planned_device is None or target_device.id != planned_device.id):
+        target_devices = find_devices_by_identifier(devices, target_identifier)
+        if any(planned_device is None or target.id != planned_device.id for target in target_devices):
             _conflict(result, entry.entry_id, serial, "device-target-conflict")
         updates = []
         targets: set[tuple[str, str, str]] = set()
@@ -306,7 +399,15 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
                 continue
             uid = entity.unique_id
             parsed = parse_child_unique_id(uid)
-            if parsed:
+            official_ct_target = (
+                _official_type3_ct_target(uid, host, serial)
+                if official_type3_ct and entity.domain == "sensor"
+                else None
+            )
+            target: str | None
+            if official_ct_target is not None:
+                target = official_ct_target
+            elif parsed:
                 h, c, family, key = parsed
                 valid = h == host and c == serial and _known_field(entity.domain, family, key, keys, http_keys)
                 target = uid if valid else None
@@ -350,9 +451,9 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
         if not result.allows(plan.serial):
             continue
         if plan.device_id:
-            current = devices.async_get(plan.device_id)
+            current = get_device_by_id(devices, plan.device_id)
             if current is not None and current.identifiers != plan.identifiers:
-                devices.async_update_device(plan.device_id, new_identifiers=set(plan.identifiers))
+                update_device_identifiers(devices, current, set(plan.identifiers))
         for entity_id, target in plan.entities:
             entities.async_update_entity(entity_id, new_unique_id=target)
     return result

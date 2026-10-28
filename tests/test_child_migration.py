@@ -14,6 +14,7 @@ from custom_components.jackery.child_migration import migrate_child_identities
 from custom_components.jackery.identity import child_device_identifier, child_unique_id, http_unique_id
 from custom_components.jackery.sensor import SMARTMETER_HTTP_SENSOR_CONFIGS, SUBDEVICE_SENSORS
 
+from .conftest import child_device_info
 from .test_multi_instance_identity import HOSTS, coordinator_for, discover, registry_snapshot
 from .test_multi_instance_identity import registry_entries as registry_entries
 from .test_multi_instance_identity import setup_hosts as setup_hosts
@@ -33,10 +34,20 @@ def snapshot(record, *excluded):
 def seed_child(hass, entry, serial="lower_12:%", family="smartmeter", *, http=False, device_entry=None):
     devices, entities = dr.async_get(hass), er.async_get(hass)
     host = entry.data["device_sn"]
-    parent = devices.async_get_or_create(config_entry_id=entry.entry_id, identifiers={(DOMAIN, host)})
+    owner = device_entry or entry
+    parent_owner = owner if callable(getattr(devices, "async_get_device_by_identifier", None)) else entry
+    parent = devices.async_get_or_create(config_entry_id=parent_owner.entry_id, identifiers={(DOMAIN, host)})
     device = devices.async_get_or_create(
-        config_entry_id=(device_entry or entry).entry_id, identifiers={(DOMAIN, f"sub_{serial}")},
-        via_device=(DOMAIN, host), name="Original", manufacturer="Jackery", model="Synthetic meter",
+        config_entry_id=owner.entry_id,
+        **child_device_info(
+            hass,
+            owner.entry_id,
+            identifiers={(DOMAIN, f"sub_{serial}")},
+            parent_identifier=(DOMAIN, host),
+            name="Original",
+            manufacturer="Jackery",
+            model="Synthetic meter",
+        ),
         sw_version="1.2", hw_version="3", serial_number=serial,
     )
     assert device.via_device_id == parent.id

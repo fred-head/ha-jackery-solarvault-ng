@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
+from .identity import auto_standby_select_unique_id
 
 if TYPE_CHECKING:
     from .sensor import JackeryDataCoordinator
@@ -62,7 +63,7 @@ class JackeryAutoStandbySelect(SelectEntity):
         self._attr_icon = "mdi:power-sleep"
         self._attr_options = list(_AUTO_STANDBY_OPTIONS.keys())
         self._attr_has_entity_name = True
-        self._attr_unique_id = f"jackery_{device_sn}_auto_standby_select"
+        self._attr_unique_id = auto_standby_select_unique_id(device_sn)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, device_sn)},
             "name": "Jackery",

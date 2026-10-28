@@ -19,6 +19,7 @@ from .entities.transforms import (
     plug_mqtt_control_allowed,
 )
 from .identity import child_device_identifier, child_unique_id
+from .registry_identity import build_device_info
 
 if TYPE_CHECKING:
     from .sensor import JackeryDataCoordinator
@@ -119,13 +120,15 @@ class JackeryPlugSwitch(SwitchEntity):
         self._attr_unique_id = child_unique_id(main_device_id, plug_sn, "plug", "switch")
         self._attr_has_entity_name = True
 
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, child_device_identifier(main_device_id, plug_sn))},
-            "via_device": (DOMAIN, main_device_id),
-            "name": f"Jackery Plug {plug_sn}",
-            "manufacturer": "Jackery",
-            "model": f"Sub-device Type {dev_type}",
-        }
+        self._attr_device_info = build_device_info(
+            getattr(coordinator, "hass", None),
+            config_entry_id,
+            identifiers={(DOMAIN, child_device_identifier(main_device_id, plug_sn))},
+            parent_identifier=(DOMAIN, main_device_id),
+            name=f"Jackery Plug {plug_sn}",
+            manufacturer="Jackery",
+            model=f"Sub-device Type {dev_type}",
+        )
 
     @property
     def should_poll(self) -> bool:

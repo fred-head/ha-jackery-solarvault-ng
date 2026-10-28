@@ -6,7 +6,7 @@ import random
 import time
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.sensor import SensorEntity
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
@@ -54,7 +54,12 @@ from .entities.transforms import COMM_MODE_LABELS as COMM_MODE_LABELS
 from .entities.transforms import COMM_MODE_LOCAL as COMM_MODE_LOCAL
 from .entities.transforms import plug_comm_mode as plug_comm_mode
 from .entities.transforms import plug_mqtt_control_allowed as plug_mqtt_control_allowed
-from .identity import child_device_identifier, child_unique_id, http_unique_id
+from .identity import (
+    child_device_identifier,
+    child_unique_id,
+    http_unique_id,
+    official_work_mode_sensor_unique_id,
+)
 from .protocol.commands import (
     action_topic,
     build_full_state_request,
@@ -77,6 +82,13 @@ from .protocol.routing import (
     subdevice_serial as _subdevice_sn,
 )
 from .protocol_discovery import ProtocolDiscoverySnapshot, ProtocolDiscoveryState
+from .registry_identity import (
+    build_device_info,
+    device_owned_by_entry,
+    find_device_by_identifier,
+    find_devices_by_identifier,
+    find_owned_main_entity,
+)
 from .transport.mqtt import JackeryMqttTransport
 from .transport.smartmeter_http import (
     SmartMeterHttpRequestError,
@@ -725,8 +737,9 @@ class JackeryDataCoordinator:
         registry = dr.async_get(self.hass)
         model = DEVICE_TYPE_MODEL_MAP.get(self._device_type or 0, DEFAULT_MODEL)
         identifier = self._device_sn or self.config_entry_id
-        device = registry.async_get_device(identifiers={(DOMAIN, identifier)})
-        if device and device.config_entries != {self.config_entry_id}:
+        matches = find_devices_by_identifier(registry, (DOMAIN, identifier))
+        device = find_device_by_identifier(registry, (DOMAIN, identifier), self.config_entry_id)
+        if matches and (len(matches) != 1 or device is None or not device_owned_by_entry(device, self.config_entry_id)):
             _LOGGER.warning("Skipping device metadata update: config-entry ownership is ambiguous")
             return
         if device:
@@ -793,8 +806,10 @@ class JackeryDataCoordinator:
             dev_reg = dr.async_get(self.hass)
             # Identifier must match JackerySubDeviceSensor._attr_device_info
             host = self._device_sn or self.config_entry_id
-            device = dev_reg.async_get_device(identifiers={(DOMAIN, child_device_identifier(host, sn))})
-            if device is not None and device.config_entries != {self.config_entry_id}:
+            identifier = (DOMAIN, child_device_identifier(host, sn))
+            matches = find_devices_by_identifier(dev_reg, identifier)
+            device = find_device_by_identifier(dev_reg, identifier, self.config_entry_id)
+            if matches and (len(matches) != 1 or device is None or not device_owned_by_entry(device, self.config_entry_id)):
                 _LOGGER.warning("Skipping child device removal: config-entry ownership is ambiguous")
                 return
             if device is not None:
@@ -1354,7 +1369,7 @@ async def async_setup_entry(
         async_add_entities(new_entities)
     coordinator.add_entities_callback = add_entities_callback
 
-    entities = []
+    entities: list[SensorEntity] = []
     for sensor_id, sensor_config in SENSORS.items():
         if sensor_config.get("json_key") is None:
             continue
@@ -1366,7 +1381,79 @@ async def async_setup_entry(
         )
         entities.append(entity)
 
+    host = coordinator._device_sn
+    if host:
+        legacy_work_mode = find_owned_main_entity(
+            hass,
+            domain="sensor",
+            host=host,
+            platform=DOMAIN,
+            config_entry_id=config_entry.entry_id,
+            unique_id=official_work_mode_sensor_unique_id(host),
+        )
+        if legacy_work_mode is not None:
+            entities.append(JackeryLegacyWorkModeSensor(coordinator, config_entry.entry_id))
+
     async_add_entities(entities)
+
+
+class JackeryLegacyWorkModeSensor(SensorEntity):
+    """Read-only Work Mode sensor retained for an existing Official registry row."""
+
+    _attr_native_value: float | str | None
+
+    def __init__(self, coordinator: JackeryDataCoordinator, config_entry_id: str) -> None:
+        """Initialize using the pinned Official identity and sensor semantics."""
+        self._coordinator = coordinator
+        host = coordinator._device_sn or config_entry_id
+        self._attr_name = "Work Mode"
+        self._attr_icon = "mdi:cog-outline"
+        self._attr_native_unit_of_measurement = None
+        self._attr_device_class = None
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_has_entity_name = True
+        self._attr_unique_id = official_work_mode_sensor_unique_id(host)
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, host)},
+            "name": "Jackery",
+            "manufacturer": "Jackery",
+            "model": DEFAULT_MODEL,
+        }
+
+    @property
+    def should_poll(self) -> bool:
+        """Coordinator data is the only source for this compatibility sensor."""
+        return False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to the existing coordinator fan-out only."""
+        await super().async_added_to_hass()
+        self._coordinator.register_sensor("main_legacy_work_mode", self)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Release the coordinator callback when the entity is unloaded."""
+        self._coordinator.unregister_sensor("main_legacy_work_mode")
+        await super().async_will_remove_from_hass()
+
+    def _update_from_coordinator(self, data: dict) -> None:
+        """Expose normalized ``workMode`` with Official's raw numeric semantics."""
+        value = data.get("workMode")
+        if value is None:
+            return
+        try:
+            self._attr_native_value = float(value)
+        except (TypeError, ValueError):
+            self._attr_native_value = value if isinstance(value, str) else str(value)
+        self._attr_available = True
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Keep the two small attributes exposed by Official's sensor."""
+        return {
+            "device_sn": self._coordinator._device_sn,
+            "raw_key": "workMode",
+        }
 
 
 class JackerySensor(SensorEntity):
@@ -1561,13 +1648,15 @@ class JackerySubDeviceSensor(SensorEntity):
         self._attr_unique_id = child_unique_id(main_device_id, plug_sn, device_name.lower(), safe_key)
         self._attr_has_entity_name = True
 
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, child_device_identifier(main_device_id, plug_sn))},
-            "via_device": (DOMAIN, main_device_id),
-            "name": f"Jackery {device_name} {plug_sn}",
-            "manufacturer": "Jackery",
-            "model": f"Sub-device Type {dev_type}",
-        }
+        self._attr_device_info = build_device_info(
+            getattr(coordinator, "hass", None),
+            config_entry_id,
+            identifiers={(DOMAIN, child_device_identifier(main_device_id, plug_sn))},
+            parent_identifier=(DOMAIN, main_device_id),
+            name=f"Jackery {device_name} {plug_sn}",
+            manufacturer="Jackery",
+            model=f"Sub-device Type {dev_type}",
+        )
 
     @property
     def should_poll(self) -> bool:
@@ -1824,13 +1913,15 @@ class JackerySmartMeterHttpSensor(SensorEntity):
 
         main_device_id = coordinator._device_sn or config_entry_id
         self._attr_unique_id = http_unique_id(main_device_id, sm_sn, sensor_key)
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, child_device_identifier(main_device_id, sm_sn))},
-            "via_device": (DOMAIN, main_device_id),
-            "name": f"Jackery SmartMeter {sm_sn}",
-            "manufacturer": "Jackery",
-            "model": "SmartMeter HTO907A",
-        }
+        self._attr_device_info = build_device_info(
+            getattr(coordinator, "hass", None),
+            config_entry_id,
+            identifiers={(DOMAIN, child_device_identifier(main_device_id, sm_sn))},
+            parent_identifier=(DOMAIN, main_device_id),
+            name=f"Jackery SmartMeter {sm_sn}",
+            manufacturer="Jackery",
+            model="SmartMeter HTO907A",
+        )
 
     @property
     def should_poll(self) -> bool:

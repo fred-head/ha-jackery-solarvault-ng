@@ -48,7 +48,7 @@ SOURCES = {
 
 _CONSTRUCTOR_RUNNER = r'''
 import json
-from custom_components.jackery import sensor, switch
+from custom_components.jackery import button, select, sensor, switch
 
 HOST = "SVHOST0001"
 ENTRY = "01UPGRADEFIXTURE00000000000000"
@@ -82,15 +82,28 @@ def record(role, domain, entity):
         "role": role,
         "domain": domain,
         "unique_id": entity._attr_unique_id,
+        "original_name": getattr(entity, "_attr_name", None),
         "device_info": normalized(entity._attr_device_info),
     }
 
 
 coordinator = Coordinator()
 kind = __KIND__
-entities = [record("main_soc", "sensor", sensor.JackerySensor("battery_soc", coordinator, ENTRY))]
+soc_key = "average_soc" if kind == "official" else "battery_soc"
+entities = [record("main_soc", "sensor", sensor.JackerySensor(soc_key, coordinator, ENTRY))]
 if kind == "official":
+    entities.append(record(
+        "main_auto_standby",
+        "select",
+        select.JackeryAutoStandbySelect(coordinator, ENTRY),
+    ))
+    entities.append(record(
+        "main_work_mode",
+        "sensor",
+        sensor.JackerySensor("work_mode", coordinator, ENTRY),
+    ))
     main_switch = switch.JackeryMainSwitch("swEps", "EPS Output", coordinator, ENTRY)
+    entities.append(record("main_reboot", "button", button.JackeryRebootButton(coordinator, ENTRY)))
 else:
     main_switch = switch.JackeryMainSwitch("swEps", coordinator, ENTRY, name="EPS Output")
 entities.append(record("main_eps_switch", "switch", main_switch))
@@ -109,6 +122,24 @@ if kind == "official":
         coordinator, ENTRY, sensor_group="ct",
     )
     entities.append(record("meter_power", "sensor", meter))
+    official_type3_ct_keys = {
+        "power_total_forward": "ct3_import_total",
+        "power_a_forward": "ct3_import_l1",
+        "power_b_forward": "ct3_import_l2",
+        "power_c_forward": "ct3_import_l3",
+        "power_total_reverse": "ct3_export_total",
+        "power_a_reverse": "ct3_export_l1",
+        "power_b_reverse": "ct3_export_l2",
+        "power_c_reverse": "ct3_export_l3",
+        "energy_forward": "ct3_import_energy_total",
+        "energy_reverse": "ct3_export_energy_total",
+    }
+    for sensor_key, role in official_type3_ct_keys.items():
+        entity = sensor.JackerySubDeviceSensor(
+            "SHELLY0001", 3, sensor_key, sensor.SUBDEVICE_SENSORS["ct"][sensor_key],
+            coordinator, ENTRY, sensor_group="ct",
+        )
+        entities.append(record(role, "sensor", entity))
 else:
     meter = sensor.JackerySubDeviceSensor(
         "METER0001", 3, "import_total",
@@ -147,6 +178,25 @@ CUSTOMIZATIONS = {
         "name": "Backup output",
         "area": "Energy room",
     },
+    "main_auto_standby": {
+        "entity_id": "select.my_auto_standby_mode",
+        "name": "My Auto Standby Mode",
+        "icon": "mdi:sleep",
+        "area": "Energy room",
+    },
+    "main_work_mode": {
+        "entity_id": "sensor.my_work_mode",
+        "name": "My Work Mode",
+        "icon": "mdi:cog-transfer",
+        "area": "Energy room",
+    },
+    "main_reboot": {
+        "entity_id": "button.my_solarvault_reboot",
+        "name": "Restart my SolarVault",
+        "icon": "mdi:restart-alert",
+        "area": "Energy room",
+        "disabled_by": "user",
+    },
     "plug_power": {
         "entity_id": "sensor.workshop_plug_power",
         "name": "Workshop plug power",
@@ -172,6 +222,57 @@ CUSTOMIZATIONS = {
     "collector_power": {
         "entity_id": "sensor.collector_import_power",
         "name": "Collector import power",
+        "area": "Utility room",
+    },
+    "ct3_import_total": {
+        "entity_id": "sensor.shelly_import_total",
+        "name": "Shelly import total",
+        "area": "Utility room",
+    },
+    "ct3_import_l1": {
+        "entity_id": "sensor.shelly_import_l1",
+        "name": "Shelly import L1",
+        "area": "Utility room",
+    },
+    "ct3_import_l2": {
+        "entity_id": "sensor.shelly_import_l2",
+        "name": "Shelly import L2",
+        "area": "Utility room",
+    },
+    "ct3_import_l3": {
+        "entity_id": "sensor.shelly_import_l3",
+        "name": "Shelly import L3",
+        "area": "Utility room",
+    },
+    "ct3_export_total": {
+        "entity_id": "sensor.shelly_export_total",
+        "name": "Shelly export total",
+        "area": "Utility room",
+    },
+    "ct3_export_l1": {
+        "entity_id": "sensor.shelly_export_l1",
+        "name": "Shelly export L1",
+        "area": "Utility room",
+    },
+    "ct3_export_l2": {
+        "entity_id": "sensor.shelly_export_l2",
+        "name": "Shelly export L2",
+        "area": "Utility room",
+    },
+    "ct3_export_l3": {
+        "entity_id": "sensor.shelly_export_l3",
+        "name": "Shelly export L3",
+        "area": "Utility room",
+        "disabled_by": "user",
+    },
+    "ct3_import_energy_total": {
+        "entity_id": "sensor.shelly_import_energy_total",
+        "name": "Shelly import energy total",
+        "area": "Utility room",
+    },
+    "ct3_export_energy_total": {
+        "entity_id": "sensor.shelly_export_energy_total",
+        "name": "Shelly export energy total",
         "area": "Utility room",
     },
 }
@@ -216,7 +317,9 @@ def _source_hash(source: Path) -> str:
     for relative in (
         "custom_components/jackery/manifest.json",
         "custom_components/jackery/sensor.py",
+        "custom_components/jackery/select.py",
         "custom_components/jackery/switch.py",
+        "custom_components/jackery/button.py",
     ):
         digest.update(relative.encode())
         digest.update((source / relative).read_bytes())
@@ -289,7 +392,7 @@ def _generate(name: str, spec: dict[str, str]) -> dict[str, Any]:
             "synthetic_identities": {
                 "host": HOST,
                 "children": ["METER0001", "PLUG0001"] + (
-                    [] if spec["kind"] == "official" else ["BATTERY0001", "COLLECTOR0001"]
+                    ["SHELLY0001"] if spec["kind"] == "official" else ["BATTERY0001", "COLLECTOR0001"]
                 ),
             },
             "devices": devices,

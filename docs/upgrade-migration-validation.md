@@ -48,26 +48,109 @@ Evidence labels in this report mean:
   and queried from the HA recorder under the same entity ID.
 - **[SEMANTIC SNAPSHOT RESTORE TEST VERIFIED]**: the complete selected
   ConfigEntry/registry semantics can be restored from the pre-upgrade fixture.
-- **[OPEN]**: no equivalent real installation, HACS operation or HA backup
-  restore has been performed.
+- **[REAL HA VERIFIED]**: observed on the separate HA OS installation below.
+- **[REAL HA UPGRADE VERIFIED]**: the final uncommitted branch candidate was
+  installed by manual code replacement over an existing Official 2.0.0
+  ConfigEntry, completed setup and migration, and passed a second restart.
+- **[REAL HA BACKUP RESTORE VERIFIED]**: the complete Pre-NG Official backup
+  restored successfully on the separate HA OS installation before the final
+  upgrade test.
+- **[REAL HA REPRODUCED MIGRATION BUG]**: an Official registry identity was
+  observed to remain orphaned while NG created a separate row.
+- **[REAL HA COMPATIBILITY GAP]**: an Official entity was orphaned across a
+  domain or behavior change and needs an explicit compatibility policy.
+- **[OPEN]**: HACS switching, a Community 2.5.0 -> NG real upgrade, a longer
+  MQTT/SolarVault soak, post-NG backup rollback and Production Go-Live remain
+  open.
+
+## Real Home Assistant upgrade runs
+
+Environment: Home Assistant OS 18.3, Home Assistant 2026.10.4, Python 3.14.9
+and HACS 2.0.5. The final run started from Official 2.0.0 at
+`af97223ff17fc8f14314cbc6da7213a5eee7004d`, restored a complete Pre-NG backup,
+installed the final uncommitted branch candidate by manually replacing the
+integration code, and restarted Home Assistant. A second restart followed
+without another restore or code change. No live registry exports, real serials,
+credentials, IP addresses or private logs are included here.
+
+**[REAL HA BACKUP RESTORE VERIFIED]**
+
+- The complete Pre-NG Official 2.0.0 backup restored to the separate HA OS
+  installation and provided the test's starting state.
+
+**[REAL HA UPGRADE VERIFIED]**
+
+- The Official ConfigEntry and main device survived code replacement.
+- The Shelly/SmartMeter device migrated in place; no
+  `identity_migration_blocked` warning remained.
+- Reboot migrated in place and only one Restart button remained.
+- Average SOC migrated in place to BMS SOC while preserving the original HA
+  entity ID; only one BMS SOC entity remained.
+- Auto Standby migrated in place; no orphaned Official Select or `_2` entity
+  remained.
+- The existing read-only Work Mode sensor remained active under its old entity
+  ID, and the new NG Work Mode Select existed independently.
+- Existing user entity settings remained intact and live MQTT telemetry was
+  processed without a general setup or runtime failure.
+- The second restart completed without creating duplicate devices or entities
+  and without repeating a problematic migration.
+- Jackery Device Registry deprecation warnings were absent on both restarts.
+
+Earlier real code-replacement runs reproduced the Reboot, Average SOC, CT/Shelly
+and Auto Standby identity gaps and the Work Mode sensor compatibility gap.
+Those findings led to the migrations and conditional Legacy Work Mode bridge
+described above and in the implementation sections below. The final candidate
+passed the real upgrade checks listed here.
+
+**[REAL HA REPRODUCED MIGRATION BUG]** Historical finding: Official Auto
+Standby originally remained orphaned while NG created a separate Select. The
+final candidate migrated it in place, as verified above.
+
+**[REAL HA COMPATIBILITY GAP]** Historical finding: the Official Work Mode
+sensor originally became orphaned across the `sensor` to `select` transition.
+The final candidate kept the old read-only sensor active and added the NG
+Select independently, as verified above.
+
+**Expected / not a bug:** NG intentionally makes `isFollowMeterPw` unavailable
+outside Work Mode 4. This workstream does not change that behavior.
+
+**Compatibility Hardening:** the run exposed API deprecations:
+`device_registry.async_get_device` (removal target 2027.8), deprecated registry
+mapping access (2027.9), `DeviceEntry.config_entries` (2027.10) and `via_device=`
+(2027.8). A central feature-detected compatibility layer now keeps HA 2025.8.0
+support while using config-entry-scoped lookups, singular ownership and
+`via_device_id` on HA 2026.8+. Focused automated tests pass against HA 2025.8.0
+and the actual HA 2026.10.4 API. The final HA OS 2026.10.4 real run also
+reported no Jackery-owned Device Registry deprecation warnings.
+
+The final Official 2.0.0 -> NG manual code-replacement upgrade and Pre-NG full
+backup restore are **[REAL HA UPGRADE VERIFIED]** and
+**[REAL HA BACKUP RESTORE VERIFIED]**. The second restart confirmed idempotence.
+This was not a HACS upgrade. Restoring a post-NG backup as rollback was not
+tested. The Battery Count icon correction is UI-only, was made after the real
+upgrade run, and is covered by its focused metadata test; it does not change
+the migration or Device Registry path.
 
 ## Golden states
 
 | Fixture | Devices | Representative entities |
 | --- | ---: | --- |
-| Official 2.0.0 | Main, Smart Plug, generic CT | Main SOC/EPS switch, plug power/switch, CT forward power |
+| Official 2.0.0 | Main, Smart Plug, generic CT, Type 3 CT / Shelly | Average SOC, Reboot, EPS switch, plug power/switch, generic CT and ten Type 3 CT identities |
 | Community 2.5.0 | Main, Smart Plug, 3-phase meter, expansion battery, collector | Main SOC/EPS switch and one representative entity per child, plus plug switch |
 | NG before host scope | Same selected device families as Community | Same selected identity surface as the pre-migration NG code |
 
-The main-device surface includes both a sensor and a control platform. The
-selected entities are given custom entity IDs and names. One child sensor
-is disabled by the user, selected entities receive icons and areas, and devices
-receive `name_by_user` and areas before migration.
+The main-device surface includes sensors and controls. Selected entities have
+custom entity IDs, names and icons; user-disabled main and child entities plus
+areas are represented, and devices receive `name_by_user` and areas before
+migration.
 
 ## Official 2.0.0 -> NG
 
-**Result: safe for the tested main and mapped Smart Plug identities after a
-reproduced migration fix; one richer Official CT identity remains fail-closed.**
+**Automated result: exact Official Reboot, Average SOC and Auto Standby
+identities, Smart Plug identities and ten Type 3 CT identities migrate in
+place. The Official Work Mode sensor remains a separate read-only entity only
+when its exact registry ownership is proven. The generic Type 2 CT identity
+without a proven NG target remains fail-closed.**
 
 Official 2.0.0 emits host-prefixed child identifiers such as
 `sub_{host}_{child}` and unique IDs such as
@@ -93,18 +176,42 @@ starts with the host string. No record is deleted to complete the migration.
 | ConfigEntry ID / unique ID / data | Existing synthetic entry / host / token and topic | Same | Preserved |
 | Main Device Registry ID | Existing row with host and entry identifiers | Same row, canonical host identifier | Preserved in place |
 | Main EPS switch registry/entity ID | Existing Official row / customized entity ID | Same row and entity ID, platform-qualified unique ID | Preserved in place |
+| Main Average SOC and Reboot | Existing Official rows / customized entity IDs | Same rows and IDs under current constructors | Preserved in place |
 | Plug Device Registry ID | Existing `sub_{host}_{plug}` row | Same row, scoped NG identifier | Preserved in place |
 | Plug entity IDs | User-customized IDs | Same | Preserved |
 | Plug unique IDs | Official host-prefixed form | Canonical scoped NG form | Controlled migration |
+| Type 3 CT Device and ten entity rows | Official `sub_{host}_{child}` / `ct` identities | Same rows under canonical child and SmartMeter identities | Preserved in place |
 | User names, disabled state, icon, area | Customized | Same | Preserved |
-| Duplicates | One main, one plug | Same counts; no parallel entity | None |
+| Duplicates | One row per selected identity | Same counts; no parallel entity | None |
 
-The selected Official generic-CT entity uses `powertotalforward`. Current NG has
-no proven one-to-one entity target for that field. Its record and device are
-retained unchanged, discovery for that child is blocked, and a warning is
-emitted. This is safer than inventing a mapping or creating a replacement.
-Resolving that semantic gap is **[OPEN]** and requires a separate protocol/entity
-decision.
+The fixture preserves both Official CT shapes. The generic Type 2 CT record has
+no proven one-to-one NG entity target; its row and device stay unchanged and
+discovery for that child is blocked. For Official's persisted `Sub-device Type
+3` record, the ten exact observed suffixes map to the current NG SmartMeter
+constructor identities. The mapping requires the Official device identifier,
+model/manufacturer, parent link, entry ownership and complete known entity set;
+unknown fields or any conflict block the entire child plan.
+
+Official Average SOC and Reboot mappings are exact and domain-specific. They
+also require the same ConfigEntry and an exclusively owned main host device. An
+occupied target is retained without changing either row.
+
+Official Auto Standby is also a same-domain `select` migration. Its exact
+`jackery_{host}_main_autoStandby` row is updated to the Unique ID emitted by the
+current NG `JackeryAutoStandbySelect` constructor, after proving main-device
+ownership and checking that the target is unoccupied. A target conflict retains
+both records. The existing Entity Registry ID, HA entity ID, name, icon,
+disabled state and area remain on the source row.
+
+Work Mode cannot use an in-place Unique ID migration because Official exposed
+it as a read-only `sensor`, while NG exposes a writable `select`. NG therefore
+binds a read-only compatibility sensor to the exact existing Official sensor
+row only when domain, platform, ConfigEntry, Unique ID and exclusive main-device
+ownership all match. It reads normalized `workMode` from the existing
+coordinator and adds no subscription or polling task. Fresh NG installations
+do not get the Legacy sensor. A user-disabled Official row stays disabled.
+Recorder tests cover pre-upgrade and post-upgrade states under the same entity
+ID.
 
 Evidence: **[UPSTREAM-CONSTRUCTOR-GENERATED TEST VERIFIED]** and, for the same
 selected entity IDs, **[RECORDER TEST VERIFIED]**.
@@ -145,17 +252,22 @@ a state before migration and a second state afterward. Both values remain
 queryable from Home Assistant's SQLite recorder under the unchanged customized
 entity ID. The Entity Registry row ID is unchanged and no `_2` replacement is
 created. This is **[RECORDER TEST VERIFIED]**, not merely an entity-ID proxy.
+The Official Work Mode compatibility sensor also retains both pre-upgrade and
+post-upgrade states under its existing entity ID.
 
-The unsupported Official CT record also retains its original entity ID and its
-history because migration fails closed without deleting or replacing it.
+The generic Type 2 CT record retains its original entity ID and history because
+migration fails closed without deleting or replacing it. Recorder tests also
+write states before and after the Type 3 mapping for total import power, total
+export power and total import energy under the same entity IDs.
 
 ## Conflicts and duplicate prevention
 
-A pre-existing target unique ID owned by another ConfigEntry blocks only the
-affected child. The conflicting legacy row, user settings and history anchor
-are retained, no foreign row is overwritten, and safe sibling migration
-continues. Existing interrupted/resumable, ambiguous ownership, idempotency and
-multi-entry tests remain part of the regression group.
+A pre-existing target unique ID owned by another ConfigEntry blocks the
+affected child or exact main identity operation. The conflicting legacy row,
+user settings and history anchor are retained, no foreign row is overwritten,
+and safe sibling migration continues. Existing interrupted/resumable,
+ambiguous ownership, idempotency and multi-entry tests remain part of the
+regression group.
 
 After safe migration, current NG setup and discovery reuse the same selected
 registry rows. Tests compare registry IDs and exact isolated migration counts,
@@ -186,18 +298,20 @@ match the saved snapshot. This is
 **[SEMANTIC SNAPSHOT RESTORE TEST VERIFIED]**.
 
 It is not a Home Assistant backup subsystem test and does not restore an actual
-recorder database image. A real HA backup/restore, actual HACS code switch and
-rollback on an installation remain **[OPEN]**.
+recorder database image. Separately, the Pre-NG Official full-backup restore is
+**[REAL HA BACKUP RESTORE VERIFIED]**. A HACS code switch and rollback by
+restoring a post-NG backup remain **[OPEN]**.
 
 ## Remaining real-world evidence
 
 - Actual HACS switch from Official or Community to NG on a backed-up HA
   installation.
+- A real Community 2.5.0 -> NG upgrade on a backed-up HA installation.
+- A longer MQTT/SolarVault soak and Production Go-Live qualification.
 - Anonymized user registry and recorder exports covering more historical
   releases and customization patterns.
-- A complete Home Assistant backup/restore including recorder data and HACS
-  integration files.
-- Verification of any desired mapping for richer Official-only CT entities.
+- Rollback by restoring a post-NG Home Assistant backup, including its recorder
+  data and integration files.
 - Rollback documentation tested through the user-facing Home Assistant/HACS UI.
 
 Hardware is not required to establish registry identity, but these installation

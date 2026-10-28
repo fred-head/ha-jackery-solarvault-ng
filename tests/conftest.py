@@ -1,11 +1,75 @@
 """Shared test fixtures."""
 import time
+from unittest.mock import patch
 
 import pytest
 
 from custom_components.jackery.coordinator_state import CoordinatorRuntimeState
 from custom_components.jackery.diagnostics_observation import DiagnosticsObservationState
+from custom_components.jackery.registry_identity import build_device_info
 from custom_components.jackery.sensor import JackeryDataCoordinator
+
+
+def child_device_info(
+    hass,
+    entry_id: str,
+    *,
+    identifiers: set[tuple[str, str]],
+    parent_identifier: tuple[str, str],
+    name: str,
+    manufacturer: str,
+    model: str,
+    **extra: object,
+) -> dict[str, object]:
+    """Build fixture DeviceInfo through the same old/modern parent adapter."""
+    info = dict(build_device_info(
+        hass,
+        entry_id,
+        identifiers=identifiers,
+        parent_identifier=parent_identifier,
+        name=name,
+        manufacturer=manufacturer,
+        model=model,
+    ))
+    info.update(extra)
+    return info
+
+
+@pytest.fixture(autouse=True, scope="session")
+def avoid_new_registry_disk_loads_in_tests():
+    """Match HA's other registry mocks when the installed test plugin is older.
+
+    The installed pytest-homeassistant-custom-component fixture patches the
+    older registry stores, but its generic storage patch does not replace the
+    already-imported Floor, Label and Category registry store classes. Their
+    real disk loads wait on an executor before Home Assistant starts.
+    """
+    from homeassistant.helpers.category_registry import CategoryRegistryStore
+    from homeassistant.helpers.floor_registry import FloorRegistryStore
+    from homeassistant.helpers.label_registry import LabelRegistryStore
+
+    async def no_disk_load(_store):
+        return None
+
+    async def no_disk_save(_store, *_args, **_kwargs):
+        return None
+
+    with (
+        patch.object(CategoryRegistryStore, "async_load", no_disk_load),
+        patch.object(CategoryRegistryStore, "async_save", no_disk_save),
+        patch.object(FloorRegistryStore, "async_load", no_disk_load),
+        patch.object(FloorRegistryStore, "async_save", no_disk_save),
+        patch.object(LabelRegistryStore, "async_load", no_disk_load),
+        patch.object(LabelRegistryStore, "async_save", no_disk_save),
+    ):
+        yield
+
+
+@pytest.fixture
+def mock_recorder_before_hass(request):
+    """Prepare Recorder's database URL before HA's test instance starts."""
+    if "recorder_mock" in request.fixturenames:
+        request.getfixturevalue("recorder_db_url")
 
 
 @pytest.fixture

@@ -66,6 +66,25 @@
         "jackery",
         "SVHOST0001"
       ]
+    },
+    {
+      "area": "Utility room",
+      "identifiers": [
+        [
+          "jackery",
+          "sub_SVHOST0001_SHELLY0001"
+        ]
+      ],
+      "key": "ct3",
+      "manufacturer": "Jackery",
+      "model": "Sub-device Type 3",
+      "name": "Jackery SVHOST0001 CT SHELLY0001",
+      "name_by_user": "My ct3",
+      "serial_number": null,
+      "via_device": [
+        "jackery",
+        "SVHOST0001"
+      ]
     }
   ],
   "entities": [
@@ -78,8 +97,49 @@
       },
       "device_key": "main",
       "domain": "sensor",
+      "original_name": "Average SOC",
       "role": "main_soc",
-      "unique_id": "jackery_SVHOST0001_battery_soc"
+      "unique_id": "jackery_SVHOST0001_average_soc"
+    },
+    {
+      "customization": {
+        "area": "Energy room",
+        "entity_id": "select.my_auto_standby_mode",
+        "icon": "mdi:sleep",
+        "name": "My Auto Standby Mode"
+      },
+      "device_key": "main",
+      "domain": "select",
+      "original_name": "Auto Standby Mode",
+      "role": "main_auto_standby",
+      "unique_id": "jackery_SVHOST0001_main_autoStandby"
+    },
+    {
+      "customization": {
+        "area": "Energy room",
+        "entity_id": "sensor.my_work_mode",
+        "icon": "mdi:cog-transfer",
+        "name": "My Work Mode"
+      },
+      "device_key": "main",
+      "domain": "sensor",
+      "original_name": "Work Mode",
+      "role": "main_work_mode",
+      "unique_id": "jackery_SVHOST0001_work_mode"
+    },
+    {
+      "customization": {
+        "area": "Energy room",
+        "disabled_by": "user",
+        "entity_id": "button.my_solarvault_reboot",
+        "icon": "mdi:restart-alert",
+        "name": "Restart my SolarVault"
+      },
+      "device_key": "main",
+      "domain": "button",
+      "original_name": "Reboot",
+      "role": "main_reboot",
+      "unique_id": "jackery_SVHOST0001_main_reboot"
     },
     {
       "customization": {
@@ -89,6 +149,7 @@
       },
       "device_key": "main",
       "domain": "switch",
+      "original_name": "EPS Output",
       "role": "main_eps_switch",
       "unique_id": "jackery_SVHOST0001_main_swEps"
     },
@@ -102,6 +163,7 @@
       },
       "device_key": "plug",
       "domain": "sensor",
+      "original_name": "Power",
       "role": "plug_power",
       "unique_id": "jackery_SVHOST0001_plug_PLUG0001_power"
     },
@@ -113,6 +175,7 @@
       },
       "device_key": "plug",
       "domain": "switch",
+      "original_name": "Switch",
       "role": "plug_switch",
       "unique_id": "jackery_SVHOST0001_plug_PLUG0001_switch"
     },
@@ -124,8 +187,130 @@
       },
       "device_key": "meter",
       "domain": "sensor",
+      "original_name": "CT Total Forward Power",
       "role": "meter_power",
       "unique_id": "jackery_SVHOST0001_ct_METER0001_powertotalforward"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.shelly_import_total",
+        "name": "Shelly import total"
+      },
+      "device_key": "ct3",
+      "domain": "sensor",
+      "original_name": "CT Total Forward Power",
+      "role": "ct3_import_total",
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_powertotalforward"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.shelly_import_l1",
+        "name": "Shelly import L1"
+      },
+      "device_key": "ct3",
+      "domain": "sensor",
+      "original_name": "CT Phase A Forward Power",
+      "role": "ct3_import_l1",
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_poweraforward"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.shelly_import_l2",
+        "name": "Shelly import L2"
+      },
+      "device_key": "ct3",
+      "domain": "sensor",
+      "original_name": "CT Phase B Forward Power",
+      "role": "ct3_import_l2",
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_powerbforward"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.shelly_import_l3",
+        "name": "Shelly import L3"
+      },
+      "device_key": "ct3",
+      "domain": "sensor",
+      "original_name": "CT Phase C Forward Power",
+      "role": "ct3_import_l3",
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_powercforward"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.shelly_export_total",
+        "name": "Shelly export total"
+      },
+      "device_key": "ct3",
+      "domain": "sensor",
+      "original_name": "CT Total Reverse Power",
+      "role": "ct3_export_total",
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_powertotalreverse"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.shelly_export_l1",
+        "name": "Shelly export L1"
+      },
+      "device_key": "ct3",
+      "domain": "sensor",
+      "original_name": "CT Phase A Reverse Power",
+      "role": "ct3_export_l1",
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_powerareverse"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.shelly_export_l2",
+        "name": "Shelly export L2"
+      },
+      "device_key": "ct3",
+      "domain": "sensor",
+      "original_name": "CT Phase B Reverse Power",
+      "role": "ct3_export_l2",
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_powerbreverse"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "disabled_by": "user",
+        "entity_id": "sensor.shelly_export_l3",
+        "name": "Shelly export L3"
+      },
+      "device_key": "ct3",
+      "domain": "sensor",
+      "original_name": "CT Phase C Reverse Power",
+      "role": "ct3_export_l3",
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_powercreverse"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.shelly_import_energy_total",
+        "name": "Shelly import energy total"
+      },
+      "device_key": "ct3",
+      "domain": "sensor",
+      "original_name": "CT Forward Energy",
+      "role": "ct3_import_energy_total",
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_energyforward"
+    },
+    {
+      "customization": {
+        "area": "Utility room",
+        "entity_id": "sensor.shelly_export_energy_total",
+        "name": "Shelly export energy total"
+      },
+      "device_key": "ct3",
+      "domain": "sensor",
+      "original_name": "CT Reverse Energy",
+      "role": "ct3_export_energy_total",
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_energyreverse"
     }
   ],
   "provenance": {
@@ -133,7 +318,7 @@
     "generator": "tools/generate_upgrade_fixtures.py",
     "home_assistant_version": "2026.2.3",
     "source_commit": "af97223ff17fc8f14314cbc6da7213a5eee7004d",
-    "source_files_sha256": "8764d45926bab2d33384ea8d9ab8d2bc94f7fe8fd587d10f8b09db943719ea60",
+    "source_files_sha256": "556bd5dee5c158097af069ecf5fe2c71d7690621d027a547a34285e41dfdf036",
     "source_repository": "https://github.com/Jackery-Official/jackery",
     "upstream_manifest_version": "2.0.0"
   },
@@ -141,7 +326,8 @@
   "synthetic_identities": {
     "children": [
       "METER0001",
-      "PLUG0001"
+      "PLUG0001",
+      "SHELLY0001"
     ],
     "host": "SVHOST0001"
   }
