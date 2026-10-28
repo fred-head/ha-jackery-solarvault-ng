@@ -283,6 +283,16 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         # Disabling this opt-in explicitly purges persisted raw MQTT data.
         await async_delete_alert_capture(hass, entry.entry_id)
 
+    from .protocol_capture import (
+        ProtocolDiscoveryCapture,
+        async_delete_protocol_capture,
+    )
+    from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
+
+    protocol_discovery_enabled = entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is True
+    if not protocol_discovery_enabled:
+        await async_delete_protocol_capture(hass, entry.entry_id)
+
     if not await mqtt.async_wait_for_mqtt_client(hass):
         _LOGGER.error(
             "MQTT integration is not available or not configured. "
@@ -303,7 +313,6 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     await _migrate_unique_ids(hass, entry, protected_entities=child_migration.protected_entities)
 
     # All platforms need the same runtime object, regardless of forwarding order.
-    from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
     from .sensor import JackeryDataCoordinator
 
     alert_capture = None
@@ -312,15 +321,24 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         alert_capture = AlertCapture(hass, entry.entry_id, alert_topic, device_sn)
         await alert_capture.async_load()
 
+    protocol_discovery_capture = None
+    if protocol_discovery_enabled and device_sn:
+        protocol_discovery_capture = ProtocolDiscoveryCapture(
+            hass,
+            entry.entry_id,
+            topic_prefix,
+            device_sn,
+        )
+        await protocol_discovery_capture.async_load()
+
     coordinator = JackeryDataCoordinator(
         hass,
         topic_prefix,
         token,
         mqtt_host,
         device_sn,
-        protocol_discovery_enabled=(
-            entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is True
-        ),
+        protocol_discovery_enabled=protocol_discovery_enabled,
+        protocol_discovery_capture=protocol_discovery_capture,
         alert_capture=alert_capture,
     )
     coordinator.config_entry_id = entry.entry_id
@@ -358,6 +376,8 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         OPTION_ALERT_CAPTURE_ENABLED,
         async_delete_alert_capture,
     )
+    from .protocol_capture import async_delete_protocol_capture
+    from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
 
     try:
         if coordinator:
@@ -370,6 +390,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     await capture.async_clear()
                 else:
                     await async_delete_alert_capture(hass, entry.entry_id)
+            if entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is not True:
+                capture = getattr(coordinator, "_protocol_discovery_capture", None)
+                if capture is not None:
+                    await capture.async_clear()
+                else:
+                    await async_delete_protocol_capture(hass, entry.entry_id)
         finally:
             # A faulty unsubscribe must not prevent entity references being released.
             unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
@@ -383,5 +409,7 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
     """Remove any opt-in raw alert records when a config entry is deleted."""
     from .alert_capture import async_delete_alert_capture
+    from .protocol_capture import async_delete_protocol_capture
 
     await async_delete_alert_capture(hass, entry.entry_id)
+    await async_delete_protocol_capture(hass, entry.entry_id)

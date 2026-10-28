@@ -315,7 +315,7 @@ generic fallback. A label-only change would overstate support.
 | Ability-bit entity gating | No v2.4.3 mapping | Bits 9/11 gate two controls | Raw ability only | Community-only; validate hardware |
 | Storm warning `wps` | Not exposed | Read-only enum | Not exposed | Community-only; low operational value |
 | Diagnostics/privacy | None | None | Nine-section allowlist and hardened HA endpoint | NG-only |
-| Protocol discovery | None | None | Opt-in, bounded, memory-only | NG-only |
+| Protocol discovery | None | None | Opt-in, bounded persistent structure and sampled raw MQTT examples | NG-only |
 | Tests | None checked in | Broad synthetic suite | 1,491 tests, HA and privacy layers | NG independently improved |
 
 ## 11. Candidate port groups
@@ -576,7 +576,8 @@ Every follow-up must preserve these established constraints:
 6. freshness never follows merely from cached value presence;
 7. HTTP and MQTT values, health and lifecycle remain independent;
 8. diagnostics remain explicit allowlist/alias output with no raw cache;
-9. protocol discovery remains opt-in, read-only, bounded and memory-only;
+9. protocol discovery remains opt-in, read-only, bounded and host-bound; raw
+   examples are sampled and exported only through the warned diagnostics area;
 10. no global mutable state or cross-entry cache;
 11. expected external absence is handled narrowly and programming errors are not
     hidden by new blanket exception catches;

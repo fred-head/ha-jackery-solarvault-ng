@@ -9,6 +9,12 @@ for a future Phase 4. It does not authorize or schedule Phase 4 work. Findings
 come from the current source, tests, Git history and freshly fetched configured
 upstreams. No production or test code was changed for this audit.
 
+This document records the Phase 3 state as audited on its date. Protocol
+Discovery has since been extended with bounded, host-bound persistence and
+sampled raw payloads; see [diagnostics architecture](diagnostics-architecture.md)
+for its current storage, sampling and export contract. Statements below that
+describe the original memory-only P3.5 implementation are historical.
+
 Phase 4 evidence work started with the completed
 [P4.1 standby/live-zero root-cause audit](p4-standby-live-zero-audit.md). The
 resulting bounded receipt-time fix is merged in foundation
@@ -26,9 +32,9 @@ routing, commands, device classification, energy calculations, MQTT mechanics,
 HTTP request mechanics, runtime state, child membership decisions and
 diagnostics have explicit boundaries. Multi-entry identity, migration,
 freshness, MQTT unload/reload and SmartMeter replacement have extensive
-regression coverage. Phase 3 adds a bounded, privacy-first Home Assistant
-diagnostics endpoint and an opt-in, memory-only structural protocol discovery
-mode without raw capture.
+regression coverage. Phase 3 added a bounded, privacy-first Home Assistant
+diagnostics endpoint and an opt-in structural protocol discovery mode. The
+persistent sampled-raw extension was added after this audit.
 
 The current foundation is technically strong under synthetic tests: **1,442
 tests pass with 96.09% statement coverage**, both mypy environments pass, and
@@ -443,8 +449,8 @@ fixtures, scaling/units, lifecycle and preferably real command evidence.
   locally.
 - Optional SmartMeter HTTP measurement calls use the meter's local IP and no
   cloud API.
-- Protocol discovery is memory-only and performs no network operation beyond
-  observing already accepted local MQTT messages.
+- Protocol discovery performs no network operation beyond observing local MQTT
+  messages; opted-in, relevant observations are persisted locally with bounds.
 
 ### Still dependent on Jackery onboarding or cloud behavior
 
@@ -664,7 +670,8 @@ audit conclusion, not an approved Phase 4 roadmap.
    registry object, state attributes, unknown keys/values or generic object dump
    may enter diagnostics.
 3. **Protocol discovery remains read-only and opt-in.** It must never route,
-   classify, create entities, persist observations or rescue malformed traffic.
+   classify or create entities. Persisted raw examples remain sampled, bounded,
+   host-bound and restricted to relevant deviations on owned topics.
 4. **Child physical identity remains host plus child serial.** Family/capability
    changes must not silently create duplicate devices or orphan history.
 5. **Freshness is separate from cached value.** Metadata, diagnostics and HTTP

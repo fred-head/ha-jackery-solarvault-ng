@@ -570,10 +570,10 @@ field names, payload fragments or a traffic history.
 Protocol discovery is the separate, explicitly enabled developer feature added
 in P3.5. The `protocol_discovery_enabled` config-entry option defaults to
 `false`; an entry without that option remains disabled. Options changes use the
-existing entry lifecycle, so the mode takes effect on reload. Each enabled
-coordinator creates one memory-only `ProtocolDiscoveryState`; disabled
-coordinators create no state. Unload discards the owner, and every enabled
-reload starts empty. It observes:
+existing entry lifecycle, so the mode takes effect on reload. Enabled entries
+create a `ProtocolDiscoveryState` and a separate HA storage owner;
+disabled entries create neither and delete this feature's stored data. The
+structural observer remains Home-Assistant-independent and observes:
 
 - counts of unknown MQTT message-type categories;
 - counts of unknown numeric `devType`/`subType` combinations;
@@ -582,12 +582,14 @@ reload starts empty. It observes:
 - occurrence count and first/last-seen ages;
 - bounded differences from known structural schemas.
 
-It is not a raw MQTT capture. Its single observation point is in
-`JackeryDataCoordinator._handle_message`, after exact topic/host ownership and
-successful JSON/envelope validation, immediately before route application.
-Foreign-host, invalid-JSON and invalid-envelope inputs therefore never reach the
-structural summarizer. Their existing fixed P3.2 error counters remain the only
-observation. Enabled and disabled coordinators execute the same route, cache,
+Its valid-message observation point is in `JackeryDataCoordinator._handle_message`,
+after exact topic/host ownership and successful JSON/envelope validation,
+immediately before route application. The adjacent raw recorder receives the
+original MQTT payload bytes at that point. Foreign-host traffic is rejected
+before either owner sees it. Invalid JSON and invalid envelopes can be sampled
+only when the configured host serial already matches the exact status/event
+topic; a host adopted from incoming traffic is never enough to authorize a raw
+capture. Enabled and disabled coordinators execute the same route, cache,
 freshness, child-discovery, calculation and entity fan-out code.
 
 Unknown message types that are safe integers may be bucketed numerically.
@@ -628,11 +630,51 @@ records. Omission/overflow metadata remains, and complete-snapshot enforcement
 drops discovery detail before existing child/entity details, preserving the
 standard diagnostics core.
 
-Canary tests inspect the internal immutable snapshot, the P3.1 result before HA
-key redaction and the final HA result. They confirm that unknown keys, values,
-serials, topics, URLs, addresses and payload fragments never appear. Discovery
-does not log observations, persist data, perform I/O or gain operational
-authority.
+The immutable structural snapshot still contains no unknown names or scalar
+values. It now restores across integration reloads and HA restarts. A separate
+raw extension exists only under this experimental opt-in; its Base64 content is
+intentionally not described as anonymous or safe to share. Structural canary
+tests continue to inspect the internal snapshot and standard diagnostics before
+the opt-in raw extension is appended.
+
+### 8.2.1 Persistent raw examples and sampling
+
+The same option enables the raw recorder; no second required option or MQTT
+subscription is added. It captures only unknown message types, unknown device
+type pairs, new structural signatures, and malformed envelopes. Regular known
+status messages with no structural deviation are not retained. A finding
+signature gets its first example and up to three additional distinct payloads.
+After four samples, a new payload can be retained at most once per hour for that
+signature. Recently repeated identical payload bytes are deduplicated. Sampling
+metadata and digests have fixed entry and size limits; topic aliases, not
+configured serials or prefixes, are used in the export.
+
+The recorder stores the original payload bytes as Base64 without JSON
+re-serialization. Each record includes receipt time, the private exact topic,
+payload byte count, truncation status, QoS, retain and one fixed reason enum:
+`unknown_message_type`, `unknown_device_type`, `unknown_structure` or
+`invalid_envelope`. Payloads over 4 KiB keep the first 4 KiB and set an explicit
+truncation flag. The raw ring buffer holds up to 100 events and has a 256-KiB
+serialized budget. Structural state has a separate 32-KiB budget; sampling
+metadata is also bounded. Writes are debounced and flushed during unload.
+
+Both datasets use `Store(private=True)`, a versioned format and a key scoped to
+the config entry. A namespaced SHA-256 fingerprint binds storage to the
+configured host without storing the serial in binding metadata. Changing the
+MQTT prefix preserves history; changing the host clears only this entry's
+discovery data. Unknown host identity, corrupted formats and incompatible
+versions fail closed. Deactivation drains pending writes and removes the store;
+removing the config entry removes both discovery and alert stores. The shared
+capture storage helper preserves the Alert Capture key and format.
+
+The regular `protocol.discovery` summary and its 8-KiB detail budget remain
+inside the unchanged 64-KiB standard snapshot. If enabled, diagnostics appends a
+version-1 `experimental_protocol_capture` extension with a separate 24-KiB
+budget, privacy warning, topic aliases, bounded counters and `export_omitted_count`.
+Alert Capture has its own 24-KiB extension. Both enabled together therefore
+remain within 112 KiB total (64 + 24 + 24); raw sections cannot displace standard
+diagnostic sections. With the option off, neither raw data nor the experimental
+extension is loaded or exported.
 
 ### 8.3 Experimental persistent alert capture
 
@@ -678,14 +720,15 @@ without review. Event topics are replaced with the fixed
 {prefix}/device/{host}/alert alias. The extension is reduced within an
 additional 24-KiB total-output budget before any standard diagnostics are
 removed; export_omitted_count reports stored records left out of the download.
-The full result is therefore bounded by the existing 64-KiB snapshot budget
-plus this 24-KiB experimental allowance. With capture disabled, the output is
-unchanged.
+The full result remains within 112 KiB when both raw-capture options are
+enabled: 64 KiB standard diagnostics plus one 24-KiB allowance per raw section.
+With capture disabled, the output is unchanged.
 
-Protocol Discovery remains memory-only, value-free and independent. Enabling
-one mode does not enable, share state with or reset the other. An empty capture
-only says that no matching message was recorded during the enabled period; it
-does not establish that the local broker never publishes this topic.
+Protocol Discovery and Alert Capture remain independent. Enabling, disabling or
+clearing one does not enable, share state with or delete the other's records.
+An empty alert capture only says that no matching message was recorded during
+the enabled period; it does not establish that the local broker never publishes
+that topic.
 
 ## 9. Test strategy
 
@@ -850,31 +893,27 @@ owners remain unchanged.
 
 ### P3.5 - Opt-in protocol discovery mode
 
-**Goal:** add bounded structural observations for reverse engineering without raw
-traffic capture.
+**Goal:** add bounded structural observations for reverse engineering.
 
-**Scope:** explicit disabled-by-default option; memory-only observation state;
-safe type/signature counters, first/last ages and overflow counts; separate
-export section when enabled; privacy/size/lifecycle tests.
+**Scope:** explicit disabled-by-default option; safe type/signature counters,
+first/last ages and overflow counts; separate export section when enabled;
+privacy/size/lifecycle tests.
 
-**Non-scope:** raw MQTT storage, packet export, unknown-field values, automatic
-entity creation, new commands, routing/classification changes and persistent
-cross-reload identity.
+**Non-scope:** unknown-field values, automatic entity creation, new commands,
+routing/classification changes and persistent cross-reload identity.
 
 **Affected modules:** protocol observation model, narrow routing/coordinator
 observation hooks, options flow/translation only as required for opt-in, snapshot
 contract extension and tests.
 
-**Acceptance:** disabled mode has no observation/output overhead beyond a fixed
-flag; enabled mode remains bounded and contains no canaries/raw identifiers;
-routing/cache/entity results are byte-for-byte or semantically identical to mode
-off; unload/reload clears observations.
+**Acceptance:** disabled mode has no discovery processing or storage overhead;
+enabled structural output remains bounded and value-free; routing/cache/entity
+results are byte-for-byte or semantically identical to mode off.
 
-**Status:** implemented as described in section 8.2. The HA-independent,
-per-coordinator state is opt-in and memory-only; the P3.1 schema is version 2 and
-retains the original nine root sections. Tests cover privacy at all three export
-boundaries, bounds/overflow, lifecycle reset, multi-entry isolation, disabled
-equivalence, deterministic budgets and side-effect-free diagnostics.
+**Status:** the original structural observer and P3.1 version-2 schema remain
+as described in section 8.2. A later persistent extension is described in
+sections 8.2.1 and 8.3; it adds a separate raw-data section without changing the
+nine standard root sections.
 
 **Dependency:** P3.4.
 
@@ -887,9 +926,10 @@ adapter decisions in section 7.1. P3.3 deliberately leaves broker connectivity
 `unknown` and exposes config-entry diagnostics only; subscription handles are
 not connectivity evidence and no device-specific contract was justified.
 
-- **P3.5 resolved:** `protocol_discovery_enabled` follows the existing options
-  lifecycle and is read when a coordinator is constructed. No collected data is
-  copied into entry options or across reloads; only the Boolean option persists.
+- **Protocol discovery persistence:** the option remains the sole opt-in. Its
+  config-entry storage is versioned and host-bound; no collected data is copied
+  into entry options. Prefix changes preserve the same host's history; host
+  changes and deactivation clear only this discovery store.
 
 Assumptions are deliberately narrow: the HA event loop gives the collector a
 non-awaiting best-effort copy window; wall-clock receipt timestamps remain the

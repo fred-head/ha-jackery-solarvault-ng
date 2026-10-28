@@ -53,8 +53,8 @@ reactivation, a genuinely new Type-106 receipt after expiry, unchanged grid
 source selection and unchanged same-key PV protection. Final validation:
 **1,462 passed, 96.14% coverage**; no skips or xfails were introduced.
 
-The P3.5 protocol-discovery matrix adds direct and HA-path coverage for the
-disabled-by-default option, per-coordinator memory-only state, safe numeric and
+The original P3.5 protocol-discovery matrix added direct and HA-path coverage for the
+disabled-by-default option, HA-independent structural state, safe numeric and
 JSON-type message buckets, unknown device-pair aggregation, fixed structural
 paths, value/name-free signatures, traversal/cardinality overflow, first/last
 ages, deterministic 8-KiB discovery and 64-KiB complete budgets, three-stage
@@ -65,6 +65,15 @@ the mode disabled or enabled. Final validation: **1,442 passed, 96.09%
 coverage**; the discovery module reaches 98%, the P3.1 snapshot builder 99%,
 the HA diagnostics endpoint and P3.2 observation state 100%, and the read-only
 adapter 94%. No skips or xfails were introduced.
+
+The persistent discovery extension adds regression coverage for private,
+versioned storage; restored structural counters and first/last timestamps;
+unknown-message/device/structure sampling; invalid and non-UTF-8 payload bytes;
+deduplication and hourly resampling; truncation, ring/storage limits, host and
+prefix binding, corruption, clear races, independent opt-ins and combined raw
+diagnostic exports. The initial P3.5 reload-reset evidence above describes the
+original in-memory observer tests; the storage owner now survives ordinary
+reloads and HA restarts.
 
 The P3.4 diagnostics hardening layer adds 24 adversarial tests covering complete
 pre-/post-HA-redaction canaries, the actual 64-KiB budget with 2,000 identities,

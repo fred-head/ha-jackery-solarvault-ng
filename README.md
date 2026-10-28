@@ -44,7 +44,7 @@ Complete cloud-independent provisioning is not implemented or guaranteed. Provis
 - Maintain robust MQTT and protocol handling
 - Preserve SmartMeter and child-device support
 - Expand automated regression coverage around known device and lifecycle behavior
-- Provide privacy-bounded Home Assistant diagnostics, an opt-in memory-only protocol-discovery mode, and a separate experimental persistent MQTT-alert observer
+- Provide privacy-bounded Home Assistant diagnostics, opt-in persistent protocol discovery with sampled MQTT payloads, and an independent experimental MQTT-alert observer
 
 ### Next
 
@@ -232,7 +232,34 @@ Before the integration can receive data, **two things must be in place**:
 
 ## Troubleshooting
 
-### Experimental MQTT alert observer
+### Experimental MQTT protocol discovery and alert observer
+
+Protocol Discovery is disabled by default. Enable **Protocol discovery** under
+**Settings → Devices & Services → Jackery → Configure** to retain its bounded
+structural observations and selected raw status/event messages. It does not
+store every normal status update. The first message for a new unknown type,
+device class or structural signature is eligible; up to four unique examples
+are stored for that signature, followed by at most one new example per hour.
+Recently repeated payload bytes are suppressed using a bounded digest window.
+Messages with no detected deviation are not captured. Malformed envelopes are
+eligible only on the configured host's exact status/event topics.
+
+The value-free discovery summary remains in the normal diagnostics snapshot.
+When enabled, a separate **experimental_protocol_capture** section includes
+Base64-encoded original payload bytes, fixed discovery reasons, receipt time,
+QoS/retain metadata, a safe topic alias, and sampling/storage counters. Byte
+payloads are retained without JSON reserialization and truncated only above
+4 KiB. Up to 100 events are held in a ring buffer; raw data uses at most
+256 KiB of private storage, and structural discovery state has its own 32 KiB
+budget. Its diagnostic section is limited to 24 KiB.
+
+The host fingerprint preserves data across reloads, Home Assistant restarts
+and MQTT prefix changes. Changing the configured host clears only that entry's
+discovery history. Disabling Protocol Discovery deletes its structure and raw
+history. The alert observer below remains a separate opt-in and separate store.
+
+**Privacy:** raw payloads are Base64, not anonymized. They may contain serials
+or other sensitive information. Review diagnostics carefully before sharing.
 
 The alert observer is disabled by default. Enable it under **Settings → Devices
 & Services → Jackery → Configure → Experimental MQTT alert capture**. It adds
@@ -266,11 +293,13 @@ the option off deletes the persisted capture. Removing the Jackery config
 entry also deletes it. Ordinary integration reloads and Home Assistant
 restarts keep the records.
 
-Protocol Discovery remains an independent option. It collects bounded,
-value-free structure in memory and resets on reload; either feature can be
-enabled without the other. An empty alert capture does not show that the topic
-is unavailable: the local broker may not publish it, or no alert may have
-occurred while capture was enabled.
+Protocol Discovery and alert capture remain independent options and stores.
+Either feature can be enabled without the other; disabling one preserves the
+other feature's data. A diagnostics download can use at most 112 KiB total:
+64 KiB for normal diagnostics plus 24 KiB per enabled raw capture section. An
+empty alert capture does not show that the topic is unavailable: the local
+broker may not publish it, or no alert may have occurred while capture was
+enabled.
 
 ### SmartMeter 3P: no measurement data (all sensors show 0 W / unavailable)
 

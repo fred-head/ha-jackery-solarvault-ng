@@ -6,6 +6,7 @@ registered callbacks so leaked subscriptions remain observable through delivery.
 """
 
 import asyncio
+import base64
 import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
@@ -20,6 +21,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.jackery import DOMAIN, PLATFORMS
 from custom_components.jackery import sensor as sensor_module
 from custom_components.jackery.alert_capture import AlertCapture
+from custom_components.jackery.protocol_capture import ProtocolDiscoveryCapture
 from custom_components.jackery.sensor import (
     OFFLINE_TIMEOUT,
     SMARTMETER_HTTP_SENSOR_CONFIGS,
@@ -989,6 +991,13 @@ async def test_options_protocol_discovery_toggle_resets_runtime(hass, entries):
     enabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
     assert reload.await_count == 1
     assert enabled is not disabled and enabled._protocol_discovery is not None
+    assert enabled._protocol_discovery_capture is not None
+    assert enabled._protocol_discovery_capture.observe_invalid(
+        topic="hb/device/HOST_A/status",
+        payload=b"persist until opt-out",
+        now=10_000,
+    )
+    await enabled._protocol_discovery_capture.async_flush()
     old_state = enabled._protocol_discovery
 
     with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
@@ -997,7 +1006,11 @@ async def test_options_protocol_discovery_toggle_resets_runtime(hass, entries):
     assert reload.await_count == 1
     assert replacement is not enabled
     assert replacement._protocol_discovery is None
+    assert replacement._protocol_discovery_capture is None
     assert old_state is enabled._protocol_discovery
+    cleared = ProtocolDiscoveryCapture(hass, entry.entry_id, "hb", "HOST_A")
+    await cleared.async_load()
+    assert cleared.raw_snapshot()["stored_count"] == 0
 
 
 async def test_alert_capture_option_is_exact_passive_persistent_and_independent(
@@ -1054,6 +1067,29 @@ async def test_alert_capture_option_is_exact_passive_persistent_and_independent(
     assert not enabled._reauth_started
     assert broker.publish_attempts == []
 
+    status_record = next(
+        record for record in broker.active if record.topic.endswith("/status")
+    )
+    status_payload = b'{"type":147,"body":{"newProtocolField":7}}'
+    status_record.callback(
+        SimpleNamespace(
+            topic="hb/device/HOST_A/status",
+            payload=status_payload,
+            qos=1,
+            retain=False,
+        )
+    )
+    protocol_capture = enabled._protocol_discovery_capture
+    assert protocol_capture is not None
+    assert protocol_capture.raw_snapshot()["stored_count"] == 1
+    assert protocol_capture.raw_snapshot()["events"][0]["discovery_reason"] == "unknown_message_type"
+    assert protocol_capture.raw_snapshot()["events"][0]["payload_base64"] == base64.b64encode(
+        status_payload
+    ).decode("ascii")
+    assert enabled._data_cache["newProtocolField"] == 7
+    assert broker.publish_attempts == []
+    assert len(broker.active) == 3  # Discovery adds no MQTT subscription.
+
     # The callback also checks exact topic equality, independently of broker
     # subscription matching, and does not adopt another device or prefix.
     alert_record.callback(
@@ -1096,6 +1132,8 @@ async def test_alert_capture_option_is_exact_passive_persistent_and_independent(
     assert replacement._alert_capture.snapshot()["stored_count"] == 1
     assert replacement._alert_capture.snapshot()["total_received"] == 1
     assert replacement._protocol_discovery is not None
+    assert replacement._protocol_discovery_capture is not None
+    assert replacement._protocol_discovery_capture.raw_snapshot()["stored_count"] == 1
 
     with patch.object(
         hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
@@ -1110,6 +1148,8 @@ async def test_alert_capture_option_is_exact_passive_persistent_and_independent(
     assert reload.await_count == 1
     assert final._alert_capture is None
     assert final._protocol_discovery is not None
+    assert final._protocol_discovery_capture is not None
+    assert final._protocol_discovery_capture.raw_snapshot()["stored_count"] == 1
     assert entry.options["alert_capture_enabled"] is False
     assert not any(record.topic.endswith("/alert") for record in broker.active)
     assert all(
@@ -1120,6 +1160,45 @@ async def test_alert_capture_option_is_exact_passive_persistent_and_independent(
     cleared = AlertCapture(hass, entry.entry_id, None, "HOST_A")
     await cleared.async_load()
     assert cleared.snapshot()["stored_count"] == 0
+
+    # Turning Protocol Discovery off removes only its store while Alert Capture
+    # remains enabled and keeps its own host-bound history.
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ):
+        await submit_options(
+            hass,
+            entry,
+            alert_capture_enabled=True,
+            protocol_discovery_enabled=True,
+        )
+    both = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    alert_topic = "newroot/device/HOST_A/alert"
+    next(record for record in broker.active if record.topic == alert_topic).callback(
+        SimpleNamespace(
+            topic=alert_topic,
+            payload=b"alert survives discovery opt-out",
+            qos=1,
+            retain=False,
+        )
+    )
+    await both._alert_capture.async_flush()
+
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ):
+        await submit_options(
+            hass,
+            entry,
+            alert_capture_enabled=True,
+            protocol_discovery_enabled=False,
+        )
+    alert_only = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert alert_only._protocol_discovery is None
+    assert alert_only._alert_capture is not None
+    preserved_alert = AlertCapture(hass, entry.entry_id, None, "HOST_A")
+    await preserved_alert.async_load()
+    assert preserved_alert.snapshot()["stored_count"] == 1
 
 
 async def test_alert_subscribe_partial_failure_unwinds_all_callbacks(hass, monkeypatch):

@@ -28,6 +28,7 @@ from custom_components.jackery.diagnostics_snapshot import (
     ProtocolDiscoveryDiagnosticsInput,
     build_diagnostics_snapshot,
 )
+from custom_components.jackery.protocol_capture import ProtocolDiscoveryCapture
 from custom_components.jackery.protocol_discovery import (
     DISCOVERY_DETAIL_BUDGET_BYTES,
     MAX_DEVICE_TYPE_BUCKETS,
@@ -126,6 +127,51 @@ def test_non_integer_message_types_are_bucketed_only_by_json_type(
     assert item.key.kind == kind
     assert item.key.value is None
     assert "secret" not in repr(item)
+
+
+@pytest.mark.parametrize(
+    ("message_type", "expected_key"),
+    [
+        (-1, ("integer", None)),
+        (0, ("integer", 0)),
+        (147, ("integer", 147)),
+        (65_535, ("integer", 65_535)),
+        (65_536, ("integer", None)),
+        (70_000, ("integer", None)),
+        (2**256, ("integer", None)),
+        (True, ("bool", None)),
+        ("70000", ("string", None)),
+    ],
+)
+def test_message_type_buckets_round_trip_through_storage(message_type, expected_key) -> None:
+    state = ProtocolDiscoveryState()
+    _observe(state, message_type, now=NOW - 1)
+    _observe(state, message_type, now=NOW)
+
+    stored = state.to_storage()
+    restored = ProtocolDiscoveryState.from_storage(stored)
+
+    assert restored is not None
+    assert restored.snapshot() == state.snapshot()
+    assert [(item.key.kind, item.key.value) for item in restored.snapshot().unknown_message_types] == [
+        expected_key
+    ]
+    observation = restored.snapshot().unknown_message_types[0].observation
+    assert (observation.count, observation.first_seen_at, observation.last_seen_at) == (
+        2,
+        NOW - 1,
+        NOW,
+    )
+
+
+@pytest.mark.parametrize("invalid_value", [True, -1, 65_536, "70000", 101])
+def test_integer_bucket_storage_rejects_invalid_or_unabstracted_values(invalid_value) -> None:
+    state = ProtocolDiscoveryState()
+    _observe(state, 70_000)
+    stored = state.to_storage()
+    stored["unknown_message_types"][0]["value"] = invalid_value
+
+    assert ProtocolDiscoveryState.from_storage(stored) is None
 
 
 def test_known_message_type_is_not_added_to_unknown_buckets() -> None:
@@ -448,7 +494,9 @@ def test_disabled_hot_path_has_no_state_and_enabled_mode_preserves_runtime(
 
 def test_disabled_mode_never_calls_structural_summarizer(hass, monkeypatch) -> None:
     observe = Mock(side_effect=AssertionError("summarizer must remain cold"))
+    raw_observe = Mock(side_effect=AssertionError("raw recorder must remain cold"))
     monkeypatch.setattr(ProtocolDiscoveryState, "observe", observe)
+    monkeypatch.setattr(ProtocolDiscoveryCapture, "observe", raw_observe)
     coordinator = JackeryDataCoordinator(
         hass,
         "hb",
@@ -464,6 +512,7 @@ def test_disabled_mode_never_calls_structural_summarizer(hass, monkeypatch) -> N
     _receive(coordinator, 147, {"unknown": {"nested": [1, 2, 3]}})
 
     observe.assert_not_called()
+    raw_observe.assert_not_called()
     assert coordinator._protocol_discovery is None
     assert coordinator.protocol_discovery_snapshot() is None
     assert coordinator._data_cache["batSoc"] == 50
