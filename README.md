@@ -240,9 +240,9 @@ structural observations and selected raw status/event messages. It does not
 store every normal status update. The first message for a new unknown type,
 device class or structural signature is eligible; up to four unique examples
 are stored for that signature, followed by at most one new example per hour.
-Identical payload bytes are deduplicated. Messages with no detected deviation
-are not captured. Malformed envelopes are eligible only on the configured
-host's exact status/event topics.
+Recently repeated payload bytes are suppressed using a bounded digest window.
+Messages with no detected deviation are not captured. Malformed envelopes are
+eligible only on the configured host's exact status/event topics.
 
 The value-free discovery summary remains in the normal diagnostics snapshot.
 When enabled, a separate **experimental_protocol_capture** section includes
