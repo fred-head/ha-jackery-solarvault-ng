@@ -47,7 +47,6 @@ NUMBERS: dict[str, NumberConfig] = {
         "min_key": "minSocDischg", "max_key": "maxSocDischg",
         "unit": PERCENTAGE,
     },
-    # maxOutPw moved to select.py (only 800 W / 2500 W are valid app values)
     # socForceChg moved to switch.py (binary 0/1, not a percentage target)
     # defaultPw: fallback output power for Benutzerdefiniert mode (workModel=4).
     # Active when no time-based schedule entry is in effect.
@@ -57,9 +56,9 @@ NUMBERS: dict[str, NumberConfig] = {
         "min": 0, "max": 200, "step": 10,
         "unit": UnitOfPower.WATT, "optimistic": True,
     },
-    # maxOutPw: maximum OnGrid AC output power (Einspeiseleistung).
-    # Live MQTT test (2026-08-06) confirmed the device accepts and enforces arbitrary
-    # values in 10 W steps — not limited to the app's preset options (800/1200/2500 W).
+    # maxOutPw: maximum OnGrid AC output power (house bus limit).
+    # The HA number entity is a slider from 0–2500 W in 10 W steps. A live MQTT
+    # test (2026-08-06) confirmed the device accepts and enforces intermediate values.
     "maxOutPw": {
         "translation_key": "max_feed_in_power",
         "min": 0, "max": 2500, "step": 10,
@@ -69,7 +68,7 @@ NUMBERS: dict[str, NumberConfig] = {
     # may export to the PUBLIC electricity grid (not the house AC bus).
     # App "Einspeiseleistungsgrenze", 0–2500 W in 10 W steps.
     # Confirmed writable via cmd=5 (device acks with cmd=107).
-    # Distinct from maxOutPw (house AC bus limit, 800/2500 W select).
+    # Distinct from maxOutPw, which limits the house AC output power.
     # Effect only visible when the device is actually exporting to the public grid;
     # in Eigenverbrauch mode with near-zero net export the limit appears inactive.
     "maxFeedGrid": {
