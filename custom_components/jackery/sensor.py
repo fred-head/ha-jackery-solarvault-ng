@@ -1680,7 +1680,7 @@ class JackerySensor(SensorEntity):
             "device_sn": self._coordinator._device_sn,
             "raw_key": self._config.get("json_key"),
         }
-        if self._has_enum_raw_value:
+        if getattr(self, "_has_enum_raw_value", False):
             attrs["raw_value"] = self._enum_raw_value
         # Decode the funcEnable bitmask into named flags for troubleshooting.
         if self._sensor_id == "func_enable":
