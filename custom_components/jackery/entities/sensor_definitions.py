@@ -737,7 +737,7 @@ SENSORS: dict[str, MainSensorConfig] = {
     },
     # maxFeedGrid (type-106): enforced system-level grid feed-in cap. Read-back sensor for
     # the value reported by the device. Writable via Number entity in number.py (Issue #11).
-    # Distinct from maxOutPw (user-selectable app limit, controlled via JackeryMaxFeedInSelect).
+    # Distinct from maxOutPw (house AC output limit, writable via the number slider).
     "max_feed_grid_power": {
         "json_key": "maxFeedGrid",
         "name": "Max Feed Grid Power",

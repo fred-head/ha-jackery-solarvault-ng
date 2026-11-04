@@ -350,7 +350,7 @@ These block a general recommendation, not controlled developer testing.
 | --- | --- | --- |
 | Complete reauth workflow | Resolved after this audit with entry-owned HA flow and end-to-end reload tests | Completed lifecycle workstream |
 | `use_cts` constructor fallback | No production or test caller passes it; retained as an internal legacy fallback | Low-risk cleanup only after compatibility search |
-| `maxOutPw` comments | `number.py` still says it moved to a select; sensor definitions mention a removed `JackeryMaxFeedInSelect` | Documentation/comment cleanup, no behavior change |
+| `maxOutPw` comments | Resolved: source comments now describe the number slider and distinguish it from `maxFeedGrid` | No behavior change |
 | Narrow coordinator APIs | Entities read `_data_cache`, identity, source and listener internals directly | High architectural leverage, medium/high regression risk |
 | HA/coordinator coupling | Dynamic child entities, registry removal, HTTP policy and callbacks remain in `sensor.py` | Valuable only in small behavior-preserving slices |
 | Hardware golden fixtures | No fixture directory or recorded sanitized payload corpus exists | High production evidence value; needs hardware contributors |

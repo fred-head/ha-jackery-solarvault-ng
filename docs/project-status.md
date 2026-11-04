@@ -115,8 +115,8 @@ hardware or automatically enable new devices.
 - Whether a supported YAML import path is actually needed.
 - The separately deferred `_grid_net_from_system()` alias/source policy.
 - Maintainability work such as removing the proven-unused `use_cts` fallback,
-  correcting stale `maxOutPw` comments, narrowing coordinator APIs, and reducing
-  remaining HA/coordinator coupling. These are tracked in the
+  narrowing coordinator APIs, and reducing remaining HA/coordinator coupling.
+  These are tracked in the
   [Phase 4 decision basis](phase3-closeout-phase4-plan.md), not promoted to
   immediate feature work here.
 

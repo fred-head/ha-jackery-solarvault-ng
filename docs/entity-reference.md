@@ -116,7 +116,7 @@ or under **Settings → Devices & Services → Jackery → your device → entit
 | Grid Export Energy | `sensor.jackery_{sn}_grid_export_energy` | `outOngridEgy` | |
 | Grid AC Input Power | `sensor.jackery_{sn}_grid_in_power` | `gridInPw` | Type-106 |
 | Grid AC Output Power | `sensor.jackery_{sn}_grid_out_power` | `gridOutPw` | Type-106 |
-| Max Output Power (OnGrid) | `sensor.jackery_{sn}_max_output_power_ongrid` | `maxOutPw` | → also a select entity |
+| Max Output Power (OnGrid) | `sensor.jackery_{sn}_max_output_power_ongrid` | `maxOutPw` | Device-reported setting; adjustable with the number slider below (0–2500 W, 10 W steps) |
 | Max Feed Grid Power | `sensor.jackery_{sn}_max_feed_grid_power` | `maxFeedGrid` | Type-106; also a writable number entity (see Control Entities) |
 
 ### EPS (off-grid socket)
@@ -185,7 +185,7 @@ or under **Settings → Devices & Services → Jackery → your device → entit
 |---|---|---|---|---|
 | Select | Work Mode | `select.jackery_{sn}_work_mode` | `workModel` | Eigenverbrauch / Benutzerdefiniert / Tarifmodus / KI-Modus |
 | Select | Auto Standby Mode | `select.jackery_{sn}_auto_standby_mode` | `autoStandby` | invalid / standby / on |
-| Select | Max Feed-in Power (OnGrid) | `select.jackery_{sn}_max_feed_in_power_ongrid` | `maxOutPw` | 800 / 1200 / 2500 W |
+| Number | Max Output Power (OnGrid) | `number.jackery_{sn}_max_feed_in_power_ongrid` | `maxOutPw` | Slider: 0–2500 W in 10 W steps; sent with `cmd=5` |
 | Number | SOC Charge Limit | `number.jackery_{sn}_soc_charge_limit` | `socChgLimit` | 50–100 % (device-enforced) |
 | Number | SOC Discharge Limit | `number.jackery_{sn}_soc_discharge_limit` | `socDischgLimit` | 5–49 % (device-enforced) |
 | Number | SOC Force Charge Target | `number.jackery_{sn}_soc_force_charge_target` | `socForceChg` | 0–100 % |
@@ -348,7 +348,7 @@ Wenn du von der Original-Integration auf diesen Fork wechselst, ändern sich fol
 |---|---|---|
 | `sensor.jackery_{sn}_average_soc` | `sensor.jackery_{sn}_bms_soc` | Klarerer Name |
 | `sensor.jackery_{sn}_work_mode` | `select.jackery_{sn}_work_mode` | Ersetzt durch actionable Select |
-| `number.jackery_{sn}_max_output_power_ongrid` | `select.jackery_{sn}_max_feed_in_power_ongrid` | Nur 800/1200/2500 W gültig |
+| `number.jackery_{sn}_max_output_power_ongrid` | Number entity for `maxOutPw` (same domain; registry migration retains the existing entity ID) | `maxOutPw` remains a number slider from 0–2500 W in 10 W steps |
 | `switch.jackery_{sn}_...` (unique_id Format) | … | Abweichendes unique_id Schema |
 
 Die Integration führt bei der ersten Einrichtung eine automatische Migration durch.
