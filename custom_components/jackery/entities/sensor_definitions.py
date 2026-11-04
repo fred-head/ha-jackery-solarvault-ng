@@ -31,6 +31,7 @@ __all__ = [
 # ENUM value → option-key maps for status sensors (Ü5/Ü6 from upstream v2.0.0)
 DEVICE_STATUS_MAP: dict[int, str] = {
     0: "normal", 1: "waiting", 2: "alarm", 3: "fault", 4: "standby", 5: "low_power",
+    8: "fast_charging",
 }
 ONGRID_STATUS_MAP: dict[int, str] = {0: "disconnected", 1: "connected"}
 CT_STATUS_MAP: dict[int, str] = {0: "disconnected", 1: "connected"}
