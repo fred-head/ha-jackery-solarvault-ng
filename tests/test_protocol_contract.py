@@ -8,7 +8,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 
 from custom_components.jackery import sensor as sensor_module
-from custom_components.jackery.sensor import JackeryDataCoordinator
+from custom_components.jackery.sensor import JackeryDataCoordinator, JackerySensor
 from custom_components.jackery.transport import mqtt as mqtt_transport_module
 
 from .conftest import FakeMqttMsg
@@ -77,6 +77,45 @@ def test_payload_shape_contract(protocol, payload, expected, accepted):
     if not expected:
         assert "batSoc" not in protocol._data_cache
     assert "token" not in protocol._data_cache
+
+
+def test_unknown_device_status_does_not_interrupt_message_entity_fanout(protocol):
+    """An unknown enum raw value leaves all later sensors in this MQTT message live."""
+    entities = {
+        sensor_id: JackerySensor(sensor_id, protocol, "entry-a")
+        for sensor_id in (
+            "device_status",
+            "ongrid_status",
+            "ct_status",
+            "other_load_power",
+        )
+    }
+
+    def validate_ha_enum_state(entity):
+        """Apply HA's rule: None is unknown; other enum states need a listed option."""
+        value = entity._attr_native_value
+        options = entity._config.get("options")
+        if value is not None and options is not None and value not in options:
+            raise ValueError(f"enum state {value!r} is not in {options!r}")
+
+    for sensor_id, entity in entities.items():
+        def write_ha_state(entity=entity):
+            validate_ha_enum_state(entity)
+
+        entity.async_write_ha_state = write_ha_state
+        protocol.register_sensor(sensor_id, entity)
+
+    receive(
+        protocol,
+        2,
+        {"stat": 999, "ongridStat": 1, "ctStat": 1, "otherLoadPw": 500},
+    )
+
+    assert entities["device_status"]._attr_native_value is None
+    assert entities["device_status"].extra_state_attributes["raw_value"] == 999
+    assert entities["ongrid_status"]._attr_native_value == "connected"
+    assert entities["ct_status"]._attr_native_value == "connected"
+    assert entities["other_load_power"]._attr_native_value == 500.0
 
 
 @pytest.mark.parametrize("kind", [2, 25, 103, 105, 100, 1, 999, None, "107"])

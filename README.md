@@ -109,7 +109,7 @@ Example: SN `HS2C12600262HH4` → `sensor.jackery_hs2c12600262hh4_solar_power`
 | WLAN IP | `wip` | IP address of the SolarVault on the WiFi network |
 | Ethernet IP | `eip` | Ethernet IP address of the SolarVault |
 | Device Capability | `ability` | Capability bitmask – changes value after firmware updates |
-| Device Status | `stat` | Device operation status: normal / waiting / alarm / fault / standby / low_power |
+| Device Status | `stat` | Device operation status: normal / waiting / alarm / fault / standby / low_power / 8 = Fast charging |
 | OnGrid Status | `ongridStat` | Grid-tie status: disconnected / connected |
 | CT Status | `ctStat` | CT meter connection status: disconnected / connected |
 | Grid Meter Link | `gridSate` | Grid meter link health: not_linked / linked |

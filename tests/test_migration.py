@@ -62,6 +62,31 @@ async def test_main_sensor_gets_sn_prefix(hass):
         "Old uid must be removed"
 
 
+async def test_device_status_identity_needs_no_registry_migration(hass):
+    """The current status identity and entity ID survive the existing migration."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"device_sn": _DEVICE_SN},
+        unique_id=_DEVICE_SN,
+    )
+    entry.add_to_hass(hass)
+    ent_reg = er.async_get(hass)
+    entity = ent_reg.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        f"jackery_{_DEVICE_SN}_device_status",
+        config_entry=entry,
+        suggested_object_id="jackery_device_status",
+    )
+    before = (entity.entity_id, entity.unique_id)
+
+    await _migrate_unique_ids(hass, entry)
+
+    current = ent_reg.async_get(entity.entity_id)
+    assert current is not None
+    assert (current.entity_id, current.unique_id) == before
+
+
 # ---------------------------------------------------------------------------
 # Sub-device entities must be left unchanged
 # ---------------------------------------------------------------------------
