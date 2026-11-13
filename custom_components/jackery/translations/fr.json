@@ -31,18 +31,20 @@
         "step": {
             "init": {
                 "title": "Options Jackery",
-                "description": "Reconfigurer la connexion, le sondage HTTP optionnel du SmartMeter et les diagnostics développeur. La découverte du protocole enregistre de façon persistante certains messages MQTT bruts, qui peuvent contenir des informations sensibles et doivent être vérifiés avant tout partage.",
+                "description": "Reconfigurer la connexion, le sondage HTTP optionnel du SmartMeter et les diagnostics développeur. Les captures MQTT brutes expérimentales peuvent contenir des informations sensibles à vérifier avant tout partage.",
                 "data": {
                     "token": "Token",
                     "topic_prefix": "Préfixe de topic MQTT",
                     "smartmeter_http_poll": "Interroger le SmartMeter via HTTP (tension, courant, puissance réactive, …)",
                     "smartmeter_poll_interval": "Intervalle d'interrogation du SmartMeter (secondes)",
                     "protocol_discovery_enabled": "Découverte expérimentale du protocole avec enregistrement persistant des messages MQTT inconnus pertinents",
-                    "alert_capture_enabled": "Capture expérimentale des alertes MQTT"
+                    "alert_capture_enabled": "Capture expérimentale des alertes MQTT",
+                    "bmslog_capture_enabled": "Activer la capture expérimentale des journaux BMS"
                 },
                 "data_description": {
                     "protocol_discovery_enabled": "Enregistre de façon persistante des observations structurelles limitées et certaines charges utiles MQTT brutes. Ces données peuvent contenir des informations sensibles ; vérifiez soigneusement le diagnostic avant de le partager.",
-                    "alert_capture_enabled": "Enregistre passivement et localement les messages d’alerte MQTT inconnus sous forme de données brutes limitées. Elles peuvent contenir des informations sensibles et doivent être vérifiées avant tout partage. Recommandé uniquement aux développeurs et testeurs."
+                    "alert_capture_enabled": "Enregistre passivement et localement les messages d’alerte MQTT inconnus sous forme de données brutes limitées. Elles peuvent contenir des informations sensibles et doivent être vérifiées avant tout partage. Recommandé uniquement aux développeurs et testeurs.",
+                    "bmslog_capture_enabled": "Enregistre passivement le topic /bmslog exact de l’appareil configuré sous forme de données brutes limitées. Les charges utiles peuvent contenir des informations sensibles à vérifier avant tout partage. Désactivé par défaut."
                 }
             }
         }

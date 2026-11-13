@@ -15,6 +15,7 @@ from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
 from .alert_capture import AlertCapture
+from .bmslog_capture import BmslogCapture
 from .calculations.energy_flow import (
     OnGridSourceEvidence,
     SourceFreshness,
@@ -203,6 +204,7 @@ class JackeryDataCoordinator:
         protocol_discovery_enabled: bool = False,
         protocol_discovery_capture: ProtocolDiscoveryCapture | None = None,
         alert_capture: AlertCapture | None = None,
+        bmslog_capture: BmslogCapture | None = None,
     ) -> None:
         self.hass = hass
         self._topic_prefix = topic_prefix
@@ -232,6 +234,8 @@ class JackeryDataCoordinator:
         self._protocol_discovery_active = False
         self._alert_capture = alert_capture
         self._alert_capture_active = False
+        self._bmslog_capture = bmslog_capture
+        self._bmslog_capture_active = False
 
         self._child_discovery_state = ChildDiscoveryState()
         # Compatibility aliases retained for existing coordinator consumers.
@@ -261,6 +265,9 @@ class JackeryDataCoordinator:
         self._topic_event = f"{self._topic_root}/device/{topic_sn}/event"
         self._topic_alert = (
             alert_capture.topic if alert_capture is not None else None
+        )
+        self._topic_bmslog = (
+            bmslog_capture.topic if bmslog_capture is not None else None
         )
 
     @property
@@ -344,6 +351,16 @@ class JackeryDataCoordinator:
                         (self._topic_alert,),
                         alert_message_received,
                     )
+                if self._bmslog_capture is not None and self._topic_bmslog is not None:
+                    @callback
+                    def bmslog_message_received(msg):
+                        self._handle_bmslog_message(msg)
+
+                    self._bmslog_capture_active = True
+                    await self._mqtt_transport.async_subscribe(
+                        (self._topic_bmslog,),
+                        bmslog_message_received,
+                    )
                 _LOGGER.debug("MQTT subscriptions created for entry %s", self.config_entry_id)
 
                 self._data_task = asyncio.create_task(self._periodic_data_request())
@@ -371,6 +388,7 @@ class JackeryDataCoordinator:
         self._lifecycle_active = False
         self._subscribed = False
         self._alert_capture_active = False
+        self._bmslog_capture_active = False
         self._protocol_discovery_active = False
         errors: list[Exception] = []
         had_subscriptions = self._mqtt_transport.unsubscribe_count > 0
@@ -393,6 +411,11 @@ class JackeryDataCoordinator:
                 await self._alert_capture.async_flush()
             except Exception as error:
                 errors.append(error)
+        if self._bmslog_capture is not None:
+            try:
+                await self._bmslog_capture.async_flush()
+            except Exception as error:
+                errors.append(error)
         if self._protocol_discovery_capture is not None:
             try:
                 await self._protocol_discovery_capture.async_flush()
@@ -409,6 +432,23 @@ class JackeryDataCoordinator:
             not self._alert_capture_active
             or capture is None
             or topic != self._topic_alert
+        ):
+            return
+        capture.observe(
+            topic=topic,
+            payload=getattr(msg, "payload", None),
+            qos=getattr(msg, "qos", None),
+            retain=getattr(msg, "retain", None),
+        )
+
+    def _handle_bmslog_message(self, msg: Any) -> None:
+        """Observe only the exact host BMS log topic, outside normal routing."""
+        capture = self._bmslog_capture
+        topic = getattr(msg, "topic", None)
+        if (
+            not self._bmslog_capture_active
+            or capture is None
+            or topic != self._topic_bmslog
         ):
             return
         capture.observe(

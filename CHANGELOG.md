@@ -37,9 +37,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
   diagnostics contract stays unchanged while enabled exports add a separately
   versioned, privacy-warned raw-data section; disabling or removing the entry
   deletes persisted capture data.
+- Add a separate, disabled-by-default experimental `/bmslog` observer for the
+  configured SolarVault. It passively stores opaque payload bytes in its own
+  bounded, host-bound private ring buffer and privacy-warned diagnostics section;
+  it has separate counters and storage from `/alert` and sends no commands.
 
 ### Refactored
 
+- Share bounded private MQTT capture storage between Alert Capture and BMS Log
+  Capture while preserving the existing Alert Capture store key and event format.
 - Declare sensor/number metadata schemas and entity-ID invariants for accurate
   HA-aware type checking.
 - Extract child membership, missing-timer decisions and family-to-entity

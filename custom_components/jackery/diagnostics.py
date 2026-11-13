@@ -13,13 +13,22 @@ from homeassistant.loader import async_get_integration
 
 from . import DOMAIN
 from .alert_capture import (
+    MAX_ALERT_EXPORT_BYTES,
+    MAX_TOTAL_DIAGNOSTICS_BYTES,
     OPTION_ALERT_CAPTURE_ENABLED,
     AlertCapture,
     build_alert_capture_export,
 )
+from .bmslog_capture import (
+    MAX_BMSLOG_EXPORT_BYTES,
+    OPTION_BMSLOG_CAPTURE_ENABLED,
+    BmslogCapture,
+    build_bmslog_capture_export,
+)
 from .diagnostics_adapter import collect_diagnostics_inputs
-from .diagnostics_snapshot import build_diagnostics_snapshot
+from .diagnostics_snapshot import MAX_SNAPSHOT_BYTES, build_diagnostics_snapshot
 from .protocol_capture import (
+    MAX_PROTOCOL_EXPORT_BYTES,
     ProtocolDiscoveryCapture,
     build_protocol_capture_export,
 )
@@ -70,17 +79,34 @@ async def async_get_config_entry_diagnostics(
     )
     snapshot = build_diagnostics_snapshot(inputs, now=now)
     redacted_snapshot = async_redact_data(snapshot, _FINAL_REDACTION_KEYS)
-    if entry.options.get(OPTION_ALERT_CAPTURE_ENABLED) is True:
+    alert_enabled = entry.options.get(OPTION_ALERT_CAPTURE_ENABLED) is True
+    protocol_enabled = entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is True
+    bmslog_enabled = entry.options.get(OPTION_BMSLOG_CAPTURE_ENABLED) is True
+    enabled_capture_count = sum((alert_enabled, protocol_enabled, bmslog_enabled))
+    shared_capture_budget = (
+        (MAX_TOTAL_DIAGNOSTICS_BYTES - MAX_SNAPSHOT_BYTES) // enabled_capture_count
+        if enabled_capture_count
+        else MAX_ALERT_EXPORT_BYTES
+    )
+    per_capture_export_limit = min(
+        MAX_ALERT_EXPORT_BYTES,
+        MAX_PROTOCOL_EXPORT_BYTES,
+        MAX_BMSLOG_EXPORT_BYTES,
+        shared_capture_budget,
+    )
+
+    alert_capture_data: dict[str, Any] | None = None
+    if alert_enabled:
         capture = getattr(coordinator, "_alert_capture", None)
         if capture is None:
             # Diagnostics remain readable for an enabled but currently unloaded
             # entry; this loads the existing store without starting a listener.
             capture = AlertCapture(hass, entry.entry_id, None, entry.data.get("device_sn"))
             await capture.async_load()
-        redacted_snapshot["experimental_alert_capture"] = build_alert_capture_export(
-            capture.snapshot(), redacted_snapshot
-        )
-    if entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is True:
+        alert_capture_data = capture.snapshot()
+
+    protocol_capture_data: dict[str, Any] | None = None
+    if protocol_enabled:
         capture = getattr(coordinator, "_protocol_discovery_capture", None)
         if capture is None:
             capture = ProtocolDiscoveryCapture(
@@ -90,8 +116,40 @@ async def async_get_config_entry_diagnostics(
                 entry.data.get("device_sn"),
             )
             await capture.async_load()
+        protocol_capture_data = capture.raw_snapshot()
+
+    bmslog_capture_data: dict[str, Any] | None = None
+    if bmslog_enabled:
+        capture = getattr(coordinator, "_bmslog_capture", None)
+        if capture is None:
+            capture = BmslogCapture(
+                hass,
+                entry.entry_id,
+                None,
+                entry.data.get("device_sn"),
+            )
+            await capture.async_load()
+        bmslog_capture_data = capture.snapshot()
+
+    if alert_capture_data is not None:
+        redacted_snapshot["experimental_alert_capture"] = build_alert_capture_export(
+            alert_capture_data,
+            redacted_snapshot,
+            max_export_bytes=per_capture_export_limit,
+        )
+
+    if protocol_capture_data is not None:
         redacted_snapshot["experimental_protocol_capture"] = build_protocol_capture_export(
-            capture.raw_snapshot(), redacted_snapshot
+            protocol_capture_data,
+            redacted_snapshot,
+            max_export_bytes=per_capture_export_limit,
+        )
+
+    if bmslog_capture_data is not None:
+        redacted_snapshot["experimental_bmslog_capture"] = build_bmslog_capture_export(
+            bmslog_capture_data,
+            redacted_snapshot,
+            max_export_bytes=per_capture_export_limit,
         )
     return redacted_snapshot
 

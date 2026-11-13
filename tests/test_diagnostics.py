@@ -23,6 +23,10 @@ from custom_components.jackery.alert_capture import (
     AlertCapture,
     _compact_size,
 )
+from custom_components.jackery.bmslog_capture import (
+    MAX_BMSLOG_EXPORT_BYTES,
+    BmslogCapture,
+)
 from custom_components.jackery.diagnostics import (
     async_get_config_entry_diagnostics,
 )
@@ -31,7 +35,7 @@ from custom_components.jackery.diagnostics_observation import (
     ProtocolErrorBucket,
     ProtocolRouteBucket,
 )
-from custom_components.jackery.diagnostics_snapshot import TOP_LEVEL_SECTIONS
+from custom_components.jackery.diagnostics_snapshot import MAX_SNAPSHOT_BYTES, TOP_LEVEL_SECTIONS
 from custom_components.jackery.identity import child_device_identifier
 from custom_components.jackery.protocol_capture import (
     MAX_PROTOCOL_EXPORT_BYTES,
@@ -625,6 +629,130 @@ async def test_both_raw_capture_extensions_are_bounded_and_separately_versioned(
     assert _compact_size(protocol_export) <= MAX_PROTOCOL_EXPORT_BYTES
     assert _compact_size(snapshot) <= MAX_TOTAL_DIAGNOSTICS_BYTES
     assert protocol_export["export_omitted_count"] > 0
+    assert "HOST_SERIAL_CANARY" not in _serialized(snapshot)
+    assert "mqtt/private/topic" not in _serialized(snapshot)
+
+
+async def test_bmslog_capture_has_aliased_private_diagnostics_extension(
+    hass,
+    monkeypatch,
+) -> None:
+    entry = _entry(hass, host="HOST_SERIAL_CANARY", entry_id="bmslog-export-entry")
+    coordinator = _coordinator(hass, entry, host="HOST_SERIAL_CANARY")
+    monkeypatch.setattr(diagnostics_module.time, "time", lambda: NOW)
+    normal_snapshot = await async_get_config_entry_diagnostics(hass, entry)
+    assert tuple(normal_snapshot) == TOP_LEVEL_SECTIONS
+
+    hass.config_entries.async_update_entry(
+        entry,
+        options={**entry.options, "bmslog_capture_enabled": True},
+    )
+    topic = "mqtt/private/topic/device/HOST_SERIAL_CANARY/bmslog"
+    capture = BmslogCapture(hass, entry.entry_id, topic, "HOST_SERIAL_CANARY")
+    await capture.async_load()
+    raw_payload = b'{"deviceSn":"SERIAL_RAW_CANARY","bms":"opaque"}'
+    capture.observe(topic=topic, payload=raw_payload, qos=1, retain=False)
+    coordinator._bmslog_capture = capture
+
+    snapshot = await async_get_config_entry_diagnostics(hass, entry)
+
+    assert tuple(snapshot) == (*TOP_LEVEL_SECTIONS, "experimental_bmslog_capture")
+    assert {key: value for key, value in snapshot.items() if key in TOP_LEVEL_SECTIONS} == normal_snapshot
+    section = snapshot["experimental_bmslog_capture"]
+    assert section["enabled"] is True
+    assert section["capture_version"] == 1
+    assert section["stored_count"] == 1
+    assert section["dropped_count"] == 0
+    assert section["overflow_count"] == 0
+    assert section["truncated_count"] == 0
+    assert section["export_omitted_count"] == 0
+    assert section["events"][0]["topic"] == "{prefix}/device/{host}/bmslog"
+    assert section["events"][0]["payload_encoding"] == "base64"
+    assert base64.b64decode(section["events"][0]["payload_base64"]) == raw_payload
+    assert "may include serial numbers" in section["privacy_warning"]
+    assert "SERIAL_RAW_CANARY" not in _serialized(snapshot)
+    assert "HOST_SERIAL_CANARY" not in _serialized(snapshot)
+    assert "mqtt/private/topic" not in _serialized(snapshot)
+    assert _compact_size(section) <= MAX_BMSLOG_EXPORT_BYTES
+    assert _compact_size(snapshot) <= MAX_TOTAL_DIAGNOSTICS_BYTES
+
+
+async def test_all_three_raw_capture_sections_share_the_global_budget(
+    hass,
+    monkeypatch,
+) -> None:
+    entry = _entry(hass, host="HOST_SERIAL_CANARY", entry_id="three-captures-entry")
+    options = {
+        **entry.options,
+        "alert_capture_enabled": True,
+        "bmslog_capture_enabled": True,
+        "protocol_discovery_enabled": True,
+    }
+    hass.config_entries.async_update_entry(entry, options=options)
+    coordinator = _coordinator(hass, entry, host="HOST_SERIAL_CANARY")
+    monkeypatch.setattr(diagnostics_module.time, "time", lambda: NOW)
+
+    standard_snapshot = await async_get_config_entry_diagnostics(hass, entry)
+    padding_size = max(0, MAX_SNAPSHOT_BYTES - _compact_size(standard_snapshot) - 80)
+    monkeypatch.setattr(
+        diagnostics_module,
+        "build_diagnostics_snapshot",
+        lambda *_args, **_kwargs: {**standard_snapshot, "budget_fixture": "x" * padding_size},
+    )
+
+    alert_topic = "mqtt/private/topic/device/HOST_SERIAL_CANARY/alert"
+    alert = AlertCapture(hass, entry.entry_id, alert_topic, "HOST_SERIAL_CANARY")
+    await alert.async_load()
+    bmslog_topic = "mqtt/private/topic/device/HOST_SERIAL_CANARY/bmslog"
+    bmslog = BmslogCapture(hass, entry.entry_id, bmslog_topic, "HOST_SERIAL_CANARY")
+    await bmslog.async_load()
+    for index in range(12):
+        payload = f"alert-{index}-".encode() + b"a" * 4_000
+        alert.observe(topic=alert_topic, payload=payload, qos=1, retain=False)
+        payload = f"bmslog-{index}-".encode() + b"b" * 4_000
+        bmslog.observe(topic=bmslog_topic, payload=payload, qos=1, retain=False)
+
+    protocol_topic = "mqtt/private/topic/device/HOST_SERIAL_CANARY/status"
+    protocol = ProtocolDiscoveryCapture(
+        hass,
+        entry.entry_id,
+        "mqtt/private/topic",
+        "HOST_SERIAL_CANARY",
+    )
+    await protocol.async_load()
+    for index in range(12):
+        assert protocol.observe_invalid(
+            topic=protocol_topic,
+            payload=f"protocol-{index}-".encode() + b"p" * 4_000,
+            now=NOW + index * 3600,
+            qos=1,
+            retain=False,
+        )
+
+    coordinator._alert_capture = alert
+    coordinator._bmslog_capture = bmslog
+    coordinator._protocol_discovery_capture = protocol
+    coordinator._protocol_discovery = protocol.state
+    snapshot = await async_get_config_entry_diagnostics(hass, entry)
+
+    section_keys = (
+        "experimental_alert_capture",
+        "experimental_protocol_capture",
+        "experimental_bmslog_capture",
+    )
+    assert tuple(snapshot) == (*TOP_LEVEL_SECTIONS, *section_keys, "budget_fixture")
+    assert snapshot["budget_fixture"] == "x" * padding_size
+    assert _compact_size(snapshot) <= MAX_TOTAL_DIAGNOSTICS_BYTES
+    assert _compact_size({key: snapshot[key] for key in TOP_LEVEL_SECTIONS}) <= MAX_SNAPSHOT_BYTES
+    assert all(snapshot[key] == standard_snapshot[key] for key in TOP_LEVEL_SECTIONS)
+    for key in section_keys:
+        section = snapshot[key]
+        assert section["export_omitted_count"] > 0
+        assert _compact_size(section) <= 16 * 1024
+        assert section["privacy_warning"]
+    assert snapshot["experimental_alert_capture"]["events"][-1]["topic"] == "{prefix}/device/{host}/alert"
+    assert snapshot["experimental_protocol_capture"]["events"][-1]["topic"] == "{prefix}/device/{host}/status"
+    assert snapshot["experimental_bmslog_capture"]["events"][-1]["topic"] == "{prefix}/device/{host}/bmslog"
     assert "HOST_SERIAL_CANARY" not in _serialized(snapshot)
     assert "mqtt/private/topic" not in _serialized(snapshot)
 
