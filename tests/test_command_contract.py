@@ -177,6 +177,19 @@ def plug_for(ctx, monkeypatch, mode=1):
     return e
 
 
+@pytest.mark.parametrize(("mode", "label"), [(1, "LAN"), (2, "Cloud")])
+async def test_plug_comm_mode_attributes_are_human_readable(
+    commands, monkeypatch, mode, label
+):
+    entity = plug_for(commands, monkeypatch, mode)
+
+    attributes = entity.extra_state_attributes
+
+    assert entity._attr_translation_key == "plug_switch"
+    assert attributes["commMode"] == label
+    assert attributes["commMode_label"] == label
+
+
 @pytest.mark.parametrize("action,initial,value", [("async_turn_on", 0, 1), ("async_turn_off", 1, 0),
                                                 ("async_toggle", 0, 1), ("async_toggle", 1, 0)])
 async def test_plug_commands_are_not_optimistic(commands, monkeypatch, action, initial, value):

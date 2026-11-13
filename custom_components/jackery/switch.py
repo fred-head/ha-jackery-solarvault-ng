@@ -115,7 +115,7 @@ class JackeryPlugSwitch(SwitchEntity):
         self._coordinator = coordinator
         self._raw_data: dict[str, Any] = {}
 
-        self._attr_name = "Switch"
+        self._attr_translation_key = "plug_switch"
         main_device_id = coordinator._device_sn or config_entry_id
         self._attr_unique_id = child_unique_id(main_device_id, plug_sn, "plug", "switch")
         self._attr_has_entity_name = True
@@ -220,7 +220,7 @@ class JackeryPlugSwitch(SwitchEntity):
             "plug_sn": self._plug_sn,
             "dev_type": self._dev_type,
             "commState": raw.get("commState"),
-            "commMode": mode,
+            "commMode": COMM_MODE_LABELS.get(mode) if mode is not None else None,
             "commMode_label": COMM_MODE_LABELS.get(mode) if mode is not None else None,
             "mqtt_controllable": mqtt_ok,
             "mqtt_control_block_reason": mqtt_block_reason or None,

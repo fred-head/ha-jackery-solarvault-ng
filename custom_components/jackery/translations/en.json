@@ -52,7 +52,7 @@
     "entity": {
         "select": {
             "auto_standby": {
-                "name": "Auto Standby Mode",
+                "name": "Automatic standby mode",
                 "state": {
                     "invalid": "Invalid",
                     "standby": "Standby",
@@ -60,7 +60,7 @@
                 }
             },
             "work_mode": {
-                "name": "Work Mode",
+                "name": "Operating mode",
                 "state": {
                     "self_consumption": "Self-Consumption",
                     "custom": "Custom",
@@ -71,223 +71,224 @@
         },
         "number": {
             "max_feed_in_power": {
-                "name": "Max Feed-in Power (OnGrid)"
+                "name": "Maximum power to home grid"
             },
             "soc_charge_limit": {
-                "name": "SOC Charge Limit"
+                "name": "Set charge limit"
             },
             "soc_discharge_limit": {
-                "name": "SOC Discharge Limit"
+                "name": "Set discharge limit"
             },
             "default_output_power": {
-                "name": "Default Output Power"
+                "name": "Default output power"
             },
             "max_feed_grid_power": {
-                "name": "Max Grid Feed-In Limit"
+                "name": "Maximum export to public grid"
             }
         },
         "switch": {
             "auto_standby_allowed": {
-                "name": "Auto Standby Allowed"
+                "name": "Automatic standby allowed"
             },
             "eps_switch": {
-                "name": "EPS Switch"
+                "name": "Backup power switch"
             },
             "off_grid_fallback": {
-                "name": "Off-Grid Fallback"
+                "name": "Grid outage fallback"
             },
             "follow_meter_power": {
-                "name": "Follow Meter Power"
+                "name": "Follow meter"
             },
             "force_charge": {
-                "name": "Forced Charging"
-            }
+                "name": "Forced charging"
+            },
+            "plug_switch": {"name": "Switch smart plug"}
         },
         "button": {
             "reboot": {
-                "name": "Reboot"
+                "name": "Restart"
             }
         },
         "sensor": {
             "battery_soc": {
-                "name": "Battery SOC"
+                "name": "Main battery state of charge"
             },
             "battery_charge_power": {
-                "name": "Main Unit Charge Power"
+                "name": "Main battery charging power"
             },
             "battery_discharge_power": {
-                "name": "Main Unit Discharge Power"
+                "name": "Main battery discharging power"
             },
             "total_battery_charge_power": {
-                "name": "Total Battery Charge Power"
+                "name": "Total battery charging power"
             },
             "total_battery_discharge_power": {
-                "name": "Total Battery Discharge Power"
+                "name": "Total battery discharging power (calculated)"
             },
             "battery_temperature": {
-                "name": "Battery Temperature"
+                "name": "Battery temperature"
             },
             "battery_count": {
-                "name": "Battery Count"
+                "name": "Number of battery modules"
             },
             "battery_charge_energy": {
-                "name": "Battery Charge Energy"
+                "name": "Battery charging energy"
             },
             "battery_discharge_energy": {
-                "name": "Battery Discharge Energy"
+                "name": "Battery discharging energy"
             },
             "solar_power": {
-                "name": "Solar Power"
+                "name": "Total PV power"
             },
             "solar_energy": {
-                "name": "Solar Energy"
+                "name": "Total PV energy"
             },
             "solar_power_pv1": {
-                "name": "Solar Power PV1"
+                "name": "PV1 power"
             },
             "solar_energy_pv1": {
-                "name": "Solar Energy PV1"
+                "name": "PV1 energy"
             },
             "solar_power_pv2": {
-                "name": "Solar Power PV2"
+                "name": "PV2 power"
             },
             "solar_energy_pv2": {
-                "name": "Solar Energy PV2"
+                "name": "PV2 energy"
             },
             "solar_power_pv3": {
-                "name": "Solar Power PV3"
+                "name": "PV3 power"
             },
             "solar_energy_pv3": {
-                "name": "Solar Energy PV3"
+                "name": "PV3 energy"
             },
             "solar_power_pv4": {
-                "name": "Solar Power PV4"
+                "name": "PV4 power"
             },
             "solar_energy_pv4": {
-                "name": "Solar Energy PV4"
+                "name": "PV4 energy"
             },
             "grid_import_power": {
-                "name": "Grid Import Power"
+                "name": "Energy to home grid"
             },
             "grid_import_energy": {
-                "name": "Grid Import Energy"
+                "name": "Energy from home grid"
             },
             "grid_export_power": {
-                "name": "OnGrid AC Output Power"
+                "name": "Power to home grid"
             },
             "grid_export_energy": {
-                "name": "Grid Export Energy"
+                "name": "SolarVault on-grid output energy"
             },
             "max_output_power": {
-                "name": "Max Output Power (OnGrid)"
+                "name": "Home-grid power limit"
             },
             "eps_output_power": {
-                "name": "EPS Output Power"
+                "name": "Backup output power"
             },
             "eps_output_energy": {
-                "name": "EPS Output Energy"
+                "name": "Backup output energy"
             },
             "eps_input_power": {
-                "name": "EPS Input Power"
+                "name": "Backup input power"
             },
             "eps_input_energy": {
-                "name": "EPS Input Energy"
+                "name": "Backup input energy"
             },
             "eps_state": {
-                "name": "EPS State"
+                "name": "Backup power status"
             },
             "eps_switch": {
-                "name": "EPS Switch Status"
+                "name": "Backup power switch"
             },
             "soc_charge_limit": {
-                "name": "SOC Charge Limit"
+                "name": "Maximum battery charge"
             },
             "soc_discharge_limit": {
-                "name": "SOC Discharge Limit"
+                "name": "Minimum battery charge"
             },
             "home_power": {
-                "name": "Home Power"
+                "name": "Home consumption (calculated)"
             },
             "battery_net_power": {
-                "name": "Battery Net Power"
+                "name": "Net battery power (charging + / discharging −)"
             },
             "grid_net_power": {
-                "name": "Grid Net Power"
+                "name": "Public-grid net power (import + / export −)"
             },
             "ac_to_battery_energy": {
-                "name": "AC to Battery Energy"
+                "name": "Backup-to-battery energy"
             },
             "pv_to_battery_energy": {
-                "name": "PV to Battery Energy"
+                "name": "PV-to-battery energy"
             },
             "pv_to_ac_energy": {
-                "name": "PV to AC Energy"
+                "name": "PV-to-backup energy"
             },
             "pv_to_grid_energy": {
-                "name": "PV to Grid Energy"
+                "name": "PV-to-home-grid energy"
             },
             "grid_to_ac_load_energy": {
-                "name": "Grid to AC Load Energy"
+                "name": "Home-grid-to-backup energy"
             },
             "battery_to_ac_energy": {
-                "name": "Battery to AC Energy"
+                "name": "Battery-to-backup energy"
             },
             "battery_to_grid_energy": {
-                "name": "Battery to Grid Energy"
+                "name": "Battery-to-home-grid energy"
             },
             "grid_to_battery_energy": {
-                "name": "Grid to Battery Energy"
+                "name": "Home-grid-to-battery energy"
             },
             "ct_import_energy": {
-                "name": "CT Import Energy"
+                "name": "CT import energy"
             },
             "ct_export_energy": {
-                "name": "CT Export Energy"
+                "name": "CT export energy"
             },
             "ac_to_grid_energy": {
-                "name": "AC to Grid Energy"
+                "name": "Backup-to-home-grid energy"
             },
             "stack_in_power": {
-                "name": "Inverter Stack Input Power"
+                "name": "Inverter input power"
             },
             "stack_out_power": {
-                "name": "Inverter Stack Output Power"
+                "name": "Inverter output power"
             },
             "bms_soc": {
-                "name": "BMS SOC"
+                "name": "Total state of charge"
             },
             "battery_state": {
-                "name": "Battery State"
+                "name": "Battery status"
             },
             "ethernet_connected": {
-                "name": "Ethernet Connected"
+                "name": "Ethernet connected"
             },
             "wifi_signal": {
-                "name": "WiFi Signal"
+                "name": "Wi-Fi signal strength"
             },
             "max_inverter_standby_power": {
-                "name": "Max Inverter Standby Power"
+                "name": "Inverter standby limit"
             },
             "max_grid_standby_power": {
-                "name": "Max Grid Standby Power"
+                "name": "Grid-side standby limit"
             },
             "wifi_ssid": {
-                "name": "WiFi SSID"
+                "name": "Wi-Fi name"
             },
             "ethernet_ip": {
-                "name": "Ethernet IP"
+                "name": "Ethernet IP address"
             },
             "wlan_ip": {
-                "name": "WLAN IP"
+                "name": "Wi-Fi IP address"
             },
             "device_capability": {
-                "name": "Device Capability"
+                "name": "Device capabilities"
             },
             "func_enable": {
-                "name": "Function Enable Flags"
+                "name": "Function flags"
             },
             "device_status": {
-                "name": "Device Status",
+                "name": "Device status",
                 "state": {
                     "normal": "Normal",
                     "waiting": "Waiting",
@@ -299,184 +300,185 @@
                 }
             },
             "ongrid_status": {
-                "name": "OnGrid Status",
+                "name": "Home-grid connection status",
                 "state": {
                     "disconnected": "Disconnected",
                     "connected": "Connected"
                 }
             },
             "ct_status": {
-                "name": "CT Status",
+                "name": "CT connection status",
                 "state": {
                     "disconnected": "Disconnected",
                     "connected": "Connected"
                 }
             },
             "grid_meter_link": {
-                "name": "Grid Meter Link",
+                "name": "Grid meter connection",
                 "state": {
                     "not_linked": "Not Linked",
                     "linked": "Linked"
                 }
             },
             "other_load_power": {
-                "name": "Home Load Power (Estimated)"
+                "name": "Home consumption (device estimate)"
             },
             "grid_in_power": {
-                "name": "Grid AC Input Power"
+                "name": "Grid AC input power"
             },
             "grid_out_power": {
-                "name": "Grid AC Output Power"
+                "name": "Grid AC output power"
             },
             "grid_side_in_power": {
-                "name": "Grid Side Input Power"
+                "name": "Grid-side input power"
             },
             "grid_side_out_power": {
-                "name": "Grid Side Output Power"
+                "name": "Grid-side output power"
             },
             "energy_plan_power": {
-                "name": "Energy Plan Power"
+                "name": "Energy plan output power"
             },
             "standby_power": {
-                "name": "Standby Power Threshold"
+                "name": "Standby power threshold"
             },
             "pv_max_charge_power": {
-                "name": "PV Max Charge Power"
+                "name": "PV charging power limit"
             },
             "max_system_output_power": {
-                "name": "Max System Output Power"
+                "name": "System output power limit"
             },
             "max_system_input_power": {
-                "name": "Max System Input Power"
+                "name": "System input power limit"
             },
             "off_grid_time": {
-                "name": "Off-Grid Switch Time"
+                "name": "Grid outage switchover time (s)"
             },
             "max_feed_grid_power": {
-                "name": "Max Feed Grid Power"
+                "name": "Public-grid export limit"
             },
             "ct_3phase_import_total": {
-                "name": "Grid Import Power"
+                "name": "Total grid import power"
             },
             "ct_3phase_export_total": {
-                "name": "Grid Export Power"
+                "name": "Total grid export power"
             },
             "ct_3phase_import_l1": {
-                "name": "L1 Import Power"
+                "name": "L1 import power"
             },
             "ct_3phase_import_l2": {
-                "name": "L2 Import Power"
+                "name": "L2 import power"
             },
             "ct_3phase_import_l3": {
-                "name": "L3 Import Power"
+                "name": "L3 import power"
             },
             "ct_3phase_export_l1": {
-                "name": "L1 Export Power"
+                "name": "L1 export power"
             },
             "ct_3phase_export_l2": {
-                "name": "L2 Export Power"
+                "name": "L2 export power"
             },
             "ct_3phase_export_l3": {
-                "name": "L3 Export Power"
+                "name": "L3 export power"
             },
             "ct_3phase_import_energy_total": {
-                "name": "Grid Import Energy"
+                "name": "Total grid import energy"
             },
             "ct_3phase_export_energy_total": {
-                "name": "Grid Export Energy"
+                "name": "Total grid export energy"
             },
             "ct_3phase_import_energy_l1": {
-                "name": "L1 Import Energy"
+                "name": "L1 import energy"
             },
             "ct_3phase_import_energy_l2": {
-                "name": "L2 Import Energy"
+                "name": "L2 import energy"
             },
             "ct_3phase_import_energy_l3": {
-                "name": "L3 Import Energy"
+                "name": "L3 import energy"
             },
             "ct_3phase_export_energy_l1": {
-                "name": "L1 Export Energy"
+                "name": "L1 export energy"
             },
             "ct_3phase_export_energy_l2": {
-                "name": "L2 Export Energy"
+                "name": "L2 export energy"
             },
             "ct_3phase_export_energy_l3": {
-                "name": "L3 Export Energy"
+                "name": "L3 export energy"
             },
             "ct_3phase_comm_mode": {
-                "name": "Communication Mode",
+                "name": "SmartMeter communication mode",
                 "state": {
                     "lan": "LAN",
-                    "cloud": "Cloud (Relay)"
+                    "cloud": "Cloud"
                 }
             },
             "ct_3phase_comm_state": {
-                "name": "Communication State",
+                "name": "SmartMeter communication status",
                 "state": {
                     "offline": "Offline",
                     "online": "Online"
                 }
             },
             "ct_3phase_ip_address": {
-                "name": "IP Address"
+                "name": "SmartMeter IP address"
             },
             "ct_power": {
-                "name": "Power"
+                "name": "CT power"
             },
             "ct_energy": {
-                "name": "Energy"
+                "name": "CT energy"
             },
             "plug_power": {
-                "name": "Power"
+                "name": "Smart plug power"
             },
             "plug_energy": {
-                "name": "Energy"
+                "name": "Smart plug energy"
             },
             "expansion_battery_charge_energy": {
-                "name": "Charge Energy"
+                "name": "Charged energy"
             },
             "expansion_battery_discharge_energy": {
-                "name": "Discharge Energy"
+                "name": "Discharged energy"
             },
             "collector_import_power": {
-                "name": "Grid Import Power"
+                "name": "D0 meter import power"
             },
             "collector_export_power": {
-                "name": "Grid Export Power"
+                "name": "D0 meter export power"
             },
             "collector_comm_state": {
-                "name": "Communication State",
+                "name": "D0 meter communication status",
                 "state": {
                     "offline": "Offline",
                     "online": "Online"
                 }
             },
             "collector_comm_mode": {
-                "name": "Communication Mode",
+                "name": "D0 meter communication mode",
                 "state": {
                     "lan": "LAN",
-                    "cloud": "Cloud (Relay)"
+                    "cloud": "Cloud"
                 }
             },
             "collector_ip_address": {
-                "name": "IP Address"
+                "name": "D0 meter IP address"
             },
-            "http_sm_voltage_l1":        {"name": "L1 Voltage"},
-            "http_sm_voltage_l2":        {"name": "L2 Voltage"},
-            "http_sm_voltage_l3":        {"name": "L3 Voltage"},
-            "http_sm_current_l1":        {"name": "L1 Current"},
-            "http_sm_current_l2":        {"name": "L2 Current"},
-            "http_sm_current_l3":        {"name": "L3 Current"},
-            "http_sm_reactive_power_l1": {"name": "L1 Reactive Power"},
-            "http_sm_reactive_power_l2": {"name": "L2 Reactive Power"},
-            "http_sm_reactive_power_l3": {"name": "L3 Reactive Power"},
-            "http_sm_apparent_power_l1": {"name": "L1 Apparent Power"},
-            "http_sm_apparent_power_l2": {"name": "L2 Apparent Power"},
-            "http_sm_apparent_power_l3": {"name": "L3 Apparent Power"},
-            "http_sm_power_factor_l1":   {"name": "L1 Power Factor"},
-            "http_sm_power_factor_l2":   {"name": "L2 Power Factor"},
-            "http_sm_power_factor_l3":   {"name": "L3 Power Factor"},
-            "http_sm_frequency":         {"name": "Grid Frequency"}
+            "http_sm_voltage_l1":        {"name": "L1 voltage"},
+            "http_sm_voltage_l2":        {"name": "L2 voltage"},
+            "http_sm_voltage_l3":        {"name": "L3 voltage"},
+            "http_sm_current_l1":        {"name": "L1 current"},
+            "http_sm_current_l2":        {"name": "L2 current"},
+            "http_sm_current_l3":        {"name": "L3 current"},
+            "http_sm_reactive_power_l1": {"name": "L1 reactive power"},
+            "http_sm_reactive_power_l2": {"name": "L2 reactive power"},
+            "http_sm_reactive_power_l3": {"name": "L3 reactive power"},
+            "http_sm_apparent_power_l1": {"name": "L1 apparent power"},
+            "http_sm_apparent_power_l2": {"name": "L2 apparent power"},
+            "http_sm_apparent_power_l3": {"name": "L3 apparent power"},
+            "http_sm_power_factor_l1":   {"name": "L1 power factor"},
+            "http_sm_power_factor_l2":   {"name": "L2 power factor"},
+            "http_sm_power_factor_l3":   {"name": "L3 power factor"},
+            "http_sm_frequency":         {"name": "Grid frequency"},
+            "legacy_work_mode": {"name": "Work Mode"}
         }
     }
 }

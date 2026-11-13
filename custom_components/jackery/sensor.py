@@ -1547,7 +1547,7 @@ class JackeryLegacyWorkModeSensor(SensorEntity):
         """Initialize using the pinned Official identity and sensor semantics."""
         self._coordinator = coordinator
         host = coordinator._device_sn or config_entry_id
-        self._attr_name = "Work Mode"
+        self._attr_translation_key = "legacy_work_mode"
         self._attr_icon = "mdi:cog-outline"
         self._attr_native_unit_of_measurement = None
         self._attr_device_class = None
@@ -1618,6 +1618,9 @@ class JackerySensor(SensorEntity):
         self._attr_icon = self._config["icon"]
         self._attr_device_class = self._config["device_class"]
         self._attr_state_class = self._config["state_class"]
+        self._attr_entity_registry_enabled_default = self._config.get(
+            "entity_registry_enabled_default", True
+        )
         self._has_enum_raw_value = False
         self._enum_raw_value: Any = None
         # Multi-instance unique ID: includes device_sn so two SolarVaults on the same HA don't clash

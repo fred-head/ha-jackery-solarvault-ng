@@ -48,6 +48,18 @@ def test_device_status_identity_and_entity_shape_are_unchanged(coordinator) -> N
     assert set(sensor_definitions.DEVICE_STATUS_MAP) == {0, 1, 2, 3, 4, 5, 8}
 
 
+def test_raw_device_capability_sensors_are_disabled_by_default(coordinator) -> None:
+    """Users can enable the two low-level bitmask sensors when needed."""
+    disabled = ("device_capability", "func_enable")
+
+    for sensor_id in disabled:
+        entity = sensor.JackerySensor(sensor_id, coordinator, "entry")
+        assert entity._attr_entity_registry_enabled_default is False
+
+    regular = sensor.JackerySensor("device_status", coordinator, "entry")
+    assert regular._attr_entity_registry_enabled_default is True
+
+
 def test_fast_charging_translations_are_complete_and_valid() -> None:
     """All shipped status translation JSON files contain the same option keys."""
     integration_dir = Path(sensor_definitions.__file__).parents[1]
@@ -62,6 +74,38 @@ def test_fast_charging_translations_are_complete_and_valid() -> None:
         states = document["entity"]["sensor"]["device_status"]["state"]
         assert set(states) == set(sensor_definitions.DEVICE_STATUS_MAP.values())
         assert states["fast_charging"] == label
+
+
+def test_comm_mode_display_labels_are_readable_in_all_locales() -> None:
+    """The protocol's numeric LAN/Cloud enum is rendered as user-facing labels."""
+    integration_dir = Path(sensor_definitions.__file__).parents[1]
+    for relative_path in (
+        "strings.json",
+        "translations/en.json",
+        "translations/de.json",
+        "translations/fr.json",
+    ):
+        document = json.loads((integration_dir / relative_path).read_text())
+        for key in ("ct_3phase_comm_mode", "collector_comm_mode"):
+            state = document["entity"]["sensor"][key]["state"]
+            assert state == {"lan": "LAN", "cloud": "Cloud"}
+
+
+def test_entity_translation_keys_are_complete_in_all_locales() -> None:
+    """Every entity translation in the English source exists in each shipped locale."""
+    integration_dir = Path(sensor_definitions.__file__).parents[1]
+    source = json.loads((integration_dir / "strings.json").read_text())["entity"]
+    for relative_path in (
+        "translations/en.json",
+        "translations/de.json",
+        "translations/fr.json",
+    ):
+        translated = json.loads((integration_dir / relative_path).read_text())["entity"]
+        assert {
+            platform: set(entries) for platform, entries in source.items()
+        } == {
+            platform: set(entries) for platform, entries in translated.items()
+        }
 
 
 def test_sensor_definitions_depend_only_on_ha_metadata() -> None:

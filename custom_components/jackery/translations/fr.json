@@ -52,7 +52,7 @@
     "entity": {
         "select": {
             "auto_standby": {
-                "name": "Mode de veille automatique",
+                "name": "Mode veille automatique",
                 "state": {
                     "invalid": "Invalide",
                     "standby": "Veille",
@@ -71,37 +71,38 @@
         },
         "number": {
             "max_feed_in_power": {
-                "name": "Puissance maximale d'injection réseau"
+                "name": "Puissance maximale vers le réseau domestique"
             },
             "soc_charge_limit": {
-                "name": "Limite haute du SOC"
+                "name": "Définir la limite de charge"
             },
             "soc_discharge_limit": {
-                "name": "Limite basse du SOC"
+                "name": "Définir la limite de décharge"
             },
             "default_output_power": {
                 "name": "Puissance de sortie par défaut"
             },
             "max_feed_grid_power": {
-                "name": "Limite maximale d'injection réseau"
+                "name": "Injection maximale vers le réseau public"
             }
         },
         "switch": {
             "auto_standby_allowed": {
-                "name": "Autoriser la veille automatique"
+                "name": "Veille automatique autorisée"
             },
             "eps_switch": {
-                "name": "Sortie EPS"
+                "name": "Interrupteur de l’alimentation de secours"
             },
             "off_grid_fallback": {
-                "name": "Basculement de secours hors réseau"
+                "name": "Solution de secours en cas de coupure réseau"
             },
             "follow_meter_power": {
-                "name": "Suivi de la puissance du compteur"
+                "name": "Suivre le compteur"
             },
             "force_charge": {
                 "name": "Charge forcée"
-            }
+            },
+            "plug_switch": {"name": "Commander la prise connectée"}
         },
         "button": {
             "reboot": {
@@ -110,169 +111,169 @@
         },
         "sensor": {
             "battery_soc": {
-                "name": "Niveau de charge de la batterie"
+                "name": "Niveau de charge de la batterie principale"
             },
             "battery_charge_power": {
-                "name": "Puissance de charge unité principale"
+                "name": "Puissance de charge de la batterie principale"
             },
             "battery_discharge_power": {
-                "name": "Puissance de décharge unité principale"
+                "name": "Puissance de décharge de la batterie principale"
             },
             "total_battery_charge_power": {
-                "name": "Puissance de charge totale batterie"
+                "name": "Puissance totale de charge de la batterie"
             },
             "total_battery_discharge_power": {
-                "name": "Puissance de décharge totale batterie"
+                "name": "Puissance totale de décharge de la batterie (calculée)"
             },
             "battery_temperature": {
                 "name": "Température de la batterie"
             },
             "battery_count": {
-                "name": "Nombre de batteries"
+                "name": "Nombre de modules de batterie"
             },
             "battery_charge_energy": {
-                "name": "Énergie chargée dans la batterie"
+                "name": "Énergie de charge de la batterie"
             },
             "battery_discharge_energy": {
-                "name": "Énergie déchargée de la batterie"
+                "name": "Énergie de décharge de la batterie"
             },
             "solar_power": {
-                "name": "Puissance solaire"
+                "name": "Puissance PV totale"
             },
             "solar_energy": {
-                "name": "Énergie solaire"
+                "name": "Énergie PV totale"
             },
             "solar_power_pv1": {
-                "name": "Puissance solaire PV1"
+                "name": "Puissance PV1"
             },
             "solar_energy_pv1": {
-                "name": "Énergie solaire PV1"
+                "name": "Énergie PV1"
             },
             "solar_power_pv2": {
-                "name": "Puissance solaire PV2"
+                "name": "Puissance PV2"
             },
             "solar_energy_pv2": {
-                "name": "Énergie solaire PV2"
+                "name": "Énergie PV2"
             },
             "solar_power_pv3": {
-                "name": "Puissance solaire PV3"
+                "name": "Puissance PV3"
             },
             "solar_energy_pv3": {
-                "name": "Énergie solaire PV3"
+                "name": "Énergie PV3"
             },
             "solar_power_pv4": {
-                "name": "Puissance solaire PV4"
+                "name": "Puissance PV4"
             },
             "solar_energy_pv4": {
-                "name": "Énergie solaire PV4"
+                "name": "Énergie PV4"
             },
             "grid_import_power": {
-                "name": "Puissance importée du réseau"
+                "name": "Énergie vers le réseau domestique"
             },
             "grid_import_energy": {
-                "name": "Énergie importée du réseau"
+                "name": "Énergie depuis le réseau domestique"
             },
             "grid_export_power": {
-                "name": "Puissance de sortie AC OnGrid"
+                "name": "Puissance vers le réseau domestique"
             },
             "grid_export_energy": {
-                "name": "Énergie injectée sur le réseau"
+                "name": "Énergie de sortie OnGrid du SolarVault"
             },
             "max_output_power": {
-                "name": "Puissance de sortie maximale sur réseau"
+                "name": "Limite de puissance vers le réseau domestique"
             },
             "eps_output_power": {
-                "name": "Puissance de sortie EPS"
+                "name": "Puissance de sortie de secours"
             },
             "eps_output_energy": {
-                "name": "Énergie délivrée par la sortie EPS"
+                "name": "Énergie de sortie de secours"
             },
             "eps_input_power": {
-                "name": "Puissance d’entrée EPS"
+                "name": "Puissance d’entrée du circuit de secours"
             },
             "eps_input_energy": {
-                "name": "Énergie reçue par l’entrée EPS"
+                "name": "Énergie d’entrée du circuit de secours"
             },
             "eps_state": {
-                "name": "État EPS"
+                "name": "État de l’alimentation de secours"
             },
             "eps_switch": {
-                "name": "État de la sortie EPS"
+                "name": "Interrupteur de l’alimentation de secours"
             },
             "soc_charge_limit": {
-                "name": "Limite haute du SOC"
+                "name": "Charge maximale de la batterie"
             },
             "soc_discharge_limit": {
-                "name": "Limite basse du SOC"
+                "name": "Charge minimale de la batterie"
             },
             "home_power": {
-                "name": "Puissance vers la maison"
+                "name": "Consommation de la maison (calculée)"
             },
             "battery_net_power": {
-                "name": "Puissance nette de la batterie"
+                "name": "Puissance nette de la batterie (charge + / décharge −)"
             },
             "grid_net_power": {
-                "name": "Puissance nette du réseau"
+                "name": "Puissance nette du réseau public (soutirage + / injection −)"
             },
             "ac_to_battery_energy": {
-                "name": "Énergie du réseau vers la batterie"
+                "name": "Énergie de secours vers la batterie"
             },
             "pv_to_battery_energy": {
-                "name": "Énergie solaire vers la batterie"
+                "name": "Énergie PV vers la batterie"
             },
             "pv_to_ac_energy": {
-                "name": "Énergie solaire vers la maison"
+                "name": "Énergie PV vers l’alimentation de secours"
             },
             "pv_to_grid_energy": {
-                "name": "Énergie solaire injectée sur le réseau"
+                "name": "Énergie PV vers le réseau domestique"
             },
             "grid_to_ac_load_energy": {
-                "name": "Énergie du réseau vers les charges AC"
+                "name": "Énergie du réseau domestique vers l’alimentation de secours"
             },
             "battery_to_ac_energy": {
-                "name": "Énergie de la batterie vers les charges AC"
+                "name": "Énergie de la batterie vers l’alimentation de secours"
             },
             "battery_to_grid_energy": {
-                "name": "Énergie de la batterie injectée sur le réseau"
+                "name": "Énergie de la batterie vers le réseau domestique"
             },
             "grid_to_battery_energy": {
-                "name": "Énergie du réseau vers la batterie"
+                "name": "Énergie du réseau domestique vers la batterie"
             },
             "ct_import_energy": {
-                "name": "Énergie importée mesurée par le CT"
+                "name": "Énergie soutirée mesurée par CT"
             },
             "ct_export_energy": {
-                "name": "Énergie exportée mesurée par le CT"
+                "name": "Énergie injectée mesurée par CT"
             },
             "ac_to_grid_energy": {
-                "name": "Énergie AC injectée sur le réseau"
+                "name": "Énergie de secours vers le réseau domestique"
             },
             "stack_in_power": {
-                "name": "Puissance d’entrée du groupe d’onduleurs"
+                "name": "Puissance d’entrée de l’onduleur"
             },
             "stack_out_power": {
-                "name": "Puissance de sortie du groupe d’onduleurs"
+                "name": "Puissance de sortie de l’onduleur"
             },
             "bms_soc": {
-                "name": "Niveau de charge BMS"
+                "name": "Niveau de charge total"
             },
             "battery_state": {
                 "name": "État de la batterie"
             },
             "ethernet_connected": {
-                "name": "Connexion Ethernet"
+                "name": "Ethernet connecté"
             },
             "wifi_signal": {
-                "name": "Signal Wi-Fi"
+                "name": "Intensité du signal Wi-Fi"
             },
             "max_inverter_standby_power": {
-                "name": "Puissance maximale de veille de l’onduleur"
+                "name": "Limite de veille de l’onduleur"
             },
             "max_grid_standby_power": {
-                "name": "Puissance maximale de veille côté réseau"
+                "name": "Limite de veille côté réseau"
             },
             "wifi_ssid": {
-                "name": "SSID Wi-Fi"
+                "name": "Nom du réseau Wi-Fi"
             },
             "ethernet_ip": {
                 "name": "Adresse IP Ethernet"
@@ -299,34 +300,34 @@
                 }
             },
             "ongrid_status": {
-                "name": "État de la connexion réseau",
+                "name": "État de connexion au réseau domestique",
                 "state": {
                     "disconnected": "Déconnecté",
                     "connected": "Connecté"
                 }
             },
             "ct_status": {
-                "name": "État du compteur CT",
+                "name": "État de connexion du CT",
                 "state": {
                     "disconnected": "Déconnecté",
                     "connected": "Connecté"
                 }
             },
             "grid_meter_link": {
-                "name": "Liaison avec le compteur réseau",
+                "name": "Connexion du compteur réseau",
                 "state": {
                     "not_linked": "Non lié",
                     "linked": "Lié"
                 }
             },
             "other_load_power": {
-                "name": "Consommation de la maison (estimée)"
+                "name": "Consommation de la maison (estimation de l’appareil)"
             },
             "grid_in_power": {
-                "name": "Puissance AC entrante du réseau"
+                "name": "Puissance d’entrée CA du réseau"
             },
             "grid_out_power": {
-                "name": "Puissance AC sortante vers le réseau"
+                "name": "Puissance de sortie CA du réseau"
             },
             "grid_side_in_power": {
                 "name": "Puissance d’entrée côté réseau"
@@ -335,131 +336,131 @@
                 "name": "Puissance de sortie côté réseau"
             },
             "energy_plan_power": {
-                "name": "Puissance du plan énergétique"
+                "name": "Puissance de sortie du plan énergétique"
             },
             "standby_power": {
                 "name": "Seuil de puissance de veille"
             },
             "pv_max_charge_power": {
-                "name": "Puissance maximale de charge solaire"
+                "name": "Limite de puissance de charge PV"
             },
             "max_system_output_power": {
-                "name": "Puissance de sortie maximale du système"
+                "name": "Limite de puissance de sortie du système"
             },
             "max_system_input_power": {
-                "name": "Puissance d’entrée maximale du système"
+                "name": "Limite de puissance d’entrée du système"
             },
             "off_grid_time": {
-                "name": "Délai de basculement hors réseau"
+                "name": "Temps de commutation en cas de coupure réseau (s)"
             },
             "max_feed_grid_power": {
-                "name": "Puissance maximale d'injection réseau (système)"
+                "name": "Limite d’injection vers le réseau public"
             },
             "ct_3phase_import_total": {
-                "name": "Puissance importée du réseau"
+                "name": "Puissance totale soutirée du réseau"
             },
             "ct_3phase_export_total": {
-                "name": "Puissance injectée sur le réseau"
+                "name": "Puissance totale injectée dans le réseau"
             },
             "ct_3phase_import_l1": {
-                "name": "Puissance importée sur L1"
+                "name": "Puissance soutirée L1"
             },
             "ct_3phase_import_l2": {
-                "name": "Puissance importée sur L2"
+                "name": "Puissance soutirée L2"
             },
             "ct_3phase_import_l3": {
-                "name": "Puissance importée sur L3"
+                "name": "Puissance soutirée L3"
             },
             "ct_3phase_export_l1": {
-                "name": "Puissance injectée sur L1"
+                "name": "Puissance injectée L1"
             },
             "ct_3phase_export_l2": {
-                "name": "Puissance injectée sur L2"
+                "name": "Puissance injectée L2"
             },
             "ct_3phase_export_l3": {
-                "name": "Puissance injectée sur L3"
+                "name": "Puissance injectée L3"
             },
             "ct_3phase_import_energy_total": {
-                "name": "Énergie importée du réseau"
+                "name": "Énergie totale soutirée du réseau"
             },
             "ct_3phase_export_energy_total": {
-                "name": "Énergie injectée sur le réseau"
+                "name": "Énergie totale injectée dans le réseau"
             },
             "ct_3phase_import_energy_l1": {
-                "name": "Énergie importée sur L1"
+                "name": "Énergie soutirée L1"
             },
             "ct_3phase_import_energy_l2": {
-                "name": "Énergie importée sur L2"
+                "name": "Énergie soutirée L2"
             },
             "ct_3phase_import_energy_l3": {
-                "name": "Énergie importée sur L3"
+                "name": "Énergie soutirée L3"
             },
             "ct_3phase_export_energy_l1": {
-                "name": "Énergie injectée sur L1"
+                "name": "Énergie injectée L1"
             },
             "ct_3phase_export_energy_l2": {
-                "name": "Énergie injectée sur L2"
+                "name": "Énergie injectée L2"
             },
             "ct_3phase_export_energy_l3": {
-                "name": "Énergie injectée sur L3"
+                "name": "Énergie injectée L3"
             },
             "ct_3phase_comm_mode": {
-                "name": "Mode de communication",
+                "name": "Mode de communication du SmartMeter",
                 "state": {
-                    "lan": "Réseau local",
-                    "cloud": "Cloud (relais)"
+                    "lan": "LAN",
+                    "cloud": "Cloud"
                 }
             },
             "ct_3phase_comm_state": {
-                "name": "État de la communication",
+                "name": "État de communication du SmartMeter",
                 "state": {
                     "offline": "Hors ligne",
                     "online": "En ligne"
                 }
             },
             "ct_3phase_ip_address": {
-                "name": "Adresse IP"
+                "name": "Adresse IP du SmartMeter"
             },
             "ct_power": {
-                "name": "Puissance"
+                "name": "Puissance CT"
             },
             "ct_energy": {
-                "name": "Énergie"
+                "name": "Énergie CT"
             },
             "plug_power": {
-                "name": "Puissance"
+                "name": "Puissance de la prise connectée"
             },
             "plug_energy": {
-                "name": "Énergie"
+                "name": "Énergie de la prise connectée"
             },
             "expansion_battery_charge_energy": {
-                "name": "Énergie de charge"
+                "name": "Énergie chargée"
             },
             "expansion_battery_discharge_energy": {
-                "name": "Énergie de décharge"
+                "name": "Énergie déchargée"
             },
             "collector_import_power": {
-                "name": "Puissance importée du réseau"
+                "name": "Puissance soutirée du compteur D0"
             },
             "collector_export_power": {
-                "name": "Puissance injectée sur le réseau"
+                "name": "Puissance injectée du compteur D0"
             },
             "collector_comm_state": {
-                "name": "État de la communication",
+                "name": "État de communication du compteur D0",
                 "state": {
                     "offline": "Hors ligne",
                     "online": "En ligne"
                 }
             },
             "collector_comm_mode": {
-                "name": "Mode de communication",
+                "name": "Mode de communication du compteur D0",
                 "state": {
-                    "lan": "Réseau local",
-                    "cloud": "Cloud (relais)"
+                    "lan": "LAN",
+                    "cloud": "Cloud"
                 }
             },
             "collector_ip_address": {
-                "name": "Adresse IP"
+                "name": "Adresse IP du compteur D0"
             },
             "http_sm_voltage_l1":        {"name": "Tension L1"},
             "http_sm_voltage_l2":        {"name": "Tension L2"},
@@ -476,7 +477,8 @@
             "http_sm_power_factor_l1":   {"name": "Facteur de puissance L1"},
             "http_sm_power_factor_l2":   {"name": "Facteur de puissance L2"},
             "http_sm_power_factor_l3":   {"name": "Facteur de puissance L3"},
-            "http_sm_frequency":         {"name": "Fréquence du réseau"}
+            "http_sm_frequency":         {"name": "Fréquence du réseau"},
+            "legacy_work_mode": {"name": "Mode de fonctionnement"}
         }
     }
 }

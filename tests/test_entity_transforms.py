@@ -17,7 +17,7 @@ from custom_components.jackery.entities.transforms import (
 
 def test_plug_mode_constants_are_unchanged() -> None:
     assert (COMM_MODE_LOCAL, COMM_MODE_CLOUD) == (1, 2)
-    assert COMM_MODE_LABELS == {1: "local", 2: "cloud"}
+    assert COMM_MODE_LABELS == {1: "LAN", 2: "Cloud"}
 
 
 def test_entity_transforms_have_no_runtime_dependencies() -> None:

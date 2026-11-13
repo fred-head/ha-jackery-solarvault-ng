@@ -164,7 +164,7 @@ class TestShouldCreatePlugSwitch:
 
 class TestCommModeLabels:
     def test_local_label(self):
-        assert COMM_MODE_LABELS[COMM_MODE_LOCAL] == "local"
+        assert COMM_MODE_LABELS[COMM_MODE_LOCAL] == "LAN"
 
     def test_cloud_label(self):
-        assert COMM_MODE_LABELS[COMM_MODE_CLOUD] == "cloud"
+        assert COMM_MODE_LABELS[COMM_MODE_CLOUD] == "Cloud"

@@ -4,8 +4,8 @@ COMM_MODE_LOCAL = 1
 COMM_MODE_CLOUD = 2
 
 COMM_MODE_LABELS: dict[int, str] = {
-    COMM_MODE_LOCAL: "local",
-    COMM_MODE_CLOUD: "cloud",
+    COMM_MODE_LOCAL: "LAN",
+    COMM_MODE_CLOUD: "Cloud",
 }
 
 

@@ -46,6 +46,7 @@ class MainSensorConfig(TypedDict):
     icon: str
     device_class: SensorDeviceClass | None
     state_class: SensorStateClass | None
+    entity_registry_enabled_default: NotRequired[bool]
     scale: NotRequired[float]
     options: NotRequired[list[str]]
     value_map: NotRequired[dict[int, str]]
@@ -593,6 +594,7 @@ SENSORS: dict[str, MainSensorConfig] = {
         "icon": "mdi:chip",
         "device_class": None,
         "state_class": None,
+        "entity_registry_enabled_default": False,
     },
     # funcEnable bitmask (type-106). The individual bits are decoded into the
     # `func_enable_flags` attribute via FUNC_ENABLE_BITS.
@@ -603,6 +605,7 @@ SENSORS: dict[str, MainSensorConfig] = {
         "icon": "mdi:tune-variant",
         "device_class": None,
         "state_class": None,
+        "entity_registry_enabled_default": False,
     },
 
     # Gerätestatus (type=2 / type=106) — ENUM sensors with readable labels (Ü5)
