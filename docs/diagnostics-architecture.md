@@ -664,17 +664,19 @@ configured host without storing the serial in binding metadata. Changing the
 MQTT prefix preserves history; changing the host clears only this entry's
 discovery data. Unknown host identity, corrupted formats and incompatible
 versions fail closed. Deactivation drains pending writes and removes the store;
-removing the config entry removes both discovery and alert stores. The shared
+removing the config entry removes all entry-scoped capture stores. The shared
 capture storage helper preserves the Alert Capture key and format.
 
 The regular `protocol.discovery` summary and its 8-KiB detail budget remain
 inside the unchanged 64-KiB standard snapshot. If enabled, diagnostics appends a
 version-1 `experimental_protocol_capture` extension with a separate 24-KiB
 budget, privacy warning, topic aliases, bounded counters and `export_omitted_count`.
-Alert Capture has its own 24-KiB extension. Both enabled together therefore
-remain within 112 KiB total (64 + 24 + 24); raw sections cannot displace standard
-diagnostic sections. With the option off, neither raw data nor the experimental
-extension is loaded or exported.
+Each raw section has a 24-KiB maximum. Raw sections share the 112-KiB
+complete-output limit (64 KiB standard diagnostics plus at most 48 KiB of raw
+sections); the available raw-section allowance is divided across the enabled
+captures. Older raw events are omitted first and counted. Raw sections cannot
+displace standard diagnostic sections. With an option off, its raw data and
+experimental extension are not loaded or exported.
 
 ### 8.3 Experimental persistent alert capture
 
@@ -725,10 +727,50 @@ enabled: 64 KiB standard diagnostics plus one 24-KiB allowance per raw section.
 With capture disabled, the output is unchanged.
 
 Protocol Discovery and Alert Capture remain independent. Enabling, disabling or
-clearing one does not enable, share state with or delete the other's records.
-An empty alert capture only says that no matching message was recorded during
-the enabled period; it does not establish that the local broker never publishes
-that topic.
+clearing one does not enable, share state with or delete another capture's
+records. An empty alert capture only says that no matching message was recorded
+during the enabled period; it does not establish that the local broker never
+publishes that topic.
+
+### 8.4 Experimental persistent BMS log observation
+
+`bmslog_capture_enabled` is a separate option, disabled by default. Enable
+**Experimental BMS log capture** under the Jackery integration options to
+observe exactly `<configured-prefix>/device/<configured-serial>/bmslog`. The
+subscription has no wildcard, never adopts another host, and has a dedicated
+callback. BMS log traffic does not enter protocol routing, status/event parsing,
+freshness, discovery, caches or entity updates. The capture sends no MQTT
+publish, request or control command and does not interpret payload content.
+
+This experiment follows reverse-engineering finding `SVNG-015`, which records
+that SolarVault firmware 1.6.0 contains an internal topic selector for
+`hb/device/%s/bmslog`. That finding does not confirm that the firmware publishes
+to the topic or that a local broker exposes it. The runtime topic behavior and
+payload format remain unknown; an empty capture is not evidence that the topic
+is unused.
+
+Each config entry has a separate `Store(private=True)` ring buffer bound to a
+namespaced hash of its validated host identity. It survives HA restart and
+integration reload, but a host change clears that entry's old records. It keeps
+up to 100 events, at most 4 KiB of each payload and at most 256 KiB serialized
+in total. Payloads remain byte-for-byte Base64 data; larger payloads retain the
+leading 4 KiB and report original size and truncation. Oldest stored events are
+evicted on overflow. Disabling the option or removing the integration drains
+pending writes and deletes the BMS log store.
+
+When enabled, the ordinary Home Assistant config-entry diagnostics download
+adds a separate `experimental_bmslog_capture` section. It uses the safe topic
+alias `{prefix}/device/{host}/bmslog`, exports at most 24 KiB, reports omitted
+records, and includes the same explicit raw-data privacy warning as Alert
+Capture. The full diagnostics output remains within the shared 112-KiB bound;
+with alert, BMS log and protocol captures enabled together, the 48-KiB raw
+allowance is divided across the three extensions and older exported events are
+omitted before any standard diagnostics are affected. Base64 raw
+payloads may be sensitive and must be reviewed before sharing.
+
+The alert capture records the separate `/alert` topic with its own option,
+store, counters and diagnostics section. BMS log observation uses `/bmslog`,
+its own option, store, counters and section. Neither capture changes the other.
 
 ## 9. Test strategy
 

@@ -563,6 +563,8 @@ def _topic_alias(topic: str) -> str:
 def build_protocol_capture_export(
     capture: Mapping[str, Any],
     base_snapshot: Mapping[str, Any],
+    *,
+    max_export_bytes: int = MAX_PROTOCOL_EXPORT_BYTES,
 ) -> dict[str, Any]:
     """Build a versioned raw extension inside both documented export budgets."""
     raw_events = capture.get("events")
@@ -589,7 +591,7 @@ def build_protocol_capture_export(
         combined = dict(base_snapshot)
         combined["experimental_protocol_capture"] = candidate
         if (
-            compact_size(candidate) <= MAX_PROTOCOL_EXPORT_BYTES
+            compact_size(candidate) <= max_export_bytes
             and compact_size(combined) <= MAX_TOTAL_DIAGNOSTICS_BYTES
         ):
             exported.append(candidate_event)
@@ -599,7 +601,7 @@ def build_protocol_capture_export(
         result["events"] = list(reversed(exported))
         combined = dict(base_snapshot)
         combined["experimental_protocol_capture"] = result
-        if compact_size(result) <= MAX_PROTOCOL_EXPORT_BYTES and compact_size(combined) <= MAX_TOTAL_DIAGNOSTICS_BYTES:
+        if compact_size(result) <= max_export_bytes and compact_size(combined) <= MAX_TOTAL_DIAGNOSTICS_BYTES:
             return result
         if not exported:
             result = _export_metadata(capture, len(events))

@@ -21,6 +21,7 @@ from pytest_homeassistant_custom_component.common import MockConfigEntry
 from custom_components.jackery import DOMAIN, PLATFORMS
 from custom_components.jackery import sensor as sensor_module
 from custom_components.jackery.alert_capture import AlertCapture
+from custom_components.jackery.bmslog_capture import BmslogCapture
 from custom_components.jackery.protocol_capture import ProtocolDiscoveryCapture
 from custom_components.jackery.sensor import (
     OFFLINE_TIMEOUT,
@@ -117,6 +118,7 @@ DEFAULT_OPTIONS = {
     "smartmeter_poll_interval": 10,
     "protocol_discovery_enabled": False,
     "alert_capture_enabled": False,
+    "bmslog_capture_enabled": False,
 }
 
 
@@ -680,6 +682,7 @@ async def test_options_reload_while_disconnected_does_not_resurrect_old_callback
     hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
     assert await hass.config_entries.async_setup(entry.entry_id)
     original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert original._bmslog_capture is None
     original_callback = Mock(wraps=original._handle_message)
     original._handle_message = original_callback
     original_handles = list(broker.active)
@@ -1201,6 +1204,146 @@ async def test_alert_capture_option_is_exact_passive_persistent_and_independent(
     assert preserved_alert.snapshot()["stored_count"] == 1
 
 
+async def test_bmslog_capture_is_independent_exact_and_passive(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    disabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert disabled._bmslog_capture is None
+    assert not any(record.topic.endswith("/bmslog") for record in broker.active)
+
+    await submit_options(
+        hass,
+        entry,
+        alert_capture_enabled=True,
+        bmslog_capture_enabled=True,
+        protocol_discovery_enabled=True,
+    )
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert coordinator._alert_capture is not None
+    assert coordinator._bmslog_capture is not None
+    bmslog_topic = "hb/device/HOST_A/bmslog"
+    assert {record.topic for record in broker.active} == {
+        "hb/device/HOST_A/status",
+        "hb/device/HOST_A/event",
+        "hb/device/HOST_A/alert",
+        bmslog_topic,
+    }
+    alert_topic = "hb/device/HOST_A/alert"
+    alert_record = next(record for record in broker.active if record.topic == alert_topic)
+    raw_alert = b'{"alert":"keep separate"}'
+    alert_record.callback(
+        SimpleNamespace(topic=alert_topic, payload=raw_alert, qos=1, retain=False)
+    )
+    bmslog_record = next(record for record in broker.active if record.topic == bmslog_topic)
+
+    cache_before = dict(coordinator._data_cache)
+    freshness_before = coordinator._last_update_time
+    ever_received_before = coordinator._ever_received
+    listeners_before = dict(coordinator._sensors)
+    route_observation_before = coordinator.diagnostics_observation().protocol
+    discovery_before = coordinator._protocol_discovery_capture.raw_snapshot()
+    broker.publish_attempts.clear()
+    raw = b'{"type":2,"body":{"batSoc":99}}'
+    bmslog_record.callback(
+        SimpleNamespace(topic=bmslog_topic, payload=raw, qos=1, retain=False)
+    )
+    assert coordinator._bmslog_capture.snapshot()["total_received"] == 1
+    assert base64.b64decode(
+        coordinator._bmslog_capture.snapshot()["events"][0]["payload_base64"]
+    ) == raw
+    assert coordinator._data_cache == cache_before
+    assert coordinator._last_update_time == freshness_before
+    assert coordinator._ever_received is ever_received_before
+    assert coordinator._sensors == listeners_before
+    assert coordinator.diagnostics_observation().protocol == route_observation_before
+    assert coordinator._protocol_discovery_capture.raw_snapshot() == discovery_before
+    assert not coordinator._reauth_started
+    assert broker.publish_attempts == []
+
+    bmslog_record.callback(
+        SimpleNamespace(
+            topic="hb/device/FOREIGN/bmslog",
+            payload=b"foreign host",
+            qos=0,
+            retain=False,
+        )
+    )
+    bmslog_record.callback(
+        SimpleNamespace(
+            topic="other/device/HOST_A/bmslog",
+            payload=b"foreign prefix",
+            qos=0,
+            retain=False,
+        )
+    )
+    assert coordinator._bmslog_capture.snapshot()["total_received"] == 1
+
+    old_bmslog_handles = [record for record in broker.active if record.topic.endswith("/bmslog")]
+    await submit_options(
+        hass,
+        entry,
+        alert_capture_enabled=True,
+        bmslog_capture_enabled=False,
+        protocol_discovery_enabled=True,
+    )
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert replacement._bmslog_capture is None
+    assert replacement._alert_capture is not None
+    assert not any(record.topic.endswith("/bmslog") for record in broker.active)
+    assert all(not record.active and record.remove.call_count == 1 for record in old_bmslog_handles)
+
+    cleared = BmslogCapture(hass, entry.entry_id, None, "HOST_A")
+    await cleared.async_load()
+    assert cleared.snapshot()["stored_count"] == 0
+    preserved_alert = AlertCapture(hass, entry.entry_id, None, "HOST_A")
+    await preserved_alert.async_load()
+    assert preserved_alert.snapshot()["stored_count"] == 1
+    assert base64.b64decode(
+        preserved_alert.snapshot()["events"][0]["payload_base64"]
+    ) == raw_alert
+
+
+async def test_bmslog_partial_subscribe_failure_unwinds_all_handles(hass, monkeypatch):
+    broker = Subscriptions()
+    monkeypatch.setattr("homeassistant.components.mqtt.async_subscribe", broker.subscribe)
+    alert = AlertCapture(hass, "bmslog-subscribe-failure", "hb/device/HOST_A/alert", "HOST_A")
+    bmslog = BmslogCapture(
+        hass, "bmslog-subscribe-failure", "hb/device/HOST_A/bmslog", "HOST_A"
+    )
+    await alert.async_load()
+    await bmslog.async_load()
+    coordinator = JackeryDataCoordinator(
+        hass,
+        "hb",
+        "synthetic",
+        "localhost",
+        "HOST_A",
+        alert_capture=alert,
+        bmslog_capture=bmslog,
+    )
+    monkeypatch.setattr(coordinator, "_periodic_data_request", idle)
+    broker.fail_at = 4
+
+    with pytest.raises(HomeAssistantError, match="subscribe failure"):
+        await coordinator.async_start()
+
+    assert not broker.active
+    assert [record.topic for record in broker.records] == [
+        "hb/device/HOST_A/status",
+        "hb/device/HOST_A/event",
+        "hb/device/HOST_A/alert",
+    ]
+    assert all(record.remove.call_count == 1 for record in broker.records)
+    assert not coordinator._alert_capture_active
+    assert not coordinator._bmslog_capture_active
+    assert not coordinator._subscribed
+    assert coordinator._data_task is None
+    assert broker.publish_attempts == []
+
+
 async def test_alert_subscribe_partial_failure_unwinds_all_callbacks(hass, monkeypatch):
     broker = Subscriptions()
     monkeypatch.setattr("homeassistant.components.mqtt.async_subscribe", broker.subscribe)
@@ -1240,6 +1383,7 @@ async def test_options_noop_does_not_reload(hass, entries):
     hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
     assert await hass.config_entries.async_setup(entry.entry_id)
     original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert original._bmslog_capture is None
 
     with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
         await submit_options(hass, entry)
@@ -1255,6 +1399,7 @@ async def test_options_legacy_missing_defaults_are_a_noop(hass, entries):
     hass.config_entries.async_update_entry(entry, options={})
     assert await hass.config_entries.async_setup(entry.entry_id)
     original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert original._bmslog_capture is None
 
     with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
         await submit_options(hass, entry, smartmeter_http_poll=False)

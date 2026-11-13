@@ -277,11 +277,21 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         async_delete_alert_capture,
         build_alert_topic,
     )
+    from .bmslog_capture import (
+        OPTION_BMSLOG_CAPTURE_ENABLED,
+        BmslogCapture,
+        async_delete_bmslog_capture,
+        build_bmslog_topic,
+    )
 
     alert_capture_enabled = entry.options.get(OPTION_ALERT_CAPTURE_ENABLED) is True
     if not alert_capture_enabled:
         # Disabling this opt-in explicitly purges persisted raw MQTT data.
         await async_delete_alert_capture(hass, entry.entry_id)
+
+    bmslog_capture_enabled = entry.options.get(OPTION_BMSLOG_CAPTURE_ENABLED) is True
+    if not bmslog_capture_enabled:
+        await async_delete_bmslog_capture(hass, entry.entry_id)
 
     from .protocol_capture import (
         ProtocolDiscoveryCapture,
@@ -321,6 +331,12 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         alert_capture = AlertCapture(hass, entry.entry_id, alert_topic, device_sn)
         await alert_capture.async_load()
 
+    bmslog_capture = None
+    if bmslog_capture_enabled:
+        bmslog_topic = build_bmslog_topic(topic_prefix, device_sn)
+        bmslog_capture = BmslogCapture(hass, entry.entry_id, bmslog_topic, device_sn)
+        await bmslog_capture.async_load()
+
     protocol_discovery_capture = None
     if protocol_discovery_enabled and device_sn:
         protocol_discovery_capture = ProtocolDiscoveryCapture(
@@ -340,6 +356,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         protocol_discovery_enabled=protocol_discovery_enabled,
         protocol_discovery_capture=protocol_discovery_capture,
         alert_capture=alert_capture,
+        bmslog_capture=bmslog_capture,
     )
     coordinator.config_entry_id = entry.entry_id
     coordinator._child_migration = child_migration
@@ -376,6 +393,10 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         OPTION_ALERT_CAPTURE_ENABLED,
         async_delete_alert_capture,
     )
+    from .bmslog_capture import (
+        OPTION_BMSLOG_CAPTURE_ENABLED,
+        async_delete_bmslog_capture,
+    )
     from .protocol_capture import async_delete_protocol_capture
     from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
 
@@ -390,6 +411,12 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
                     await capture.async_clear()
                 else:
                     await async_delete_alert_capture(hass, entry.entry_id)
+            if entry.options.get(OPTION_BMSLOG_CAPTURE_ENABLED) is not True:
+                capture = getattr(coordinator, "_bmslog_capture", None)
+                if capture is not None:
+                    await capture.async_clear()
+                else:
+                    await async_delete_bmslog_capture(hass, entry.entry_id)
             if entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is not True:
                 capture = getattr(coordinator, "_protocol_discovery_capture", None)
                 if capture is not None:
@@ -407,9 +434,11 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove any opt-in raw alert records when a config entry is deleted."""
+    """Remove all opt-in raw capture records when a config entry is deleted."""
     from .alert_capture import async_delete_alert_capture
+    from .bmslog_capture import async_delete_bmslog_capture
     from .protocol_capture import async_delete_protocol_capture
 
     await async_delete_alert_capture(hass, entry.entry_id)
+    await async_delete_bmslog_capture(hass, entry.entry_id)
     await async_delete_protocol_capture(hass, entry.entry_id)

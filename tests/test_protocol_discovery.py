@@ -576,6 +576,7 @@ async def test_option_defaults_false_and_can_be_enabled_and_disabled(hass) -> No
     schema = result["data_schema"]
     defaults = schema({})
     assert defaults[OPTION_PROTOCOL_DISCOVERY_ENABLED] is False
+    assert defaults["bmslog_capture_enabled"] is False
 
     result = await hass.config_entries.options.async_configure(
         result["flow_id"],
@@ -585,6 +586,7 @@ async def test_option_defaults_false_and_can_be_enabled_and_disabled(hass) -> No
             "smartmeter_http_poll": False,
             "smartmeter_poll_interval": 10,
             OPTION_PROTOCOL_DISCOVERY_ENABLED: True,
+            "bmslog_capture_enabled": False,
         },
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY
@@ -599,6 +601,7 @@ async def test_option_defaults_false_and_can_be_enabled_and_disabled(hass) -> No
             "smartmeter_http_poll": False,
             "smartmeter_poll_interval": 10,
             OPTION_PROTOCOL_DISCOVERY_ENABLED: False,
+            "bmslog_capture_enabled": False,
         },
     )
     assert result["type"] is FlowResultType.CREATE_ENTRY

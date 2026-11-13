@@ -10,6 +10,7 @@ from homeassistant.components import mqtt
 
 from . import DOMAIN
 from .alert_capture import OPTION_ALERT_CAPTURE_ENABLED
+from .bmslog_capture import OPTION_BMSLOG_CAPTURE_ENABLED
 from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
 
 _LOGGER = logging.getLogger(__name__)
@@ -120,6 +121,9 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 OPTION_ALERT_CAPTURE_ENABLED: user_input[
                     OPTION_ALERT_CAPTURE_ENABLED
                 ],
+                OPTION_BMSLOG_CAPTURE_ENABLED: user_input[
+                    OPTION_BMSLOG_CAPTURE_ENABLED
+                ],
             }
             options_changed = any(
                 new_options[key] != current_options.get(key, default)
@@ -128,6 +132,7 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     ("smartmeter_poll_interval", DEFAULT_SMARTMETER_POLL_INTERVAL),
                     (OPTION_PROTOCOL_DISCOVERY_ENABLED, False),
                     (OPTION_ALERT_CAPTURE_ENABLED, False),
+                    (OPTION_BMSLOG_CAPTURE_ENABLED, False),
                 )
             )
             data_updates: dict[str, Any] = {}
@@ -171,6 +176,10 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 vol.Required(
                     OPTION_ALERT_CAPTURE_ENABLED,
                     default=current_options.get(OPTION_ALERT_CAPTURE_ENABLED, False),
+                ): bool,
+                vol.Required(
+                    OPTION_BMSLOG_CAPTURE_ENABLED,
+                    default=current_options.get(OPTION_BMSLOG_CAPTURE_ENABLED, False),
                 ): bool,
             }
         )
