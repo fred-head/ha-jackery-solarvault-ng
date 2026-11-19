@@ -1,0 +1,4 @@
+Base: custom_components/jackery/strings.json
+[de] OK
+[en] OK
+[fr] OK

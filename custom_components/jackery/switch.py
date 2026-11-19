@@ -12,12 +12,14 @@ from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
-from .sensor import (
+from .devices.classification import should_create_plug_switch
+from .entities.transforms import (
     COMM_MODE_LABELS,
     plug_comm_mode,
     plug_mqtt_control_allowed,
-    should_create_plug_switch,
 )
+from .identity import child_device_identifier, child_unique_id
+from .registry_identity import build_device_info
 
 if TYPE_CHECKING:
     from .sensor import JackeryDataCoordinator
@@ -41,7 +43,7 @@ async def async_setup_entry(
         async_add_entities(new_entities)
     coordinator.add_switch_entities_callback = add_switch_entities_callback
 
-    entities = []
+    entities: list[SwitchEntity] = []
 
     # Main device switches
     entities.extend(
@@ -83,7 +85,7 @@ async def async_setup_entry(
     for item in coordinator.get_subdevices():
         sn = item.get("deviceSn") or item.get("sn")
         dev_type = item.get("devType")
-        if sn and should_create_plug_switch(item):
+        if sn and coordinator.child_identity_allowed(sn) and should_create_plug_switch(item):
             entities.append(
                 JackeryPlugSwitch(
                     plug_sn=sn,
@@ -113,18 +115,20 @@ class JackeryPlugSwitch(SwitchEntity):
         self._coordinator = coordinator
         self._raw_data: dict[str, Any] = {}
 
-        self._attr_name = "Switch"
-        self._attr_unique_id = f"jackery_plug_{plug_sn}_switch"
+        self._attr_translation_key = "plug_switch"
+        main_device_id = coordinator._device_sn or config_entry_id
+        self._attr_unique_id = child_unique_id(main_device_id, plug_sn, "plug", "switch")
         self._attr_has_entity_name = True
 
-        main_device_id = coordinator._device_sn or config_entry_id
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"sub_{plug_sn}")},
-            "via_device": (DOMAIN, main_device_id),
-            "name": f"Jackery Plug {plug_sn}",
-            "manufacturer": "Jackery",
-            "model": f"Sub-device Type {dev_type}",
-        }
+        self._attr_device_info = build_device_info(
+            getattr(coordinator, "hass", None),
+            config_entry_id,
+            identifiers={(DOMAIN, child_device_identifier(main_device_id, plug_sn))},
+            parent_identifier=(DOMAIN, main_device_id),
+            name=f"Jackery Plug {plug_sn}",
+            manufacturer="Jackery",
+            model=f"Sub-device Type {dev_type}",
+        )
 
     @property
     def should_poll(self) -> bool:
@@ -163,7 +167,10 @@ class JackeryPlugSwitch(SwitchEntity):
         if val is None:
             val = my_plug.get("switchSta")
         if val is not None:
-            self._attr_is_on = bool(int(val))
+            try:
+                self._attr_is_on = bool(int(val))
+            except (TypeError, ValueError, OverflowError):
+                return
         self._attr_available = True
         self.async_write_ha_state()
 
@@ -213,7 +220,7 @@ class JackeryPlugSwitch(SwitchEntity):
             "plug_sn": self._plug_sn,
             "dev_type": self._dev_type,
             "commState": raw.get("commState"),
-            "commMode": mode,
+            "commMode": COMM_MODE_LABELS.get(mode) if mode is not None else None,
             "commMode_label": COMM_MODE_LABELS.get(mode) if mode is not None else None,
             "mqtt_controllable": mqtt_ok,
             "mqtt_control_block_reason": mqtt_block_reason or None,
@@ -270,7 +277,10 @@ class JackeryMainSwitch(SwitchEntity):
         val = data.get(self._key)
         if val is None:
             return
-        self._attr_is_on = bool(int(val))
+        try:
+            self._attr_is_on = bool(int(val))
+        except (TypeError, ValueError, OverflowError):
+            return
         self._attr_available = True
         self.async_write_ha_state()
 
@@ -322,6 +332,9 @@ class JackeryFollowMeterSwitch(JackeryOptimisticSwitch):
         val = data.get(self._key)
         if val is None:
             return
-        self._attr_is_on = bool(int(val))
+        try:
+            self._attr_is_on = bool(int(val))
+        except (TypeError, ValueError, OverflowError):
+            return
         self._attr_available = True
         self.async_write_ha_state()

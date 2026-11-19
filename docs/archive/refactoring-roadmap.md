@@ -1,0 +1,82 @@
+# Incremental and reversible roadmap
+
+Accepted foundation after Phase 3:
+`2158a531be9790aa77ad234e9a4dbd52f6434ac8`.
+
+**Phase 3 is complete.** P3.1 through P3.5 delivered the pure diagnostics
+contract, passive observability, Home Assistant config-entry endpoint,
+adversarial hardening and opt-in protocol discovery. No Phase 4 workstream has
+been selected. The current technical audit, production-readiness gaps and
+candidate decision matrix are in
+[phase3-closeout-phase4-plan.md](phase3-closeout-phase4-plan.md).
+
+The numbered rows below are the historical extraction sequence; their row
+numbers are not the program-level Phase 3/Phase 4 names used above. Current
+progress: the pure normalization, energy calculation and device classification
+bundles described in extraction rows 1 through 3 are implemented. The safe
+structural portion of extraction row 4 is also implemented in
+`protocol/routing.py`, and the safe runtime-state portion of extraction row 5 is
+implemented in `coordinator_state.py`.
+Pure outbound action-topic and envelope construction from extraction row 6 is
+implemented in `protocol/commands.py`.
+The low-level MQTT API and subscription-handle boundary from extraction row 7 is
+implemented in `transport/mqtt.py`; coordinator polling policy remains in place.
+Established aliases and flat-status body reconstruction live in
+`protocol/normalization.py`; formulas and source selection live in
+`calculations/energy_flow.py`; child family decisions live in
+`devices/classification.py`. Exact topic/envelope parsing and immutable route
+decisions now live in `protocol/routing.py`; coordinator-owned route application,
+entity construction, discovery/deletion policy and availability side effects
+remain in `sensor.py`. Runtime cache, freshness, Type-106 evidence and source
+metadata live in `coordinator_state.py`. See [architecture.md](../references/architecture.md).
+Rows 1 through 10 record completed or intentionally partial extraction history.
+Rows 11 and 12 remain possible work, not an approved Phase 4 plan.
+
+Phase 0/1 stops with this documentation. The following work requires subsequent review. Baseline: 174 tests passing, translation/Ruff pass, CI-style lint-only mypy pass; combined HA+lint environment has 23 typing findings. The [test map](test-coverage-map.md) defines actual assertion limits.
+
+Each row is one small PR, or a sequence of PRs when explicitly indicated. Do not combine bugfixes with extraction. Preserve raw payloads, entity IDs, unique IDs, registry associations, units/scales, translations, default enablement, command bytes (apart from generated timestamps/IDs) and source precedence unless the PR explicitly and independently changes a diagnosed behavior. Run existing suite, Ruff, translation check and the documented mypy environments; CI HACS/Hassfest remains a gate. Keep a dated exception ledger for the already-known combined typing failures until fixed, rather than disabling checks.
+
+| Phase / objective | Files affected later | Identical behavior / existing protection | Missing tests before move | Risk / acceptance / rollback |
+| --- | --- | --- | --- | --- |
+| 0. Make characterization credible | tests fixtures/conftest/new regression modules; pyproject/CI only if needed for documented environment split | No production behavior change. Preserve existing 174 assertions and explicit baseline results. | Full MQTT→cache→real entity path; HTTP coexistence; two-host clocks; 106 ordering; collector/Shelly/BP fixtures; complete registry snapshots. Use synthetic IDs and identify capture provenance. | LOW production risk. Fixtures exercise actual constructors and callbacks, not just __new__; failing intended bug cases land with their separate fix. Revert test-only PR freely. |
+| 0a. Fix confirmed defects independently | Small targeted sensor.py/HTTP changes plus regression tests; never architectural moves | Everything outside each bug's expected transition remains unchanged. Preserve control/identity contracts. | First: register HTTP sensor then inject MQTT, proving all intended entities still update; then isolated heartbeat/type23 fixes; freshness/registry changes only after broader evidence. | HIGH defect impact but narrow change. Each fix must fail on C and pass with minimal change. One PR/revert per defect; freeze updated behavior in baseline before extraction. |
+| 1. Extract pure normalization first | **Completed:** `protocol/__init__.py`, `protocol/normalization.py`, sensor.py caller imports | Same aliases, null/zero priority, alias retention, shallow-copy behavior, flat whitelist and metadata stripping. Direct normalization plus routing tests. | Added conflicting alias/explicit-zero/null cases and flat aliases-only/energy-only cases; non-dict envelopes remain parser concern. | **COMPLETED.** Standard-library-only helper module; no routing, cache, classification, freshness or command decisions moved. |
+| 2. Extract calculation bundle | **Completed:** `calculations/__init__.py`, `calculations/energy_flow.py`, sensor.py wrapper | Same dict mutation/return, derived keys, raw fields, battery stack formula, CT/collector/system precedence, sign/clamp/anomaly behavior. Direct calculation/helper/source tests. | Added collector, subtype2 Shelly, empty CT, source conflicts, total zero/phase contradiction and 50 W boundary scenarios. | **COMPLETED.** Standard-library-only calculation module; coordinator retains freshness and logging. No canonical-state redesign. |
+| 3. Centralize device classification | **Completed:** `devices/__init__.py`, `devices/classification.py`, sensor.py, switch.py | Same groups, models, route-specific missing-type defaults and point-field inference. Unknown types remain rejected; contradictory array metadata keeps its existing cache/source behavior. | Added direct family/model/context cases and discovery/entity snapshots for every supported group, missing inference, contradictions, subtype changes and identical child serials under two hosts. | **COMPLETED.** Standard-library-only classifier; no routing, cache placement, entity construction, identity, communication policy or capability redesign moved. |
+| 4. Extract structural protocol parsing | **Completed safe portion:** `protocol/routing.py`, protocol exports, sensor.py coordinator wrapper | Same type2/23/101/102/106/107/123 and generic routing decisions, exact topic matching, body/flat distinctions and malformed-shape handling. | Added direct routing cases and ordered cache/freshness/discovery/reauth/calculation/fan-out transitions. Duplicate/repeated-report policy remains existing behavior. | **COMPLETED as a partial extraction.** Pure topic/envelope/type decisions moved; cache, Type-106 arbitration, child merging, HA effects and outer containment remain coordinator-owned. No deletion/ack semantics added. |
+| 5. Isolate state transitions and availability ownership | **Completed safe portion:** `coordinator_state.py`, sensor.py adapters and state-transition tests | Same cache/list/null behavior, host/child 60-second boundaries, Type-106 receipt-time policy, cumulative-battery exception, source eligibility and entity identities. | Added focused host/child refresh, stale/recovery, deletion, expansion, Type-106/live expiry, source metadata, offline/recovery and reset characterization plus direct state tests. | **COMPLETED as a partial extraction.** Runtime data/freshness has one HA-independent owner. Discovery membership/deletion, entity writes, HTTP health, reauth and transport stay coordinator-owned because moving them would cross HA lifecycle boundaries. |
+| 6. Extract command builders | **Completed:** `protocol/commands.py`, coordinator callers and direct tests | Exact types, eventIds, cmd/rc, token presence, body=null and devType categories; coordinator QoS/retain, generation and optimistic timing unchanged. | Added exact direct cases for all builders, token variants, input non-mutation, deterministic values and merge precedence; existing entity/control contracts remain integration gates. | **COMPLETED.** Pure standard-library builders only. Publication, cadence, error handling and effects remain coordinator-owned; no correlation, acknowledgement, queue or retry semantics added. |
+| 7. Separate MQTT transport lifecycle | **Completed safe portion:** `transport/mqtt.py`, coordinator adapters and direct tests | Same topics, QoS/retain, JSON, poll sequence/cadence, callback delivery and lifecycle behavior. Transport knows no entity or protocol semantics. | Directly covers exact subscriptions/publication, callback delivery, partial failure, idempotent/all-handle cleanup and instance isolation; existing cancellation/reload/request-failure tests remain gates. | **COMPLETED as a partial extraction.** HA MQTT mechanics and handles moved. Coordinator retains tasks, locks, policy and error logging; HTTP and reconnect/ack/retry behavior are unchanged. |
+| 8. Separate HTTP polling | **Completed safe portion:** `transport/smartmeter_http.py`, sensor.py coordinator adapter and direct tests | Same optional default/interval/timeout/endpoint, accepted fields and scales; no meter-source promotion. | Direct HTTP 200/status/JSON/network/timeout/validation/request-contract cases plus existing missing-IP, third-failure/recovery, identity, cancellation and MQTT-isolation tests. | **COMPLETED as a partial extraction.** Low-level request mechanics moved. Coordinator retains target discovery, task/cadence, health counters, replacement handling and HA effects; no generic transport or threshold redesign. |
+| 9. Simplify coordinator/setup/entities | **Completed safe portion:** `entities/sensor_definitions.py`, `entities/transforms.py`, setup/migration imports and platform callers | Same setup/start order, dynamic callbacks, entity count/metadata/values, IDs and controls; sensor compatibility exports retained. | Direct definition/export/dependency and plug-transform tests plus existing setup order, reload, failure, identity, discovery and command suites. | **COMPLETED as a partial extraction.** Declarative metadata and proven pure plug transforms moved. Coordinator/entity classes, discovery construction and HA effects remain together pending a separate child-management boundary. |
+| 9a. Extract child discovery decisions | **Completed safe portion:** `discovery.py` and coordinator adapter | Same first/repeated discovery, reappearance, strict deletion timeout, expansion exception, family mapping, identities and callbacks. | Direct state/specification tests plus existing availability, routing, identity, migration, HTTP and reload suites. | **COMPLETED as a partial extraction.** Membership/timers and pure construction specifications moved. Coordinator retains identity eligibility, entity construction, registry effects and callbacks; no framework or HTTP replacement redesign. |
+| 10. Add diagnostics | **P3.1-P3.5 completed; persistent discovery extension added:** HA-independent snapshot contract, passive observations, config-entry adapter, privacy hardening, structural discovery and bounded raw examples | Runtime measurements/commands unchanged. Structural discovery remains value-free; its separate opted-in storage owner persists observations and samples only relevant original MQTT bytes after host/topic validation. Broker connectivity remains unknown. | Direct contract, privacy, copy isolation, HTTP/routing observation, lifecycle, 64-KiB standard snapshot, persistent host-bound discovery, sampling, 24-KiB raw exports, side-effect and disabled-mode equivalence tests. | **P3.1-P3.5 COMPLETED.** The standard builder and structural observer remain HA-independent. Experimental raw data uses a separate, bounded, host-bound store and diagnostics extension; no automatic classification or entity creation was added. |
+| 11. Improve logging | Existing logger sites, safe formatting helpers only if duplicated | Same runtime behavior; change log granularity and safe metadata deliberately. | Level/rate transitions, repeated error suppression, recovery, secrets never emitted. | LOW–MEDIUM. No per-message INFO, first failure/recovery observable. Revert independent logging PR. |
+| 12. Selective upstream behavior | Only modules relevant to one accepted candidate, tests, future upstream-sync ledger | Protect community-only groups/calculations/history; never branch-merge Official. | Candidate-specific regression fixture and compatibility tests listed in port assessment. | Variable. Record upstream SHA, exact intent and local test evidence; reject changes without protocol evidence. One behavior per PR. |
+
+## Recommended next work
+
+No Phase 4 objective is approved by this roadmap. The maintainer should first
+answer the decision questions in the
+[Phase 3 closeout audit](phase3-closeout-phase4-plan.md), particularly whether
+production/release hardening and hardware evidence take precedence over new
+capabilities, command tracking or further decomposition.
+
+The prerequisite HTTP/MQTT coexistence and related lifecycle, freshness and
+identity defects were handled in isolated bugfix work before these extractions.
+Their regression tests remain part of the acceptance suite.
+
+Foundation hardening subsequently resolved the 23 HA-aware mypy diagnostics
+with declared metadata schemas, constructor invariants and runtime checks at
+the ConfigEntry boundary. See the [per-finding audit](ha-aware-typing-audit.md).
+Malformed restored configuration is rejected before migration; valid values
+and the existing missing-host adoption behavior retain their exact semantics.
+
+The safe child-discovery portion of phase 9 is now extracted and documented.
+Further entity construction should wait until child sensor classes can move
+without a circular import or platform setup rewrite.
+
+For risky freshness, unbinding and identity changes, preserve established behavior
+until evidence justifies an explicit change; a known defect is not permission to
+silently redesign adjacent behavior. Reversion must not require deleting HA
+entities, re-pairing meters, changing tokens or discarding history.

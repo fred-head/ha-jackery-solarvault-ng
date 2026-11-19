@@ -1,0 +1,1558 @@
+"""Subscription ownership through real coordinator and HA entry lifecycles.
+
+Foundation 3006414 discards both unsubscribe callbacks, never resets
+_subscribed, and swallows startup errors. The fake MQTT boundary retains actual
+registered callbacks so leaked subscriptions remain observable through delivery.
+"""
+
+import asyncio
+import base64
+import json
+from types import SimpleNamespace
+from unittest.mock import AsyncMock, Mock, patch
+
+import pytest
+from homeassistant import config_entries
+from homeassistant.config_entries import ConfigEntryState
+from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.exceptions import HomeAssistantError
+from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+from custom_components.jackery import DOMAIN, PLATFORMS
+from custom_components.jackery import sensor as sensor_module
+from custom_components.jackery.alert_capture import AlertCapture
+from custom_components.jackery.bmslog_capture import BmslogCapture
+from custom_components.jackery.protocol_capture import ProtocolDiscoveryCapture
+from custom_components.jackery.sensor import (
+    OFFLINE_TIMEOUT,
+    SMARTMETER_HTTP_SENSOR_CONFIGS,
+    JackeryDataCoordinator,
+    JackerySmartMeterHttpSensor,
+)
+
+from .conftest import FakeMqttMsg
+
+ORIGINAL_HTTP_POLL_LOOP = JackeryDataCoordinator._smartmeter_http_poll_loop
+
+
+class Subscriptions:
+    """Model HA's synchronous cleanup API and independent listener handles."""
+
+    def __init__(self):
+        self.records = []
+        self.connected = True
+        self.connection_transitions = []
+        self.publish_attempts = []
+        self.published = []
+        self.fail_at = None
+        self.pause_at = None
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.attempts = 0
+
+    async def subscribe(self, hass, topic, callback, qos):
+        self.attempts += 1
+        if self.attempts == self.pause_at:
+            self.entered.set()
+            await self.release.wait()
+        if self.attempts == self.fail_at:
+            raise HomeAssistantError("synthetic subscribe failure")
+        record = SimpleNamespace(topic=topic, callback=callback, qos=qos, active=True, error=None)
+
+        def remove():
+            assert record.active, "unsubscribe invoked twice"
+            if record.error:
+                raise record.error
+            record.active = False
+
+        record.remove = Mock(side_effect=remove)
+        self.records.append(record)
+        return record.remove
+
+    @property
+    def active(self):
+        return [record for record in self.records if record.active]
+
+    def disconnect(self):
+        self.connected = False
+        self.connection_transitions.append("disconnected")
+
+    def reconnect(self):
+        self.connected = True
+        self.connection_transitions.append("reconnected")
+
+    async def publish(self, hass, topic, payload, qos, retain):
+        attempt = SimpleNamespace(topic=topic, payload=payload, qos=qos, retain=retain)
+        self.publish_attempts.append(attempt)
+        if not self.connected:
+            raise HomeAssistantError("synthetic broker disconnected")
+        self.published.append(attempt)
+
+    def send(self, host, channel="status", prefix="hb", value=42, *, body=None, message_type=2):
+        if not self.connected:
+            return 0
+        topic = f"{prefix}/device/{host}/{channel}"
+        msg = FakeMqttMsg(
+            topic,
+            json.dumps(
+                {
+                    "type": message_type,
+                    "body": {"batSoc": value} if body is None else body,
+                }
+            ),
+        )
+        deliveries = 0
+        for record in list(self.active):
+            if all(a == b or a == "+" for a, b in zip(record.topic.split("/"), topic.split("/"), strict=True)):
+                record.callback(msg)
+                deliveries += 1
+        return deliveries
+
+
+async def idle():
+    await asyncio.Future()
+
+
+DEFAULT_OPTIONS = {
+    "smartmeter_http_poll": True,
+    "smartmeter_poll_interval": 10,
+    "protocol_discovery_enabled": False,
+    "alert_capture_enabled": False,
+    "bmslog_capture_enabled": False,
+}
+
+
+async def submit_options(hass, entry, *, token=None, topic_prefix=None, **options):
+    flow = await hass.config_entries.options.async_init(entry.entry_id)
+    assert flow["type"] is FlowResultType.FORM
+    result = await hass.config_entries.options.async_configure(
+        flow["flow_id"],
+        user_input={
+            "token": entry.data["token"] if token is None else token,
+            "topic_prefix": entry.data["topic_prefix"] if topic_prefix is None else topic_prefix,
+            **DEFAULT_OPTIONS,
+            **options,
+        },
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+    await hass.async_block_till_done()
+    return result
+
+
+def auth_rejection(host: str) -> FakeMqttMsg:
+    return FakeMqttMsg(
+        f"hb/device/{host}/status",
+        json.dumps({"type": 123, "body": {"errorCode": 401}}),
+    )
+
+
+def reauth_flows(hass, entry):
+    return hass.config_entries.flow.async_progress_by_handler(
+        DOMAIN,
+        match_context={
+            "source": config_entries.SOURCE_REAUTH,
+            "entry_id": entry.entry_id,
+        },
+    )
+
+
+async def test_coordinator_reauth_uses_entry_owned_api(hass, monkeypatch):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"device_sn": "HOST_A", "token": "synthetic", "topic_prefix": "hb"},
+        unique_id="HOST_A",
+    )
+    entry.add_to_hass(hass)
+    coordinator = JackeryDataCoordinator(hass, "hb", "synthetic", "localhost", "HOST_A")
+    coordinator.config_entry_id = entry.entry_id
+    coordinator._lifecycle_active = True
+    manual_flow_init = AsyncMock()
+    monkeypatch.setattr(hass.config_entries.flow, "async_init", manual_flow_init)
+
+    with patch.object(type(entry), "async_start_reauth", autospec=True) as start_reauth:
+        coordinator._trigger_reauth("synthetic auth rejection")
+        await hass.async_block_till_done()
+
+    start_reauth.assert_called_once_with(entry, hass)
+    manual_flow_init.assert_not_awaited()
+
+
+async def test_reauth_trigger_is_once_for_repeated_401_and_foreign_host_is_ignored(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"device_sn": "HOST_A", "token": "synthetic", "topic_prefix": "hb"},
+        unique_id="HOST_A",
+    )
+    entry.add_to_hass(hass)
+    coordinator = JackeryDataCoordinator(hass, "hb", "synthetic", "localhost", "HOST_A")
+    coordinator.config_entry_id = entry.entry_id
+    coordinator._lifecycle_active = True
+
+    with patch.object(type(entry), "async_start_reauth", autospec=True) as start_reauth:
+        coordinator._handle_message(auth_rejection("FOREIGN"))
+        coordinator._handle_message(auth_rejection("HOST_A"))
+        coordinator._handle_message(auth_rejection("HOST_A"))
+
+    start_reauth.assert_called_once_with(entry, hass)
+    assert coordinator._reauth_started
+
+
+async def test_missing_entry_and_stopped_coordinator_do_not_start_reauth(
+    hass,
+    runtime,
+):
+    missing = JackeryDataCoordinator(hass, "hb", "synthetic", "localhost", "MISSING")
+    missing.config_entry_id = "removed-entry"
+    missing._lifecycle_active = True
+    missing._trigger_reauth("synthetic auth rejection")
+    assert not missing._reauth_started
+
+    coordinator, _broker = runtime
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"device_sn": "HOST_A", "token": "synthetic", "topic_prefix": "hb"},
+        unique_id="HOST_A",
+    )
+    entry.add_to_hass(hass)
+    coordinator.config_entry_id = entry.entry_id
+    await coordinator.async_start()
+    assert coordinator._lifecycle_active
+    await coordinator.async_stop()
+
+    with patch.object(type(entry), "async_start_reauth", autospec=True) as start_reauth:
+        coordinator._trigger_reauth("stale coordinator")
+
+    start_reauth.assert_not_called()
+    assert not coordinator._reauth_started
+    assert not coordinator._lifecycle_active
+
+
+async def test_reauth_helper_programming_error_propagates(hass):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"device_sn": "HOST_A", "token": "synthetic", "topic_prefix": "hb"},
+        unique_id="HOST_A",
+    )
+    entry.add_to_hass(hass)
+    coordinator = JackeryDataCoordinator(hass, "hb", "synthetic", "localhost", "HOST_A")
+    coordinator.config_entry_id = entry.entry_id
+    coordinator._lifecycle_active = True
+
+    with (
+        patch.object(
+            type(entry),
+            "async_start_reauth",
+            autospec=True,
+            side_effect=RuntimeError("synthetic helper failure"),
+        ),
+        pytest.raises(RuntimeError, match="synthetic helper failure"),
+    ):
+        coordinator._trigger_reauth("synthetic auth rejection")
+
+
+async def test_silence_issue_clears_on_message_and_later_401_starts_reauth(
+    hass,
+    monkeypatch,
+):
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"device_sn": "HOST_A", "token": "synthetic", "topic_prefix": "hb"},
+        unique_id="HOST_A",
+    )
+    entry.add_to_hass(hass)
+    coordinator = JackeryDataCoordinator(hass, "hb", "synthetic", "localhost", "HOST_A")
+    coordinator.config_entry_id = entry.entry_id
+    coordinator._lifecycle_active = True
+    coordinator._runtime_state.start_time = 0.0
+    monkeypatch.setattr(sensor_module, "time", SimpleNamespace(time=lambda: 121.0))
+    sleep = AsyncMock(side_effect=[None, asyncio.CancelledError])
+    monkeypatch.setattr(
+        sensor_module,
+        "asyncio",
+        SimpleNamespace(sleep=sleep, CancelledError=asyncio.CancelledError),
+    )
+    monkeypatch.setattr(coordinator, "_send_poll_requests", AsyncMock())
+
+    issue_registry = sensor_module.ir.async_get(hass)
+    issue_id = f"{sensor_module.NO_MQTT_RESPONSE_ISSUE_PREFIX}{entry.entry_id}"
+    with patch.object(type(entry), "async_start_reauth", autospec=True) as start_reauth:
+        await coordinator._periodic_data_request()
+        issue = issue_registry.async_get_issue(DOMAIN, issue_id)
+        assert issue is not None
+        assert not coordinator._reauth_started
+
+        coordinator._handle_message(auth_rejection("HOST_A"))
+
+    start_reauth.assert_called_once_with(entry, hass)
+    assert coordinator._reauth_started
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_stop_deletes_no_mqtt_response_issue(hass):
+    """The warning is removed when the owning coordinator stops."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"device_sn": "HOST_A", "token": "synthetic", "topic_prefix": "hb"},
+        unique_id="HOST_A",
+    )
+    entry.add_to_hass(hass)
+    coordinator = JackeryDataCoordinator(hass, "hb", "synthetic", "localhost", "HOST_A")
+    coordinator.config_entry_id = entry.entry_id
+    coordinator._create_no_mqtt_response_issue()
+
+    issue_registry = sensor_module.ir.async_get(hass)
+    issue_id = f"{sensor_module.NO_MQTT_RESPONSE_ISSUE_PREFIX}{entry.entry_id}"
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    await coordinator.async_stop()
+
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+@pytest.fixture
+async def runtime(hass, monkeypatch):
+    broker = Subscriptions()
+    monkeypatch.setattr("homeassistant.components.mqtt.async_subscribe", broker.subscribe)
+    c = JackeryDataCoordinator(hass, "hb", "synthetic", "localhost", "HOST_A")
+    monkeypatch.setattr(c, "_periodic_data_request", idle)
+    yield c, broker
+    # Baseline failures must not leave real asyncio tasks alive in the harness.
+    for task in (c._data_task, c._smartmeter_http_task):
+        if task and not task.done():
+            task.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+
+
+async def test_stop_releases_every_subscription_once_and_allows_restart(runtime):
+    c, broker = runtime
+    await c.async_stop()  # zero subscriptions
+    await c.async_start()
+    await c.async_start()
+    assert c._lifecycle_active
+    assert len(broker.records) == 2
+    assert all(record.qos == 1 for record in broker.records)
+    assert broker.send("HOST_A") == 1
+    assert c._data_cache["batSoc"] == 42
+    await c.async_stop()
+    await c.async_stop()
+    assert not broker.active
+    assert all(record.remove.call_count == 1 for record in broker.records)
+    assert not c._subscribed
+    assert not c._lifecycle_active
+    assert not c._mqtt_unsubscribers
+    assert broker.send("HOST_A", value=99) == 0
+    assert c._data_cache["batSoc"] == 42
+    await c.async_start()
+    assert c._lifecycle_active
+    assert len(broker.records) == 4 and len(broker.active) == 2
+    await c.async_stop()
+    assert not broker.active
+    assert not c._lifecycle_active
+
+
+@pytest.mark.parametrize("failed_subscription", [1, 2])
+async def test_partial_subscribe_failure_releases_handles_and_propagates(runtime, failed_subscription):
+    c, broker = runtime
+    broker.fail_at = failed_subscription
+    with pytest.raises(HomeAssistantError, match="subscribe failure"):
+        await c.async_start()
+    assert not broker.active
+    assert not c._subscribed and not c._mqtt_unsubscribers
+    assert c._data_task is None
+    assert all(record.remove.call_count == 1 for record in broker.records)
+    broker.fail_at = None
+    await c.async_start()
+    assert len(broker.active) == 2
+    await c.async_stop()
+
+
+async def test_later_startup_error_releases_subscriptions_and_poll_task(runtime, monkeypatch):
+    c, broker = runtime
+    with monkeypatch.context() as patcher:
+        patcher.setattr(c.hass.config_entries, "async_get_entry", Mock(side_effect=RuntimeError("later startup failure")))
+        with pytest.raises(RuntimeError, match="later startup failure"):
+            await c.async_start()
+    assert not broker.active
+    assert c._data_task.done()
+    assert not c._subscribed
+    await c.async_stop()
+    assert all(record.remove.call_count == 1 for record in broker.records)
+
+
+async def test_cancelled_partial_start_releases_owned_subscription(runtime):
+    c, broker = runtime
+    broker.pause_at = 2
+    start = asyncio.create_task(c.async_start())
+    await broker.entered.wait()
+    start.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await start
+    assert not broker.active
+    assert broker.records[0].remove.call_count == 1
+    assert not c._subscribed
+    assert not c._lifecycle_active
+
+
+@pytest.mark.parametrize("failure_count", [1, 2])
+async def test_cleanup_attempts_all_callbacks_and_reports_errors(runtime, failure_count):
+    c, broker = runtime
+    await c.async_start()
+    for record in broker.records[:failure_count]:
+        record.error = RuntimeError("synthetic unsubscribe failure")
+    with pytest.raises(ExceptionGroup) as error:
+        await c.async_stop()
+    assert len(error.value.exceptions) == failure_count
+    assert all(record.remove.call_count == 1 for record in broker.records)
+    assert len(broker.active) == failure_count  # Failure cannot guarantee removal.
+    assert c._data_task.done()
+    assert not c._mqtt_unsubscribers and not c._subscribed
+    await c.async_stop()
+    assert all(record.remove.call_count == 1 for record in broker.records)
+
+
+async def test_concurrent_start_is_serialized(runtime):
+    c, broker = runtime
+    broker.pause_at = 1
+    first = asyncio.create_task(c.async_start())
+    await broker.entered.wait()
+    second = asyncio.create_task(c.async_start())
+    await asyncio.sleep(0)
+    broker.release.set()
+    await asyncio.gather(first, second)
+    assert len(broker.records) == 2
+    await c.async_stop()
+    assert not broker.active
+
+
+async def test_stop_during_start_cleans_completed_start(runtime):
+    c, broker = runtime
+    broker.pause_at = 2
+    start = asyncio.create_task(c.async_start())
+    await broker.entered.wait()
+    stop = asyncio.create_task(c.async_stop())
+    await asyncio.sleep(0)
+    broker.release.set()
+    await asyncio.gather(start, stop)
+    assert not broker.active
+    assert not c._subscribed and c._data_task.done()
+    assert not c._lifecycle_active
+
+
+async def test_cancelled_stop_preserves_cancellation_after_unsubscribe(runtime):
+    c, broker = runtime
+    entered = asyncio.Event()
+
+    async def slow_task_cleanup():
+        try:
+            await idle()
+        finally:
+            entered.set()
+            await idle()
+
+    await c.async_start()
+    c._smartmeter_http_task = asyncio.create_task(slow_task_cleanup())
+    await asyncio.sleep(0)
+    stop = asyncio.create_task(c.async_stop())
+    await entered.wait()
+    stop.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await stop
+    assert not broker.active
+    assert c._data_task.done() and c._smartmeter_http_task.done()
+    await c.async_stop()
+    assert all(record.remove.call_count == 1 for record in broker.records)
+
+
+async def test_task_cleanup_failure_does_not_skip_other_task(runtime):
+    c, broker = runtime
+
+    async def broken_task():
+        try:
+            await idle()
+        finally:
+            raise RuntimeError("synthetic task cleanup failure")
+
+    await c.async_start()
+    c._data_task.cancel()
+    await asyncio.gather(c._data_task, return_exceptions=True)
+    c._data_task = asyncio.create_task(broken_task())
+    c._smartmeter_http_task = asyncio.create_task(idle())
+    await asyncio.sleep(0)
+    with pytest.raises(ExceptionGroup) as error:
+        await c.async_stop()
+    assert str(error.value.exceptions[0]) == "synthetic task cleanup failure"
+    assert c._smartmeter_http_task.done() and c._data_task.done()
+    assert not broker.active
+
+
+@pytest.fixture
+async def entries(hass, monkeypatch, enable_custom_integrations):
+    broker = Subscriptions()
+    monkeypatch.setattr("homeassistant.components.mqtt.async_wait_for_mqtt_client", AsyncMock(return_value=True))
+    monkeypatch.setattr("homeassistant.components.mqtt.async_subscribe", broker.subscribe)
+
+    async def idle_poll(self):
+        await idle()
+
+    monkeypatch.setattr(JackeryDataCoordinator, "_periodic_data_request", idle_poll)
+    monkeypatch.setattr(JackeryDataCoordinator, "_smartmeter_http_poll_loop", idle_poll)
+    configs = [MockConfigEntry(domain=DOMAIN, data={"device_sn": host, "token": "synthetic", "topic_prefix": "hb"},
+                               unique_id=host, options={"smartmeter_http_poll": True}) for host in ("HOST_A", "HOST_B")]
+    yield configs, broker
+    for entry in configs:
+        if entry.state is ConfigEntryState.LOADED:
+            await hass.config_entries.async_unload(entry.entry_id)
+    await hass.async_block_till_done()
+
+
+async def test_broker_reconnect_reuses_callbacks_tasks_and_coordinator(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    original_handles = list(broker.active)
+    poll_task = coordinator._data_task
+    http_task = coordinator._smartmeter_http_task
+    handle_message = Mock(wraps=coordinator._handle_message)
+    coordinator._handle_message = handle_message
+
+    assert broker.send("HOST_A", value=40) == 1
+    for cycle in range(5):
+        broker.disconnect()
+        assert broker.send("HOST_A", value=90 + cycle) == 0
+        assert hass.data[DOMAIN][entry.entry_id]["coordinator"] is coordinator
+        assert list(broker.active) == original_handles
+        assert coordinator._data_task is poll_task and not poll_task.done()
+        assert coordinator._smartmeter_http_task is http_task and not http_task.done()
+
+        broker.reconnect()
+        assert broker.send("HOST_A", value=41 + cycle) == 1
+        assert coordinator._data_cache["batSoc"] == 41 + cycle
+
+    assert handle_message.call_count == 6
+    assert broker.attempts == 2
+    assert len(broker.records) == len(broker.active) == 2
+    assert broker.connection_transitions == [
+        transition
+        for _ in range(5)
+        for transition in ("disconnected", "reconnected")
+    ]
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert not broker.active
+    assert all(record.remove.call_count == 1 for record in original_handles)
+
+
+async def test_long_broker_outage_preserves_entities_and_recovers_by_evidence(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+
+    assert broker.send("HOST_A", value=40) == 1
+    assert broker.send(
+        "HOST_A",
+        body={
+            "plugs": [
+                {
+                    "deviceSn": "PLUG_A",
+                    "devType": 6,
+                    "subType": 0,
+                    "commMode": 1,
+                    "sysSwitch": 1,
+                    "outPw": 10,
+                }
+            ]
+        },
+        message_type=101,
+    ) == 1
+    await hass.async_block_till_done()
+    main = coordinator._sensors["battery_soc"]
+    child_entities = [
+        entity
+        for entity in coordinator._sensors.values()
+        if getattr(entity, "_plug_sn", None) == "PLUG_A"
+    ]
+    assert main.available and child_entities and all(entity.available for entity in child_entities)
+    registrations = dict(coordinator._sensors)
+
+    broker.disconnect()
+    coordinator._runtime_state.last_update_time -= OFFLINE_TIMEOUT + 1
+    coordinator._subdevice_last_seen["PLUG_A"] -= OFFLINE_TIMEOUT + 1
+    assert coordinator._runtime_state.host_is_stale(
+        coordinator._runtime_state.last_update_time + OFFLINE_TIMEOUT + 1,
+        OFFLINE_TIMEOUT,
+    )
+    coordinator._mark_all_offline()
+    coordinator._update_subdevice_availability()
+    assert not main.available
+    assert all(not entity.available for entity in child_entities)
+    assert coordinator._sensors == registrations
+
+    broker.reconnect()
+    assert broker.send("HOST_A", value=41) == 1
+    assert main.available and main.native_value == 41
+    assert all(not entity.available for entity in child_entities)
+    assert broker.send(
+        "HOST_A",
+        body={
+            "deviceSn": "PLUG_A",
+            "devType": 6,
+            "subType": 0,
+            "commMode": 1,
+            "sysSwitch": 1,
+            "outPw": 11,
+        },
+        message_type=102,
+    ) == 1
+    assert all(entity.available for entity in child_entities)
+    assert coordinator._sensors == registrations
+
+
+async def test_poll_publish_failures_recover_without_replacing_poll_task(
+    hass,
+    entries,
+    monkeypatch,
+):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    poll_task = coordinator._data_task
+    monkeypatch.setattr("homeassistant.components.mqtt.async_publish", broker.publish)
+    monkeypatch.setattr(sensor_module.asyncio, "sleep", AsyncMock())
+
+    broker.disconnect()
+    await coordinator._send_poll_requests()
+    failed_attempts = len(broker.publish_attempts)
+    assert failed_attempts == 6
+    assert not broker.published
+    assert coordinator._data_task is poll_task and not poll_task.done()
+
+    broker.reconnect()
+    await coordinator._send_poll_requests()
+    assert len(broker.publish_attempts) == failed_attempts + 5
+    assert len(broker.published) == 5
+    assert coordinator._data_task is poll_task and not poll_task.done()
+
+
+async def test_http_updates_remain_independent_during_broker_disconnect(
+    hass,
+    entries,
+    monkeypatch,
+):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    http_task = coordinator._smartmeter_http_task
+    http = JackerySmartMeterHttpSensor(
+        "METER",
+        "frequency",
+        SMARTMETER_HTTP_SENSOR_CONFIGS["frequency"],
+        coordinator,
+        entry.entry_id,
+    )
+    monkeypatch.setattr(http, "async_write_ha_state", Mock())
+    await http.async_added_to_hass()
+    try:
+        broker.disconnect()
+        for value in (50, 51, 52):
+            coordinator._distribute_http_data("METER", {"freq": value})
+            assert http.available and http.native_value == value
+            assert coordinator._smartmeter_http_task is http_task and not http_task.done()
+        assert broker.send("HOST_A", value=90) == 0
+
+        broker.reconnect()
+        assert broker.send("HOST_A", value=42) == 1
+        assert coordinator._data_cache["batSoc"] == 42
+        assert http.available and http.native_value == 52
+        assert coordinator._smartmeter_http_task is http_task and not http_task.done()
+    finally:
+        await http.async_will_remove_from_hass()
+
+
+async def test_shared_broker_reconnect_preserves_multi_entry_isolation(hass, entries):
+    configs, broker = entries
+    for entry in configs:
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    coordinators = [hass.data[DOMAIN][entry.entry_id]["coordinator"] for entry in configs]
+    tasks = [(coordinator._data_task, coordinator._smartmeter_http_task) for coordinator in coordinators]
+    handles = list(broker.active)
+
+    broker.disconnect()
+    assert broker.send("HOST_A", value=50) == broker.send("HOST_B", value=60) == 0
+    broker.reconnect()
+    assert broker.send("HOST_A", value=51) == 1
+    assert broker.send("HOST_B", value=61) == 1
+    assert coordinators[0]._data_cache["batSoc"] == 51
+    assert coordinators[1]._data_cache["batSoc"] == 61
+    assert hass.data[DOMAIN][configs[0].entry_id]["coordinator"] is coordinators[0]
+    assert hass.data[DOMAIN][configs[1].entry_id]["coordinator"] is coordinators[1]
+    assert list(broker.active) == handles
+    for coordinator, (poll_task, http_task) in zip(coordinators, tasks, strict=True):
+        assert coordinator._data_task is poll_task and not poll_task.done()
+        assert coordinator._smartmeter_http_task is http_task and not http_task.done()
+
+
+async def test_options_reload_while_disconnected_does_not_resurrect_old_callbacks(
+    hass,
+    entries,
+):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert original._bmslog_capture is None
+    original_callback = Mock(wraps=original._handle_message)
+    original._handle_message = original_callback
+    original_handles = list(broker.active)
+
+    broker.disconnect()
+    await submit_options(hass, entry, topic_prefix="newroot")
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert replacement is not original and not original._lifecycle_active
+    assert all(not record.active and record.remove.call_count == 1 for record in original_handles)
+    assert len(broker.active) == 2
+
+    broker.reconnect()
+    assert broker.send("HOST_A", prefix="hb", value=90) == 0
+    assert broker.send("HOST_A", prefix="newroot", value=43) == 1
+    assert replacement._data_cache["batSoc"] == 43
+    original_callback.assert_not_called()
+
+
+async def test_reauth_reload_while_disconnected_does_not_resurrect_old_callbacks(
+    hass,
+    entries,
+):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    original_callback = Mock(wraps=original._handle_message)
+    original._handle_message = original_callback
+
+    broker.disconnect()
+    broker.reconnect()
+    assert broker.send(
+        "HOST_A",
+        body={"errorCode": 401},
+        message_type=123,
+    ) == 1
+    await hass.async_block_till_done()
+    flows = reauth_flows(hass, entry)
+    assert len(flows) == 1
+    original_calls = original_callback.call_count
+
+    broker.disconnect()
+    original_handles = list(broker.active)
+    result = await hass.config_entries.flow.async_configure(
+        flows[0]["flow_id"],
+        user_input={"token": "replacement-token"},
+    )
+    assert result["type"] is FlowResultType.ABORT
+    assert result["reason"] == "reauth_successful"
+    await hass.async_block_till_done()
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert replacement is not original and not original._lifecycle_active
+    assert all(not record.active and record.remove.call_count == 1 for record in original_handles)
+
+    broker.reconnect()
+    assert broker.send("HOST_A", value=44) == 1
+    assert replacement._data_cache["batSoc"] == 44
+    assert original_callback.call_count == original_calls
+
+
+@pytest.mark.parametrize("order", [(0, 1), (1, 0)])
+async def test_real_entries_repeated_reload_delivery_and_http_isolation(hass, entries, order):
+    configs, broker = entries
+    coordinators = {}
+    for index in order:
+        entry = configs[index]
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        c = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+        c._handle_message = Mock(wraps=c._handle_message)
+        coordinators[index] = c
+    assert len(broker.active) == 4
+    assert {r.topic for r in broker.active} == {f"hb/device/{e.data['device_sn']}/{channel}" for e in configs for channel in ("status", "event")}
+    for cycle in range(3):
+        for index in order:
+            entry, other_entry = configs[index], configs[1 - index]
+            old, other = coordinators[index], coordinators[1 - index]
+            other_http = other._smartmeter_http_task
+            other_calls = other._handle_message.call_count
+            other_listeners = dict(other._sensors)
+            assert broker.send(entry.data["device_sn"], "event", value=40 + cycle) == 1
+            before = old._handle_message.call_count
+            assert await hass.config_entries.async_unload(entry.entry_id)
+            assert not old._sensors and old._data_task.done() and old._smartmeter_http_task.done()
+            assert len(broker.active) == 2
+            assert other._smartmeter_http_task is other_http and not other_http.done()
+            assert other._sensors == other_listeners
+            assert other._handle_message.call_count == other_calls
+            assert broker.send(entry.data["device_sn"]) == 0
+            assert broker.send(other_entry.data["device_sn"]) == 1
+            assert old._handle_message.call_count == before
+            assert await hass.config_entries.async_setup(entry.entry_id)
+            await hass.async_block_till_done()
+            current = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+            assert current is not old
+            current._handle_message = Mock(wraps=current._handle_message)
+            coordinators[index] = current
+            assert broker.send(entry.data["device_sn"], value=80 + cycle) == 1
+            assert current._handle_message.call_count == 1
+            assert current._data_cache["batSoc"] == 80 + cycle
+            assert old._handle_message.call_count == before
+            assert len(broker.active) == 4
+    for index in order[::-1]:
+        assert await hass.config_entries.async_unload(configs[index].entry_id)
+    assert not broker.active
+    assert all(record.remove.call_count == 1 for record in broker.records)
+
+
+async def test_entry_start_failure_unloads_forwarded_platforms_and_can_retry(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    broker.fail_at = 2
+    assert not await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert not broker.active
+    assert entry.entry_id not in hass.data[DOMAIN]
+    broker.fail_at = None
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    await hass.async_block_till_done()
+    c = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert c._sensors
+    assert len(broker.active) == 2
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    assert not c._sensors and not broker.active
+
+
+async def test_platform_forward_failure_cleans_runtime(hass, entries, monkeypatch):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    forward = hass.config_entries.async_forward_entry_setups
+
+    async def partial_forward(config, platforms):
+        await forward(config, [PLATFORMS[0]])
+        raise RuntimeError("synthetic platform failure")
+
+    with monkeypatch.context() as patcher:
+        patcher.setattr(hass.config_entries, "async_forward_entry_setups", partial_forward)
+        assert not await hass.config_entries.async_setup(entry.entry_id)
+    assert not broker.active
+    assert entry.entry_id not in hass.data[DOMAIN]
+    assert await hass.config_entries.async_reload(entry.entry_id)
+    assert await hass.config_entries.async_unload(entry.entry_id)
+
+
+async def test_unload_error_still_releases_platforms_and_reports_failed_unload(hass, entries, caplog):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    c = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    remove = broker.records[0].remove.side_effect
+
+    def broken_remove():
+        remove()
+        raise RuntimeError("synthetic error after unsubscribe")
+
+    broker.records[0].remove.side_effect = broken_remove
+    assert not await hass.config_entries.async_unload(entry.entry_id)
+    assert "Coordinator resource cleanup failed" in caplog.text
+    assert not broker.active
+    assert not c._sensors
+    assert c._data_task.done() and c._smartmeter_http_task.done()
+    # HA treats an exception from unload as non-recoverable until restart.
+    assert entry.state is ConfigEntryState.FAILED_UNLOAD
+    assert entry.entry_id in hass.data[DOMAIN]
+    await c.async_stop()  # Coordinator cleanup itself remains idempotent.
+    assert all(record.remove.call_count == 1 for record in broker.records)
+
+
+async def test_actual_ha_reload_replaces_only_its_own_subscriptions(hass, entries):
+    configs, broker = entries
+    for entry in configs:
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    other = hass.data[DOMAIN][configs[1].entry_id]["coordinator"]
+    other_handles = list(broker.active[2:])
+    other_http = other._smartmeter_http_task
+    for _ in range(3):
+        old = hass.data[DOMAIN][configs[0].entry_id]["coordinator"]
+        calls = Mock(wraps=old._handle_message)
+        old._handle_message = calls
+        assert await hass.config_entries.async_reload(configs[0].entry_id)
+        assert len(broker.active) == 4
+        assert other._smartmeter_http_task is other_http and not other_http.done()
+        assert all(r.active and r.remove.call_count == 0 for r in other_handles)
+        assert broker.send("HOST_A") == 1
+        assert calls.call_count == 0
+
+
+async def test_options_topic_prefix_reloads_runtime_and_subscriptions(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    old_handles = list(broker.active)
+    assert {record.topic for record in old_handles} == {
+        "hb/device/HOST_A/status",
+        "hb/device/HOST_A/event",
+    }
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, topic_prefix="newroot")
+    assert reload.await_count == 1
+
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert entry.data["topic_prefix"] == "newroot"
+    assert replacement is not original
+    assert not original._lifecycle_active
+    assert original._data_task.done() and original._smartmeter_http_task.done()
+    assert all(not record.active and record.remove.call_count == 1 for record in old_handles)
+    assert {record.topic for record in broker.active} == {
+        "newroot/device/HOST_A/status",
+        "newroot/device/HOST_A/event",
+    }
+    with patch("homeassistant.components.mqtt.async_publish", new_callable=AsyncMock) as publish:
+        await replacement.async_control_main_device({"synthetic": 1})
+    assert publish.await_args.args[1] == "newroot/device/HOST_A/action"
+
+
+async def test_options_token_only_reloads_once_without_changing_options(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    old_handles = list(broker.active)
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, token="replacement-token")
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert entry.data["token"] == replacement._token == "replacement-token"
+    assert dict(entry.options) == DEFAULT_OPTIONS
+    assert replacement is not original and not original._lifecycle_active
+    assert original._data_task.done() and original._smartmeter_http_task.done()
+    assert all(not handle.active and handle.remove.call_count == 1 for handle in old_handles)
+    assert len(broker.active) == 2
+    assert not reauth_flows(hass, entry)
+
+
+async def test_options_data_and_options_change_reloads_once(hass, entries):
+    configs, _broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, token="replacement-token", smartmeter_poll_interval=15)
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert replacement is not original
+    assert replacement._token == "replacement-token"
+    assert entry.options["smartmeter_poll_interval"] == 15
+    assert original._smartmeter_http_task.done()
+    assert replacement._smartmeter_http_task and not replacement._smartmeter_http_task.done()
+
+
+async def test_options_http_task_enable_disable_and_interval(hass, entries, monkeypatch, caplog):
+    configs, _broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    monkeypatch.setattr(JackeryDataCoordinator, "_smartmeter_http_poll_loop", ORIGINAL_HTTP_POLL_LOOP)
+    hass.config_entries.async_update_entry(
+        entry, options={**DEFAULT_OPTIONS, "smartmeter_http_poll": False}
+    )
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    disabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert disabled._smartmeter_http_task is None
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, smartmeter_http_poll=True, smartmeter_poll_interval=15)
+    enabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert enabled is not disabled
+    assert entry.options["smartmeter_poll_interval"] == 15
+    assert enabled._smartmeter_http_task and not enabled._smartmeter_http_task.done()
+    assert "SmartMeter HTTP poll loop started (interval=15s)" in caplog.text
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, smartmeter_http_poll=False, smartmeter_poll_interval=15)
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert replacement is not enabled
+    assert enabled._smartmeter_http_task.done()
+    assert replacement._smartmeter_http_task is None
+
+
+async def test_options_protocol_discovery_toggle_resets_runtime(hass, entries):
+    configs, _broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    disabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert disabled._protocol_discovery is None
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, protocol_discovery_enabled=True)
+    enabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert enabled is not disabled and enabled._protocol_discovery is not None
+    assert enabled._protocol_discovery_capture is not None
+    assert enabled._protocol_discovery_capture.observe_invalid(
+        topic="hb/device/HOST_A/status",
+        payload=b"persist until opt-out",
+        now=10_000,
+    )
+    await enabled._protocol_discovery_capture.async_flush()
+    old_state = enabled._protocol_discovery
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, protocol_discovery_enabled=False)
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert replacement is not enabled
+    assert replacement._protocol_discovery is None
+    assert replacement._protocol_discovery_capture is None
+    assert old_state is enabled._protocol_discovery
+    cleared = ProtocolDiscoveryCapture(hass, entry.entry_id, "hb", "HOST_A")
+    await cleared.async_load()
+    assert cleared.raw_snapshot()["stored_count"] == 0
+
+
+async def test_alert_capture_option_is_exact_passive_persistent_and_independent(
+    hass,
+    entries,
+):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    disabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert disabled._alert_capture is None
+    assert len(broker.active) == 2
+
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ) as reload:
+        await submit_options(
+            hass,
+            entry,
+            alert_capture_enabled=True,
+            protocol_discovery_enabled=True,
+        )
+    enabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert entry.options["alert_capture_enabled"] is True
+    assert enabled._alert_capture is not None
+    assert enabled._protocol_discovery is not None
+    alert_topic = "hb/device/HOST_A/alert"
+    assert {record.topic for record in broker.active} == {
+        "hb/device/HOST_A/status",
+        "hb/device/HOST_A/event",
+        alert_topic,
+    }
+    alert_record = next(record for record in broker.active if record.topic == alert_topic)
+
+    state_before = dict(enabled._data_cache)
+    last_update_before = enabled._last_update_time
+    ever_received_before = enabled._ever_received
+    broker.publish_attempts.clear()
+    alert_record.callback(
+        SimpleNamespace(
+            topic=alert_topic,
+            payload=b"{unknown alert payload",
+            qos=1,
+            retain=False,
+        )
+    )
+    assert enabled._alert_capture.snapshot()["total_received"] == 1
+    assert enabled._data_cache == state_before
+    assert enabled._last_update_time == last_update_before
+    assert enabled._ever_received is ever_received_before
+    assert not enabled._reauth_started
+    assert broker.publish_attempts == []
+
+    status_record = next(
+        record for record in broker.active if record.topic.endswith("/status")
+    )
+    status_payload = b'{"type":147,"body":{"newProtocolField":7}}'
+    status_record.callback(
+        SimpleNamespace(
+            topic="hb/device/HOST_A/status",
+            payload=status_payload,
+            qos=1,
+            retain=False,
+        )
+    )
+    protocol_capture = enabled._protocol_discovery_capture
+    assert protocol_capture is not None
+    assert protocol_capture.raw_snapshot()["stored_count"] == 1
+    assert protocol_capture.raw_snapshot()["events"][0]["discovery_reason"] == "unknown_message_type"
+    assert protocol_capture.raw_snapshot()["events"][0]["payload_base64"] == base64.b64encode(
+        status_payload
+    ).decode("ascii")
+    assert enabled._data_cache["newProtocolField"] == 7
+    assert broker.publish_attempts == []
+    assert len(broker.active) == 3  # Discovery adds no MQTT subscription.
+
+    # The callback also checks exact topic equality, independently of broker
+    # subscription matching, and does not adopt another device or prefix.
+    alert_record.callback(
+        SimpleNamespace(
+            topic="hb/device/FOREIGN/alert",
+            payload=b"foreign host",
+            qos=0,
+            retain=False,
+        )
+    )
+    alert_record.callback(
+        SimpleNamespace(
+            topic="other/device/HOST_A/alert",
+            payload=b"foreign prefix",
+            qos=0,
+            retain=False,
+        )
+    )
+    assert enabled._alert_capture.snapshot()["total_received"] == 1
+
+    old_handles = list(broker.active)
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ) as reload:
+        await submit_options(
+            hass,
+            entry,
+            topic_prefix="newroot",
+            alert_capture_enabled=True,
+            protocol_discovery_enabled=True,
+        )
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert {record.topic for record in broker.active} == {
+        "newroot/device/HOST_A/status",
+        "newroot/device/HOST_A/event",
+        "newroot/device/HOST_A/alert",
+    }
+    assert all(not record.active and record.remove.call_count == 1 for record in old_handles)
+    assert replacement._alert_capture.snapshot()["stored_count"] == 1
+    assert replacement._alert_capture.snapshot()["total_received"] == 1
+    assert replacement._protocol_discovery is not None
+    assert replacement._protocol_discovery_capture is not None
+    assert replacement._protocol_discovery_capture.raw_snapshot()["stored_count"] == 1
+
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ) as reload:
+        await submit_options(
+            hass,
+            entry,
+            alert_capture_enabled=False,
+            protocol_discovery_enabled=True,
+        )
+    final = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert reload.await_count == 1
+    assert final._alert_capture is None
+    assert final._protocol_discovery is not None
+    assert final._protocol_discovery_capture is not None
+    assert final._protocol_discovery_capture.raw_snapshot()["stored_count"] == 1
+    assert entry.options["alert_capture_enabled"] is False
+    assert not any(record.topic.endswith("/alert") for record in broker.active)
+    assert all(
+        not record.active and record.remove.call_count == 1
+        for record in broker.records
+        if record.topic.endswith("/alert")
+    )
+    cleared = AlertCapture(hass, entry.entry_id, None, "HOST_A")
+    await cleared.async_load()
+    assert cleared.snapshot()["stored_count"] == 0
+
+    # Turning Protocol Discovery off removes only its store while Alert Capture
+    # remains enabled and keeps its own host-bound history.
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ):
+        await submit_options(
+            hass,
+            entry,
+            alert_capture_enabled=True,
+            protocol_discovery_enabled=True,
+        )
+    both = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    alert_topic = "newroot/device/HOST_A/alert"
+    next(record for record in broker.active if record.topic == alert_topic).callback(
+        SimpleNamespace(
+            topic=alert_topic,
+            payload=b"alert survives discovery opt-out",
+            qos=1,
+            retain=False,
+        )
+    )
+    await both._alert_capture.async_flush()
+
+    with patch.object(
+        hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload
+    ):
+        await submit_options(
+            hass,
+            entry,
+            alert_capture_enabled=True,
+            protocol_discovery_enabled=False,
+        )
+    alert_only = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert alert_only._protocol_discovery is None
+    assert alert_only._alert_capture is not None
+    preserved_alert = AlertCapture(hass, entry.entry_id, None, "HOST_A")
+    await preserved_alert.async_load()
+    assert preserved_alert.snapshot()["stored_count"] == 1
+
+
+async def test_bmslog_capture_is_independent_exact_and_passive(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    disabled = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert disabled._bmslog_capture is None
+    assert not any(record.topic.endswith("/bmslog") for record in broker.active)
+
+    await submit_options(
+        hass,
+        entry,
+        alert_capture_enabled=True,
+        bmslog_capture_enabled=True,
+        protocol_discovery_enabled=True,
+    )
+    coordinator = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert coordinator._alert_capture is not None
+    assert coordinator._bmslog_capture is not None
+    bmslog_topic = "hb/device/HOST_A/bmslog"
+    assert {record.topic for record in broker.active} == {
+        "hb/device/HOST_A/status",
+        "hb/device/HOST_A/event",
+        "hb/device/HOST_A/alert",
+        bmslog_topic,
+    }
+    alert_topic = "hb/device/HOST_A/alert"
+    alert_record = next(record for record in broker.active if record.topic == alert_topic)
+    raw_alert = b'{"alert":"keep separate"}'
+    alert_record.callback(
+        SimpleNamespace(topic=alert_topic, payload=raw_alert, qos=1, retain=False)
+    )
+    bmslog_record = next(record for record in broker.active if record.topic == bmslog_topic)
+
+    cache_before = dict(coordinator._data_cache)
+    freshness_before = coordinator._last_update_time
+    ever_received_before = coordinator._ever_received
+    listeners_before = dict(coordinator._sensors)
+    route_observation_before = coordinator.diagnostics_observation().protocol
+    discovery_before = coordinator._protocol_discovery_capture.raw_snapshot()
+    broker.publish_attempts.clear()
+    raw = b'{"type":2,"body":{"batSoc":99}}'
+    bmslog_record.callback(
+        SimpleNamespace(topic=bmslog_topic, payload=raw, qos=1, retain=False)
+    )
+    assert coordinator._bmslog_capture.snapshot()["total_received"] == 1
+    assert base64.b64decode(
+        coordinator._bmslog_capture.snapshot()["events"][0]["payload_base64"]
+    ) == raw
+    assert coordinator._data_cache == cache_before
+    assert coordinator._last_update_time == freshness_before
+    assert coordinator._ever_received is ever_received_before
+    assert coordinator._sensors == listeners_before
+    assert coordinator.diagnostics_observation().protocol == route_observation_before
+    assert coordinator._protocol_discovery_capture.raw_snapshot() == discovery_before
+    assert not coordinator._reauth_started
+    assert broker.publish_attempts == []
+
+    bmslog_record.callback(
+        SimpleNamespace(
+            topic="hb/device/FOREIGN/bmslog",
+            payload=b"foreign host",
+            qos=0,
+            retain=False,
+        )
+    )
+    bmslog_record.callback(
+        SimpleNamespace(
+            topic="other/device/HOST_A/bmslog",
+            payload=b"foreign prefix",
+            qos=0,
+            retain=False,
+        )
+    )
+    assert coordinator._bmslog_capture.snapshot()["total_received"] == 1
+
+    old_bmslog_handles = [record for record in broker.active if record.topic.endswith("/bmslog")]
+    await submit_options(
+        hass,
+        entry,
+        alert_capture_enabled=True,
+        bmslog_capture_enabled=False,
+        protocol_discovery_enabled=True,
+    )
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert replacement._bmslog_capture is None
+    assert replacement._alert_capture is not None
+    assert not any(record.topic.endswith("/bmslog") for record in broker.active)
+    assert all(not record.active and record.remove.call_count == 1 for record in old_bmslog_handles)
+
+    cleared = BmslogCapture(hass, entry.entry_id, None, "HOST_A")
+    await cleared.async_load()
+    assert cleared.snapshot()["stored_count"] == 0
+    preserved_alert = AlertCapture(hass, entry.entry_id, None, "HOST_A")
+    await preserved_alert.async_load()
+    assert preserved_alert.snapshot()["stored_count"] == 1
+    assert base64.b64decode(
+        preserved_alert.snapshot()["events"][0]["payload_base64"]
+    ) == raw_alert
+
+
+async def test_bmslog_partial_subscribe_failure_unwinds_all_handles(hass, monkeypatch):
+    broker = Subscriptions()
+    monkeypatch.setattr("homeassistant.components.mqtt.async_subscribe", broker.subscribe)
+    alert = AlertCapture(hass, "bmslog-subscribe-failure", "hb/device/HOST_A/alert", "HOST_A")
+    bmslog = BmslogCapture(
+        hass, "bmslog-subscribe-failure", "hb/device/HOST_A/bmslog", "HOST_A"
+    )
+    await alert.async_load()
+    await bmslog.async_load()
+    coordinator = JackeryDataCoordinator(
+        hass,
+        "hb",
+        "synthetic",
+        "localhost",
+        "HOST_A",
+        alert_capture=alert,
+        bmslog_capture=bmslog,
+    )
+    monkeypatch.setattr(coordinator, "_periodic_data_request", idle)
+    broker.fail_at = 4
+
+    with pytest.raises(HomeAssistantError, match="subscribe failure"):
+        await coordinator.async_start()
+
+    assert not broker.active
+    assert [record.topic for record in broker.records] == [
+        "hb/device/HOST_A/status",
+        "hb/device/HOST_A/event",
+        "hb/device/HOST_A/alert",
+    ]
+    assert all(record.remove.call_count == 1 for record in broker.records)
+    assert not coordinator._alert_capture_active
+    assert not coordinator._bmslog_capture_active
+    assert not coordinator._subscribed
+    assert coordinator._data_task is None
+    assert broker.publish_attempts == []
+
+
+async def test_alert_subscribe_partial_failure_unwinds_all_callbacks(hass, monkeypatch):
+    broker = Subscriptions()
+    monkeypatch.setattr("homeassistant.components.mqtt.async_subscribe", broker.subscribe)
+    capture = AlertCapture(
+        hass, "alert-subscribe-failure", "hb/device/HOST_A/alert", "HOST_A"
+    )
+    await capture.async_load()
+    coordinator = JackeryDataCoordinator(
+        hass,
+        "hb",
+        "synthetic",
+        "localhost",
+        "HOST_A",
+        alert_capture=capture,
+    )
+    monkeypatch.setattr(coordinator, "_periodic_data_request", idle)
+    broker.fail_at = 3
+
+    with pytest.raises(HomeAssistantError, match="subscribe failure"):
+        await coordinator.async_start()
+
+    assert not broker.active
+    assert [record.topic for record in broker.records] == [
+        "hb/device/HOST_A/status",
+        "hb/device/HOST_A/event",
+    ]
+    assert all(record.remove.call_count == 1 for record in broker.records)
+    assert not coordinator._alert_capture_active
+    assert not coordinator._subscribed
+    assert broker.publish_attempts == []
+
+
+async def test_options_noop_does_not_reload(hass, entries):
+    configs, _broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert original._bmslog_capture is None
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry)
+    assert reload.await_count == 0
+    assert hass.data[DOMAIN][entry.entry_id]["coordinator"] is original
+    assert dict(entry.options) == DEFAULT_OPTIONS
+
+
+async def test_options_legacy_missing_defaults_are_a_noop(hass, entries):
+    configs, _broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options={})
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert original._bmslog_capture is None
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, entry, smartmeter_http_poll=False)
+    assert reload.await_count == 0
+    assert hass.data[DOMAIN][entry.entry_id]["coordinator"] is original
+    assert not entry.options
+
+
+async def test_options_reload_isolated_to_own_entry(hass, entries):
+    configs, broker = entries
+    for entry in configs:
+        entry.add_to_hass(hass)
+        hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][configs[0].entry_id]["coordinator"]
+    other = hass.data[DOMAIN][configs[1].entry_id]["coordinator"]
+    other_handles = [record for record in broker.active if "/HOST_B/" in record.topic]
+    other_http = other._smartmeter_http_task
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        await submit_options(hass, configs[0], topic_prefix="newroot")
+    assert reload.await_count == 1
+    assert reload.await_args.args == (configs[0].entry_id,)
+    assert hass.data[DOMAIN][configs[0].entry_id]["coordinator"] is not original
+    assert hass.data[DOMAIN][configs[1].entry_id]["coordinator"] is other
+    assert other._smartmeter_http_task is other_http and not other_http.done()
+    assert all(record.active and record.remove.call_count == 0 for record in other_handles)
+
+
+async def test_options_reload_start_failure_releases_old_and_partial_resources(hass, entries):
+    configs, broker = entries
+    entry = configs[0]
+    entry.add_to_hass(hass)
+    hass.config_entries.async_update_entry(entry, options=DEFAULT_OPTIONS)
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    old_handles = list(broker.active)
+    broker.fail_at = broker.attempts + 2
+
+    await submit_options(hass, entry, topic_prefix="newroot")
+
+    assert entry.state is ConfigEntryState.SETUP_ERROR
+    assert original._data_task.done() and original._smartmeter_http_task.done()
+    assert all(not handle.active and handle.remove.call_count == 1 for handle in old_handles)
+    assert not broker.active
+    assert entry.entry_id not in hass.data[DOMAIN]
+
+
+async def test_reauth_updates_token_reloads_and_allows_new_coordinator_rejection(
+    hass,
+    entries,
+    caplog,
+):
+    configs, broker = entries
+    for entry in configs:
+        entry.add_to_hass(hass)
+        assert await hass.config_entries.async_setup(entry.entry_id)
+    await hass.async_block_till_done()
+
+    entry, other_entry = configs
+    original = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    other = hass.data[DOMAIN][other_entry.entry_id]["coordinator"]
+    original_handles = [
+        record for record in broker.active if "/device/HOST_A/" in record.topic
+    ]
+    other_handles = [
+        record for record in broker.active if "/device/HOST_B/" in record.topic
+    ]
+    entry_ids = {item.entry_id for item in hass.config_entries.async_entries(DOMAIN)}
+
+    original._handle_message(auth_rejection("HOST_A"))
+    original._handle_message(auth_rejection("HOST_A"))
+    await hass.async_block_till_done()
+
+    flows = reauth_flows(hass, entry)
+    assert len(flows) == 1
+    assert flows[0]["step_id"] == "reauth_confirm"
+    assert not reauth_flows(hass, other_entry)
+
+    with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
+        result = await hass.config_entries.flow.async_configure(
+            flows[0]["flow_id"],
+            user_input={"token": "  replacement-token  "},
+        )
+        assert result["type"] is FlowResultType.ABORT
+        assert result["reason"] == "reauth_successful"
+        await hass.async_block_till_done()
+    assert reload.await_count == 1
+
+    replacement = hass.data[DOMAIN][entry.entry_id]["coordinator"]
+    assert entry.data["token"] == "replacement-token"
+    assert {item.entry_id for item in hass.config_entries.async_entries(DOMAIN)} == entry_ids
+    assert replacement is not original
+    assert replacement._token == "replacement-token"
+    assert not replacement._reauth_started
+    assert not original._lifecycle_active
+    assert original._data_task.done() and original._smartmeter_http_task.done()
+    assert all(not record.active and record.remove.call_count == 1 for record in original_handles)
+    assert hass.data[DOMAIN][other_entry.entry_id]["coordinator"] is other
+    assert all(record.active and record.remove.call_count == 0 for record in other_handles)
+    assert len(broker.active) == 4
+
+    replacement._handle_message(auth_rejection("HOST_A"))
+    replacement._handle_message(auth_rejection("HOST_A"))
+    await hass.async_block_till_done()
+    repeated_flows = reauth_flows(hass, entry)
+    assert len(repeated_flows) == 1
+    assert replacement._reauth_started
+    assert not reauth_flows(hass, other_entry)
+    assert "replacement-token" not in caplog.text
+    hass.config_entries.flow.async_abort(repeated_flows[0]["flow_id"])
+
+
+async def test_startup_and_cleanup_errors_are_both_observable(runtime, monkeypatch):
+    c, broker = runtime
+
+    def fail_after_subscribing(_entry_id):
+        broker.records[0].error = RuntimeError("synthetic cleanup failure")
+        raise ValueError("synthetic startup failure")
+
+    monkeypatch.setattr(c.hass.config_entries, "async_get_entry", fail_after_subscribing)
+    with pytest.raises(ExceptionGroup) as error:
+        await c.async_start()
+    assert isinstance(error.value.__context__, ValueError)
+    assert str(error.value.__context__) == "synthetic startup failure"
+    assert len(error.value.exceptions) == 1
+    assert all(r.remove.call_count == 1 for r in broker.records)
+    assert c._data_task.done()

@@ -10,15 +10,23 @@
                     "topic_prefix": "MQTT-Topic-Präfix"
                 }
             },
+            "confirm_sn": {
+                "title": "Geräte-Seriennummer bestätigen",
+                "description": "Jackery-MQTT-Topics verwenden großgeschriebene Seriennummern. Bitte prüfe den vorgeschlagenen Wert für `{original_sn}` und bestätige ihn.",
+                "data": {
+                    "device_sn": "Geräte-SN"
+                }
+            },
             "reauth_confirm": {
                 "title": "Jackery neu authentifizieren",
-                "description": "Das Gerät hat einen Token-Konflikt gemeldet. Bitte den aktuellen Token eingeben, um die Verbindung wiederherzustellen.",
+                "description": "Die Integration kann die Kommunikation mit dem Gerät `{device_sn}` nicht mehr authentifizieren. Gib den aktuellen Token ein, um die Verbindung wiederherzustellen.",
                 "data": {
                     "token": "Token"
                 }
             }
         },
         "error": {
+            "invalid_sn": "Gib eine Geräte-Seriennummer ein.",
             "already_configured": "Diese Geräte-SN ist bereits konfiguriert",
             "mqtt_not_configured": "MQTT-Integration nicht konfiguriert oder nicht verfügbar. Bitte zuerst die MQTT-Integration einrichten: Einstellungen → Geräte & Dienste → Integration hinzufügen → MQTT"
         },
@@ -31,12 +39,20 @@
         "step": {
             "init": {
                 "title": "Jackery Optionen",
-                "description": "Verbindungseinstellungen anpassen und optionales SmartMeter-HTTP-Polling konfigurieren.",
+                "description": "Verbindung, optionales SmartMeter-HTTP-Polling und Entwicklerdiagnose konfigurieren. Experimentelle MQTT-Rohmitschnitte können vertrauliche Informationen enthalten; Diagnosedaten vor dem Teilen sorgfältig prüfen.",
                 "data": {
                     "token": "Token",
                     "topic_prefix": "MQTT-Topic-Präfix",
                     "smartmeter_http_poll": "SmartMeter per HTTP abfragen (Spannung, Strom, Blindleistung, …)",
-                    "smartmeter_poll_interval": "SmartMeter-Abfrageintervall (Sekunden)"
+                    "smartmeter_poll_interval": "SmartMeter-Abfrageintervall (Sekunden)",
+                    "protocol_discovery_enabled": "Experimentelle Protokollerkennung mit persistenter Aufzeichnung relevanter unbekannter MQTT-Nachrichten",
+                    "alert_capture_enabled": "Experimentelle MQTT-Alert-Aufzeichnung",
+                    "bmslog_capture_enabled": "Experimentellen BMS-Log-Mitschnitt aktivieren"
+                },
+                "data_description": {
+                    "protocol_discovery_enabled": "Zeichnet begrenzte Strukturbeobachtungen und ausgewählte MQTT-Rohpayloads dauerhaft auf. Rohdaten können vertrauliche Informationen enthalten. Diagnosedaten vor dem Teilen sorgfältig prüfen.",
+                    "alert_capture_enabled": "Zeichnet unbekannte MQTT-Alert-Nachrichten passiv und lokal als begrenzte Rohdaten auf. Die Daten können vertrauliche Informationen enthalten und sind vor dem Teilen zu prüfen. Nur für Entwickler und Tester empfohlen.",
+                    "bmslog_capture_enabled": "Zeichnet passiv ausschließlich das exakte /bmslog-Topic des konfigurierten Geräts als begrenzte Rohdaten auf. Payloads können vertrauliche Informationen enthalten und sind vor dem Teilen zu prüfen. Standardmäßig deaktiviert."
                 }
             }
         }
@@ -63,19 +79,19 @@
         },
         "number": {
             "max_feed_in_power": {
-                "name": "Max. Einspeiseleistung (OnGrid)"
+                "name": "Max. Leistung ins Hausnetz"
             },
             "soc_charge_limit": {
-                "name": "SOC-Ladelimit"
+                "name": "Ladegrenze einstellen"
             },
             "soc_discharge_limit": {
-                "name": "SOC-Entladelimit"
+                "name": "Entladegrenze einstellen"
             },
             "default_output_power": {
                 "name": "Standard-Ausgangsleistung"
             },
             "max_feed_grid_power": {
-                "name": "Max. Einspeisegrenze"
+                "name": "Max. Einspeisung ins öffentliche Netz"
             }
         },
         "switch": {
@@ -83,17 +99,18 @@
                 "name": "Auto-Standby erlaubt"
             },
             "eps_switch": {
-                "name": "EPS-Schalter"
+                "name": "Notstromschalter"
             },
             "off_grid_fallback": {
-                "name": "Off-Grid-Fallback"
+                "name": "Netzausfall-Fallback"
             },
             "follow_meter_power": {
                 "name": "Zähler folgen"
             },
             "force_charge": {
                 "name": "Erzwungenes Laden"
-            }
+            },
+            "plug_switch": {"name": "Steckdose schalten"}
         },
         "button": {
             "reboot": {
@@ -102,142 +119,142 @@
         },
         "sensor": {
             "battery_soc": {
-                "name": "Batterieladezustand"
+                "name": "Ladezustand Hauptakku"
             },
             "battery_charge_power": {
-                "name": "Ladeleistung Haupteinheit"
+                "name": "Ladeleistung Hauptakku"
             },
             "battery_discharge_power": {
-                "name": "Entladeleistung Haupteinheit"
+                "name": "Entladeleistung Hauptakku"
             },
             "total_battery_charge_power": {
-                "name": "Gesamtladeleistung Batterie"
+                "name": "Ladeleistung gesamt"
             },
             "total_battery_discharge_power": {
-                "name": "Gesamtentladeleistung Batterie"
+                "name": "Entladeleistung gesamt (berechnet)"
             },
             "battery_temperature": {
-                "name": "Batterietemperatur"
+                "name": "Akkutemperatur"
             },
             "battery_count": {
-                "name": "Anzahl Batterieeinheiten"
+                "name": "Anzahl Akkumodule"
             },
             "battery_charge_energy": {
-                "name": "Geladene Energie (Batterie)"
+                "name": "Ladeenergie Akku"
             },
             "battery_discharge_energy": {
-                "name": "Entladene Energie (Batterie)"
+                "name": "Entladeenergie Akku"
             },
             "solar_power": {
-                "name": "Solarleistung"
+                "name": "PV-Gesamtleistung"
             },
             "solar_energy": {
-                "name": "Solarenergie"
+                "name": "PV-Gesamtenergie"
             },
             "solar_power_pv1": {
-                "name": "Solarleistung PV1"
+                "name": "PV1-Leistung"
             },
             "solar_energy_pv1": {
-                "name": "Solarenergie PV1"
+                "name": "PV1-Energie"
             },
             "solar_power_pv2": {
-                "name": "Solarleistung PV2"
+                "name": "PV2-Leistung"
             },
             "solar_energy_pv2": {
-                "name": "Solarenergie PV2"
+                "name": "PV2-Energie"
             },
             "solar_power_pv3": {
-                "name": "Solarleistung PV3"
+                "name": "PV3-Leistung"
             },
             "solar_energy_pv3": {
-                "name": "Solarenergie PV3"
+                "name": "PV3-Energie"
             },
             "solar_power_pv4": {
-                "name": "Solarleistung PV4"
+                "name": "PV4-Leistung"
             },
             "solar_energy_pv4": {
-                "name": "Solarenergie PV4"
+                "name": "PV4-Energie"
             },
             "grid_import_power": {
-                "name": "Netzbezugsleistung"
+                "name": "Energie ins Hausnetz"
             },
             "grid_import_energy": {
-                "name": "Netzbezugsenergie"
+                "name": "Energie aus Hausnetz"
             },
             "grid_export_power": {
-                "name": "OnGrid AC-Ausgangsleistung"
+                "name": "Leistung ins Hausnetz"
             },
             "grid_export_energy": {
-                "name": "Eingespeiste Energie"
+                "name": "SolarVault-OnGrid-Ausgangsenergie"
             },
             "max_output_power": {
-                "name": "Max. Ausgangsleistung (OnGrid)"
+                "name": "Leistungslimit ins Hausnetz"
             },
             "eps_output_power": {
-                "name": "EPS-Ausgangsleistung"
+                "name": "Notstrom-Ausgangsleistung"
             },
             "eps_output_energy": {
-                "name": "EPS-Ausgangsenergie"
+                "name": "Notstrom-Ausgangsenergie"
             },
             "eps_input_power": {
-                "name": "EPS-Eingangsleistung"
+                "name": "Notstrom-Eingangsleistung"
             },
             "eps_input_energy": {
-                "name": "EPS-Eingangsenergie"
+                "name": "Notstrom-Eingangsenergie"
             },
             "eps_state": {
-                "name": "EPS-Zustand"
+                "name": "Notstromstatus"
             },
             "eps_switch": {
-                "name": "EPS-Schaltstatus"
+                "name": "Notstromschalter"
             },
             "soc_charge_limit": {
-                "name": "SOC-Ladelimit"
+                "name": "Max. Ladung Akku"
             },
             "soc_discharge_limit": {
-                "name": "SOC-Entladelimit"
+                "name": "Min. Ladung Akku"
             },
             "home_power": {
-                "name": "Hausverbrauchsleistung"
+                "name": "Hausverbrauch (berechnet)"
             },
             "battery_net_power": {
-                "name": "Batterie-Nettoleistung"
+                "name": "Akku-Nettoleistung (Laden + / Entladen −)"
             },
             "grid_net_power": {
-                "name": "Netz-Nettoleistung"
+                "name": "Nettoleistung öffentliches Netz (Bezug + / Einspeisung −)"
             },
             "ac_to_battery_energy": {
-                "name": "AC → Batterie Energie"
+                "name": "Energie Notstrom→Akku"
             },
             "pv_to_battery_energy": {
-                "name": "PV → Batterie Energie"
+                "name": "Energie PV→Akku"
             },
             "pv_to_ac_energy": {
-                "name": "PV → AC Energie"
+                "name": "Energie PV→Notstrom"
             },
             "pv_to_grid_energy": {
-                "name": "PV → Netz Energie"
+                "name": "Energie PV→Hausnetz"
             },
             "grid_to_ac_load_energy": {
-                "name": "Netz → AC-Last Energie"
+                "name": "Energie Hausnetz→Notstrom"
             },
             "battery_to_ac_energy": {
-                "name": "Batterie → AC Energie"
+                "name": "Energie Akku→Notstrom"
             },
             "battery_to_grid_energy": {
-                "name": "Batterie → Netz Energie"
+                "name": "Energie Akku→Hausnetz"
             },
             "grid_to_battery_energy": {
-                "name": "Netz → Batterie Energie"
+                "name": "Energie Hausnetz→Batterie Akku"
             },
             "ct_import_energy": {
-                "name": "CT-Importenergie"
+                "name": "CT-Bezugsenergie"
             },
             "ct_export_energy": {
-                "name": "CT-Exportenergie"
+                "name": "Einspeiseenergie CT"
             },
             "ac_to_grid_energy": {
-                "name": "AC → Netz Energie"
+                "name": "Energie Notstrom→Hausnetz"
             },
             "stack_in_power": {
                 "name": "Wechselrichter-Eingangsleistung"
@@ -246,25 +263,25 @@
                 "name": "Wechselrichter-Ausgangsleistung"
             },
             "bms_soc": {
-                "name": "BMS-Ladezustand"
+                "name": "Ladezustand gesamt"
             },
             "battery_state": {
-                "name": "Batteriestatus"
+                "name": "Akkustatus"
             },
             "ethernet_connected": {
                 "name": "Ethernet verbunden"
             },
             "wifi_signal": {
-                "name": "WLAN-Signal"
+                "name": "WLAN-Signalstärke"
             },
             "max_inverter_standby_power": {
-                "name": "Max. Wechselrichter-Standby-Leistung"
+                "name": "Standbylimit Wechselrichter"
             },
             "max_grid_standby_power": {
-                "name": "Max. Netz-Standby-Leistung"
+                "name": "Standbylimit Netzseite"
             },
             "wifi_ssid": {
-                "name": "WLAN-SSID"
+                "name": "WLAN-Name"
             },
             "ethernet_ip": {
                 "name": "Ethernet-IP"
@@ -286,18 +303,19 @@
                     "alarm": "Alarm",
                     "fault": "Fehler",
                     "standby": "Standby",
-                    "low_power": "Energiesparmodus"
+                    "low_power": "Energiesparmodus",
+                    "fast_charging": "Schnellladen"
                 }
             },
             "ongrid_status": {
-                "name": "Netzanschluss-Status",
+                "name": "Hausnetz-Verbindungsstatus",
                 "state": {
                     "disconnected": "Getrennt",
                     "connected": "Verbunden"
                 }
             },
             "ct_status": {
-                "name": "CT-Status",
+                "name": "CT-Verbindungsstatus",
                 "state": {
                     "disconnected": "Getrennt",
                     "connected": "Verbunden"
@@ -311,117 +329,117 @@
                 }
             },
             "other_load_power": {
-                "name": "Hausverbrauch (Geschätzt)"
+                "name": "Hausverbrauch (Geräteschätzung)"
             },
             "grid_in_power": {
-                "name": "Netz AC-Eingangsleistung"
+                "name": "Netz-AC-Eingangsleistung"
             },
             "grid_out_power": {
-                "name": "Netz AC-Ausgangsleistung"
+                "name": "Netz-AC-Ausgangsleistung"
             },
             "grid_side_in_power": {
-                "name": "Netzseitige Eingangsleistung"
+                "name": "Netzseite-Eingangsleistung"
             },
             "grid_side_out_power": {
-                "name": "Netzseitige Ausgangsleistung"
+                "name": "Netzseite-Ausgangsleistung"
             },
             "energy_plan_power": {
-                "name": "Geplante Ausgangsleistung"
+                "name": "Energieplan-Ausgangsleistung"
             },
             "standby_power": {
                 "name": "Standby-Leistungsschwelle"
             },
             "pv_max_charge_power": {
-                "name": "PV max. Ladeleistung"
+                "name": "PV-Ladeleistungsgrenze"
             },
             "max_system_output_power": {
-                "name": "Max. Systemausgangsleistung"
+                "name": "System-Ausgangsleistungsgrenze"
             },
             "max_system_input_power": {
-                "name": "Max. Systemeingangsleistung"
+                "name": "System-Eingangsleistungsgrenze"
             },
             "off_grid_time": {
-                "name": "Off-Grid-Schaltzeit"
+                "name": "Netzausfall-Umschaltzeit (s)"
             },
             "max_feed_grid_power": {
-                "name": "Max. Netz-Einspeiseleistung"
+                "name": "Einspeiselimit ins öffentliche Netz"
             },
             "ct_3phase_import_total": {
-                "name": "Netzbezugsleistung (gesamt)"
+                "name": "Gesamt-Bezugsleistung"
             },
             "ct_3phase_export_total": {
-                "name": "Einspeiseleistung (gesamt)"
+                "name": "Gesamt-Einspeiseleistung"
             },
             "ct_3phase_import_l1": {
-                "name": "L1 Bezugsleistung"
+                "name": "L1-Bezugsleistung"
             },
             "ct_3phase_import_l2": {
-                "name": "L2 Bezugsleistung"
+                "name": "L2-Bezugsleistung"
             },
             "ct_3phase_import_l3": {
-                "name": "L3 Bezugsleistung"
+                "name": "L3-Bezugsleistung"
             },
             "ct_3phase_export_l1": {
-                "name": "L1 Einspeiseleistung"
+                "name": "L1-Einspeiseleistung"
             },
             "ct_3phase_export_l2": {
-                "name": "L2 Einspeiseleistung"
+                "name": "L2-Einspeiseleistung"
             },
             "ct_3phase_export_l3": {
-                "name": "L3 Einspeiseleistung"
+                "name": "L3-Einspeiseleistung"
             },
             "ct_3phase_import_energy_total": {
-                "name": "Netzbezugsenergie (gesamt)"
+                "name": "Gesamt-Bezugsenergie"
             },
             "ct_3phase_export_energy_total": {
-                "name": "Eingespeiste Energie (gesamt)"
+                "name": "Gesamt-Einspeiseenergie"
             },
             "ct_3phase_import_energy_l1": {
-                "name": "L1 Bezugsenergie"
+                "name": "L1-Bezugsenergie"
             },
             "ct_3phase_import_energy_l2": {
-                "name": "L2 Bezugsenergie"
+                "name": "L2-Bezugsenergie"
             },
             "ct_3phase_import_energy_l3": {
-                "name": "L3 Bezugsenergie"
+                "name": "L3-Bezugsenergie"
             },
             "ct_3phase_export_energy_l1": {
-                "name": "L1 Eingespeiste Energie"
+                "name": "L1-Einspeiseenergie"
             },
             "ct_3phase_export_energy_l2": {
-                "name": "L2 Eingespeiste Energie"
+                "name": "L2-Einspeiseenergie"
             },
             "ct_3phase_export_energy_l3": {
-                "name": "L3 Eingespeiste Energie"
+                "name": "L3-Einspeiseenergie"
             },
             "ct_3phase_comm_mode": {
-                "name": "Kommunikationsmodus",
+                "name": "Modus SmartMeter",
                 "state": {
                     "lan": "LAN",
-                    "cloud": "Cloud (Relay)"
+                    "cloud": "Cloud"
                 }
             },
             "ct_3phase_comm_state": {
-                "name": "Kommunikationsstatus",
+                "name": "Status SmartMeter",
                 "state": {
                     "offline": "Offline",
                     "online": "Online"
                 }
             },
             "ct_3phase_ip_address": {
-                "name": "IP-Adresse"
+                "name": "IP SmartMeter"
             },
             "ct_power": {
-                "name": "Leistung"
+                "name": "CT-Leistung"
             },
             "ct_energy": {
-                "name": "Energie"
+                "name": "CT-Energie"
             },
             "plug_power": {
-                "name": "Leistung"
+                "name": "Steckdosenleistung"
             },
             "plug_energy": {
-                "name": "Energie"
+                "name": "Steckdosenenergie"
             },
             "expansion_battery_charge_energy": {
                 "name": "Geladene Energie"
@@ -430,27 +448,27 @@
                 "name": "Entladene Energie"
             },
             "collector_import_power": {
-                "name": "Netzbezugsleistung"
+                "name": "D0-Netzbezugsleistung"
             },
             "collector_export_power": {
-                "name": "Einspeiseleistung"
+                "name": "D0-Netzeinspeiseleistung"
             },
             "collector_comm_state": {
-                "name": "Kommunikationsstatus",
+                "name": "Status D0-Zähler",
                 "state": {
                     "offline": "Offline",
                     "online": "Online"
                 }
             },
             "collector_comm_mode": {
-                "name": "Kommunikationsmodus",
+                "name": "Modus D0-Zähler",
                 "state": {
                     "lan": "LAN",
-                    "cloud": "Cloud (Relay)"
+                    "cloud": "Cloud"
                 }
             },
             "collector_ip_address": {
-                "name": "IP-Adresse"
+                "name": "IP D0-Zähler"
             },
             "http_sm_voltage_l1":        {"name": "L1-Spannung"},
             "http_sm_voltage_l2":        {"name": "L2-Spannung"},
@@ -467,7 +485,14 @@
             "http_sm_power_factor_l1":   {"name": "L1-Leistungsfaktor"},
             "http_sm_power_factor_l2":   {"name": "L2-Leistungsfaktor"},
             "http_sm_power_factor_l3":   {"name": "L3-Leistungsfaktor"},
-            "http_sm_frequency":         {"name": "Netzfrequenz"}
+            "http_sm_frequency":         {"name": "Netzfrequenz"},
+            "legacy_work_mode": {"name": "Betriebsmodus"}
+        }
+    },
+    "issues": {
+        "no_mqtt_response": {
+            "title": "Keine Antwort vom Jackery-Gerät",
+            "description": "Seit der Einrichtung wurde keine gültige MQTT-Nachricht von diesem Gerät empfangen. Prüfe, ob die Seriennummer großgeschrieben ist, der konfigurierte Token aktuell ist und Gerät sowie MQTT-Broker erreichbar sind. Diese Warnung wird automatisch gelöscht, sobald eine gültige Gerätenachricht eintrifft."
         }
     }
 }

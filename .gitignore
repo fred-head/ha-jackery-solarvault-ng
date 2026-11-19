@@ -14,3 +14,9 @@ wheels/
 FORUM_de.md
 FORUM_en.md
 CLAUDE.md
+
+# Internal entity naming and translation preparation
+/docs/archive/entity-katalog-de.md
+
+# Local-only upstream sync notes
+/docs/references/upstream-sync.md

@@ -1,14 +1,14 @@
-"""Unit tests for JackeryDataCoordinator._calculate_energy_flow.
+"""Direct unit tests for the extracted energy-flow calculation.
 
-The method is pure (aside from logging) and has no HA dependency,
-so all tests run without a hass fixture.
+The calculation module has no Home Assistant dependency.
 """
+from custom_components.jackery.calculations.energy_flow import calculate_energy_flow
 from custom_components.jackery.sensor import JackeryDataCoordinator
 
 
 def calc(data: dict) -> dict:
-    """Helper: call _calculate_energy_flow as an unbound function."""
-    return JackeryDataCoordinator._calculate_energy_flow(None, data)
+    """Run the extracted calculation directly with already-normalized input."""
+    return calculate_energy_flow(data)
 
 
 # ---------------------------------------------------------------------------
@@ -246,7 +246,8 @@ def test_fallback_to_grid_buy_sell_fields():
         "inOngridPw": 0, "outOngridPw": 0,
         "gridBuyPw": 300, "gridSellPw": 0,
     }
-    result = calc(data)
+    # Protocol aliases remain normalized at the coordinator boundary.
+    result = JackeryDataCoordinator._calculate_energy_flow(None, data)
     assert result["grid_available"] is True
     assert result["calc_grid_net_power"] == 300.0
 
@@ -309,7 +310,7 @@ def test_grid_available_true_when_grid_sell_is_explicitly_zero():
         "inOngridPw": 0, "outOngridPw": 0,
         "gridBuyPw": 0, "gridSellPw": 0,
     }
-    result = calc(data)
+    result = JackeryDataCoordinator._calculate_energy_flow(None, data)
     assert result["grid_available"] is True, \
         "grid_available must be True when gridBuyPw and gridSellPw are both explicitly 0"
     assert result["calc_grid_net_power"] == 0.0
@@ -323,6 +324,6 @@ def test_grid_available_true_when_only_sell_is_present_and_zero():
         "inOngridPw": 0, "outOngridPw": 0,
         "gridBuyPw": 100, "gridSellPw": 0,
     }
-    result = calc(data)
+    result = JackeryDataCoordinator._calculate_energy_flow(None, data)
     assert result["grid_available"] is True
     assert result["calc_grid_net_power"] == 100.0

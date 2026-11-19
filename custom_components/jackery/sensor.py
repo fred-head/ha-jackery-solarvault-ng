@@ -3,44 +3,113 @@ import asyncio
 import json
 import logging
 import random
-import re
 import time
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-import aiohttp
-from homeassistant.components import mqtt as ha_mqtt
-from homeassistant.components.sensor import (
-    SensorDeviceClass,
-    SensorEntity,
-    SensorStateClass,
-)
+from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
-from homeassistant.const import (
-    PERCENTAGE,
-    SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
-    UnitOfApparentPower,
-    UnitOfElectricCurrent,
-    UnitOfElectricPotential,
-    UnitOfEnergy,
-    UnitOfFrequency,
-    UnitOfPower,
-    UnitOfReactivePower,
-    UnitOfTemperature,
-    UnitOfTime,
-)
-from homeassistant.core import HomeAssistant, callback
+from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
+from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
+from .alert_capture import AlertCapture
+from .bmslog_capture import BmslogCapture
+from .calculations.energy_flow import (
+    OnGridSourceEvidence,
+    SourceFreshness,
+    _power_sample,
+    calculate_energy_flow,
+    select_grid_source,
+)
+from .coordinator_state import CoordinatorRuntimeState
+from .devices.classification import (
+    CT_SUBTYPE_MAP,
+    ClassificationContext,
+    DeviceFamily,
+    DeviceModel,
+    classify_device,
+)
+from .devices.classification import should_create_plug_switch as should_create_plug_switch
+from .diagnostics_observation import (
+    DiagnosticsObservationSnapshot,
+    DiagnosticsObservationState,
+    HttpOutcome,
+    ProtocolErrorBucket,
+    ProtocolRouteBucket,
+)
+from .discovery import ChildDiscoveryState, child_entity_spec
+from .entities.sensor_definitions import CT_STATUS_MAP as CT_STATUS_MAP
+from .entities.sensor_definitions import DEVICE_STATUS_MAP as DEVICE_STATUS_MAP
+from .entities.sensor_definitions import (
+    FUNC_ENABLE_BITS,
+    SENSORS,
+    SMARTMETER_HTTP_SENSOR_CONFIGS,
+    SUBDEVICE_SENSORS,
+    ChildSensorConfig,
+)
+from .entities.sensor_definitions import GRID_METER_LINK_MAP as GRID_METER_LINK_MAP
+from .entities.sensor_definitions import ONGRID_STATUS_MAP as ONGRID_STATUS_MAP
+from .entities.transforms import COMM_MODE_CLOUD as COMM_MODE_CLOUD
+from .entities.transforms import COMM_MODE_LABELS as COMM_MODE_LABELS
+from .entities.transforms import COMM_MODE_LOCAL as COMM_MODE_LOCAL
+from .entities.transforms import plug_comm_mode as plug_comm_mode
+from .entities.transforms import plug_mqtt_control_allowed as plug_mqtt_control_allowed
+from .identity import (
+    child_device_identifier,
+    child_unique_id,
+    http_unique_id,
+    official_work_mode_sensor_unique_id,
+)
+from .protocol.commands import (
+    action_topic,
+    build_full_state_request,
+    build_main_control,
+    build_settings_request,
+    build_status_request,
+    build_subdevice_request,
+    build_subdevice_switch,
+)
+from .protocol.normalization import normalize_payload_fields
+from .protocol.routing import (
+    MessageRoute,
+    RoutingDecision,
+    exclude_serial_from_child_arrays,
+    is_host_message_body,
+    parse_envelope,
+    parse_topic,
+)
+from .protocol.routing import (
+    subdevice_serial as _subdevice_sn,
+)
+from .protocol_capture import ProtocolDiscoveryCapture
+from .protocol_discovery import ProtocolDiscoverySnapshot, ProtocolDiscoveryState
+from .registry_identity import (
+    build_device_info,
+    device_owned_by_entry,
+    find_device_by_identifier,
+    find_devices_by_identifier,
+    find_owned_main_entity,
+)
+from .transport.mqtt import JackeryMqttTransport
+from .transport.smartmeter_http import (
+    SmartMeterHttpRequestError,
+    SmartMeterHttpTransport,
+)
+
+if TYPE_CHECKING:
+    from .child_migration import ChildMigrationResult
 
 _LOGGER = logging.getLogger(__name__)
 
 REQUEST_INTERVAL = 10  # seconds; intentionally 10 s (upstream uses 5 s — too much MQTT traffic for homelab)
 OFFLINE_TIMEOUT = 60  # seconds without any message → mark entities unavailable
-# If the device never answers within this window after setup the token is most likely rejected
-# (the device stays silent on a bad token instead of replying with an error).
-REAUTH_HINT_TIMEOUT = 120
+# After this period without a valid host reply, show troubleshooting guidance.
+NO_MQTT_RESPONSE_TIMEOUT = 120
+NO_MQTT_RESPONSE_ISSUE_PREFIX = "no_mqtt_response_"
+HTTP_FAILURE_THRESHOLD = 3
 
 # Device model lookup from deviceType field in MQTT payload
 DEVICE_TYPE_MODEL_MAP: dict[int, str] = {
@@ -48,1054 +117,10 @@ DEVICE_TYPE_MODEL_MAP: dict[int, str] = {
 }
 DEFAULT_MODEL = "Energy Monitor"
 
-# ENUM value → option-key maps for status sensors (Ü5/Ü6 from upstream v2.0.0)
-DEVICE_STATUS_MAP: dict[int, str] = {
-    0: "normal", 1: "waiting", 2: "alarm", 3: "fault", 4: "standby", 5: "low_power",
-}
-ONGRID_STATUS_MAP: dict[int, str] = {0: "disconnected", 1: "connected"}
-CT_STATUS_MAP: dict[int, str] = {0: "disconnected", 1: "connected"}
-GRID_METER_LINK_MAP: dict[int, str] = {0: "not_linked", 1: "linked"}
-
-# 传感器配置
-SENSORS = {
-    # 电池相关
-    "battery_soc": {
-        "json_key": "batSoc",
-        "name": "Battery SOC",
-        "unit": PERCENTAGE,
-        "icon": "mdi:battery-50",
-        "device_class": SensorDeviceClass.BATTERY,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "battery_charge_power": {
-        "json_key": "batInPw",
-        "name": "Main Unit Charge Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:battery-charging",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "battery_discharge_power": {
-        "json_key": "batOutPw",
-        "name": "Main Unit Discharge Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:battery-minus",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "total_battery_charge_power": {
-        "json_key": "total_battery_charge_power",
-        "name": "Total Battery Charge Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:battery-charging",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "total_battery_discharge_power": {
-        "json_key": "total_battery_discharge_power",
-        "name": "Total Battery Discharge Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:battery-minus",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "battery_temperature": {
-        "json_key": "cellTemp",
-        "name": "Battery Temperature",
-        "unit": UnitOfTemperature.CELSIUS,
-        "icon": "mdi:thermometer",
-        "device_class": SensorDeviceClass.TEMPERATURE,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "battery_count": {
-        "json_key": "batNum",
-        "name": "Battery Count",
-        "unit": None,
-        "icon": "mdi:battery-multiple",
-        "device_class": None,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    # 电池能量统计
-    "battery_charge_energy": {
-        "json_key": "batChgEgy",
-        "name": "Battery Charge Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:battery-plus",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "battery_discharge_energy": {
-        "json_key": "batDisChgEgy",
-        "name": "Battery Discharge Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:battery-minus",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-
-    # 太阳能
-    "solar_power": {
-        "json_key": "pvPw",
-        "name": "Solar Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:solar-power",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "solar_energy": {
-        "json_key": "pvEgy",
-        "name": "Solar Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:solar-power",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "solar_power_pv1": {
-        "json_key": "pv1",
-        "name": "Solar Power PV1",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:solar-panel",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "solar_energy_pv1": {
-        "json_key": "pv1Egy",
-        "name": "Solar Energy PV1",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:solar-panel",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "solar_power_pv2": {
-        "json_key": "pv2",
-        "name": "Solar Power PV2",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:solar-panel",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "solar_energy_pv2": {
-        "json_key": "pv2Egy",
-        "name": "Solar Energy PV2",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:solar-panel",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "solar_power_pv3": {
-        "json_key": "pv3",
-        "name": "Solar Power PV3",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:solar-panel",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "solar_energy_pv3": {
-        "json_key": "pv3Egy",
-        "name": "Solar Energy PV3",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:solar-panel",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "solar_power_pv4": {
-        "json_key": "pv4",
-        "name": "Solar Power PV4",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:solar-panel",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "solar_energy_pv4": {
-        "json_key": "pv4Egy",
-        "name": "Solar Energy PV4",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:solar-panel",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-
-    # 电网相关
-    "grid_import_power": { # Grid -> System (outOngridPw)
-        "json_key": "inOngridPw",
-        "name": "Grid Import Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:transmission-tower-import",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "grid_import_energy": {
-        "json_key": "inOngridEgy",
-        "name": "Grid Import Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:transmission-tower-import",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "grid_export_power": { # System -> AC bus / home (outOngridPw); NOT net export to public grid
-        "json_key": "outOngridPw",
-        "name": "OnGrid AC Output Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:transmission-tower-export",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "grid_export_energy": {
-        "json_key": "outOngridEgy",
-        "name": "Grid Export Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:transmission-tower-export",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "max_output_power": {
-        "json_key": "maxOutPw",
-        "name": "Max Output Power (OnGrid)",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:speedometer",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-
-    # EPS (离网输出)
-    "eps_output_power": {
-        "json_key": "swEpsOutPw",
-        "name": "EPS Output Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:power-plug",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "eps_output_energy": {
-        "json_key": "outEpsEgy",
-        "name": "EPS Output Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:power-plug",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "eps_input_power": {
-        "json_key": "swEpsInPw",
-        "name": "EPS Input Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:power-plug",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "eps_input_energy": {
-        "json_key": "inEpsEgy",
-        "name": "EPS Input Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:power-plug",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "eps_state": {
-         "json_key": "swEpsState",
-         "name": "EPS State",
-         "unit": None,
-         "icon": "mdi:power-settings",
-         "device_class": None,
-         "state_class": None, # 1-Normal, 0-Abnormal
-    },
-    "eps_switch": {
-         "json_key": "swEps",
-         "name": "EPS Switch Status",
-         "unit": None,
-         "icon": "mdi:toggle-switch",
-         "device_class": None,
-         "state_class": None, # 1-On, 0-Off
-    },
-
-    # Limits & Settings & Status
-    "soc_charge_limit": {
-        "json_key": "socChgLimit",
-        "name": "SOC Charge Limit",
-        "unit": PERCENTAGE,
-        "icon": "mdi:battery-arrow-up",
-        "device_class": None,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "soc_discharge_limit": {
-        "json_key": "socDischgLimit",
-        "name": "SOC Discharge Limit",
-        "unit": PERCENTAGE,
-        "icon": "mdi:battery-arrow-down",
-        "device_class": None,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    # "is_auto_standby": {
-    #     "json_key": "isAutoStandby",
-    #     "name": "Auto Standby Allowed",
-    #     "unit": None,
-    #     "icon": "mdi:power-sleep",
-    #     "device_class": None,
-    #     "state_class": None, # 1-Allowed, 0-Not Allowed
-    # },
-    # "auto_standby_status": {
-    #     "json_key": "autoStandby",
-    #     "name": "Auto Standby Mode",
-    #     "unit": None,
-    #     "icon": "mdi:power-sleep",
-    #     "device_class": None,
-    #     "state_class": None, # 0-Invalid, 1-Sleep/Off, 2-On
-    # },
-
-    # Calculated Sensors
-    "home_power": {
-        "json_key": "calc_home_power",
-        "name": "Home Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:home-lightning-bolt",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "battery_net_power": {
-        "json_key": "calc_batt_net_power",
-        "name": "Battery Net Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:battery-sync",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "grid_net_power": {
-        "json_key": "calc_grid_net_power",
-        "name": "Grid Net Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:transmission-tower",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    # 更多能量流向统计
-    "ac_to_battery_energy": {
-        "json_key": "acOtBatEgy",
-        "name": "AC to Battery Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:battery-arrow-up",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "pv_to_battery_energy": {
-        "json_key": "pvOtBatEgy",
-        "name": "PV to Battery Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:solar-power-variant",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "pv_to_ac_energy": {
-        "json_key": "pvOtAcEgy",
-        "name": "PV to AC Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:solar-panel",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "pv_to_grid_energy": {
-        "json_key": "pvOtOngridEgy",
-        "name": "PV to Grid Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:transmission-tower-export",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "grid_to_ac_load_energy": {
-        "json_key": "ongridOtAcLoadEgy",
-        "name": "Grid to AC Load Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:home-import-outline",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "battery_to_ac_energy": {
-        "json_key": "batOtAcEgy",
-        "name": "Battery to AC Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:battery-arrow-down",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "battery_to_grid_energy": {
-        "json_key": "batOtGridEgy",
-        "name": "Battery to Grid Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:transmission-tower-export",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "grid_to_battery_energy": {
-        "json_key": "ongridOtBatEgy",
-        "name": "Grid to Battery Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:battery-arrow-up",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "ct_import_energy": {
-        "json_key": "inCtEgy",
-        "name": "CT Import Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:transmission-tower-import",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "ct_export_energy": {
-        "json_key": "outCtEgy",
-        "name": "CT Export Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:transmission-tower-export",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-    "ac_to_grid_energy": {
-        "json_key": "acOtOngridEgy",
-        "name": "AC to Grid Energy",
-        "unit": UnitOfEnergy.KILO_WATT_HOUR,
-        "icon": "mdi:transmission-tower-export",
-        "device_class": SensorDeviceClass.ENERGY,
-        "state_class": SensorStateClass.TOTAL_INCREASING,
-        "scale": 0.01,
-    },
-
-    # Wechselrichter-Stack — semantics unclear; do NOT use for energy balance calculations
-    "stack_in_power": {
-        "json_key": "stackInPw",
-        "name": "Inverter Stack Input Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:lightning-bolt-circle",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "stack_out_power": {
-        "json_key": "stackOutPw",
-        "name": "Inverter Stack Output Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:lightning-bolt-circle",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-
-    # BMS SOC (separat von Display-SOC batSoc)
-    "bms_soc": {
-        "json_key": "soc",
-        "name": "BMS SOC",
-        "unit": PERCENTAGE,
-        "icon": "mdi:battery-heart",
-        "device_class": SensorDeviceClass.BATTERY,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-
-    # Batteriestatus
-    "battery_state": {
-        "json_key": "batState",
-        "name": "Battery State",
-        "unit": None,
-        "icon": "mdi:battery-heart-variant",
-        "device_class": None,
-        "state_class": None,
-    },
-
-    # Netzwerk-Status
-    "ethernet_connected": {
-        "json_key": "ethPort",
-        "name": "Ethernet Connected",
-        "unit": None,
-        "icon": "mdi:ethernet",
-        "device_class": None,
-        "state_class": None,
-    },
-    "wifi_signal": {
-        "json_key": "wsig",
-        "name": "WiFi Signal",
-        "unit": SIGNAL_STRENGTH_DECIBELS_MILLIWATT,
-        "icon": "mdi:wifi",
-        "device_class": SensorDeviceClass.SIGNAL_STRENGTH,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-
-    # Leistungsgrenzen (nur lesbar)
-    "max_inverter_standby_power": {
-        "json_key": "maxInvStdPw",
-        "name": "Max Inverter Standby Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:speedometer",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "max_grid_standby_power": {
-        "json_key": "maxGridStdPw",
-        "name": "Max Grid Standby Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:transmission-tower",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-
-    # Netzwerk-Diagnostik
-    "wifi_ssid": {
-        "json_key": "wname",
-        "name": "WiFi SSID",
-        "unit": None,
-        "icon": "mdi:wifi",
-        "device_class": None,
-        "state_class": None,
-    },
-    "ethernet_ip": {
-        "json_key": "eip",
-        "name": "Ethernet IP",
-        "unit": None,
-        "icon": "mdi:ip-network",
-        "device_class": None,
-        "state_class": None,
-    },
-    "wlan_ip": {
-        "json_key": "wip",
-        "name": "WLAN IP",
-        "unit": None,
-        "icon": "mdi:ip-network",
-        "device_class": None,
-        "state_class": None,
-    },
-    "device_capability": {
-        "json_key": "ability",
-        "name": "Device Capability",
-        "unit": None,
-        "icon": "mdi:chip",
-        "device_class": None,
-        "state_class": None,
-    },
-    # funcEnable bitmask (type-106). The individual bits are decoded into the
-    # `func_enable_flags` attribute via FUNC_ENABLE_BITS.
-    "func_enable": {
-        "json_key": "funcEnable",
-        "name": "Function Enable Flags",
-        "unit": None,
-        "icon": "mdi:tune-variant",
-        "device_class": None,
-        "state_class": None,
-    },
-
-    # Gerätestatus (type=2 / type=106) — ENUM sensors with readable labels (Ü5)
-    "device_status": {
-        "json_key": "stat",
-        "name": "Device Status",
-        "unit": None,
-        "icon": "mdi:state-machine",
-        "device_class": SensorDeviceClass.ENUM,
-        "state_class": None,
-        "options": list(DEVICE_STATUS_MAP.values()),
-        "value_map": DEVICE_STATUS_MAP,
-    },
-    "ongrid_status": {
-        "json_key": "ongridStat",
-        "name": "OnGrid Status",
-        "unit": None,
-        "icon": "mdi:transmission-tower",
-        "device_class": SensorDeviceClass.ENUM,
-        "state_class": None,
-        "options": list(ONGRID_STATUS_MAP.values()),
-        "value_map": ONGRID_STATUS_MAP,
-    },
-    "ct_status": {
-        "json_key": "ctStat",
-        "name": "CT Status",
-        "unit": None,
-        "icon": "mdi:current-ac",
-        "device_class": SensorDeviceClass.ENUM,
-        "state_class": None,
-        "options": list(CT_STATUS_MAP.values()),
-        "value_map": CT_STATUS_MAP,
-    },
-    "grid_meter_link": {
-        "json_key": "gridSate",
-        "name": "Grid Meter Link",
-        "unit": None,
-        "icon": "mdi:lan-connect",
-        "device_class": SensorDeviceClass.ENUM,
-        "state_class": None,
-        "options": list(GRID_METER_LINK_MAP.values()),
-        "value_map": GRID_METER_LINK_MAP,
-    },
-
-    # Type-106 fields (response to type-105 poll, ~every 5 min)
-    "other_load_power": {
-        "json_key": "otherLoadPw",
-        "name": "Home Load Power (Estimated)",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:home-lightning-bolt-outline",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "grid_in_power": {
-        "json_key": "gridInPw",
-        "name": "Grid AC Input Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:transmission-tower-import",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "grid_out_power": {
-        "json_key": "gridOutPw",
-        "name": "Grid AC Output Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:transmission-tower-export",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "grid_side_in_power": {
-        "json_key": "inGridSidePw",
-        "name": "Grid Side Input Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:transmission-tower-import",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "grid_side_out_power": {
-        "json_key": "outGridSidePw",
-        "name": "Grid Side Output Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:transmission-tower-export",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "energy_plan_power": {
-        "json_key": "energyPlanPw",
-        "name": "Energy Plan Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:lightning-bolt-outline",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "standby_power": {
-        "json_key": "standbyPw",
-        "name": "Standby Power Threshold",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:power-sleep",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "pv_max_charge_power": {
-        "json_key": "pvMaxChgPower",
-        "name": "PV Max Charge Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:solar-power",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "max_system_output_power": {
-        "json_key": "maxSysOutPw",
-        "name": "Max System Output Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:speedometer",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "max_system_input_power": {
-        "json_key": "maxSysInPw",
-        "name": "Max System Input Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:speedometer",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-    "off_grid_time": {
-        "json_key": "offGridTime",
-        "name": "Off-Grid Switch Time",
-        "unit": UnitOfTime.SECONDS,
-        "icon": "mdi:timer-outline",
-        "device_class": None,
-        "state_class": None,
-    },
-    # maxFeedGrid (type-106): enforced system-level grid feed-in cap. Read-back sensor for
-    # the value reported by the device. Writable via Number entity in number.py (Issue #11).
-    # Distinct from maxOutPw (user-selectable app limit, controlled via JackeryMaxFeedInSelect).
-    "max_feed_grid_power": {
-        "json_key": "maxFeedGrid",
-        "name": "Max Feed Grid Power",
-        "unit": UnitOfPower.WATT,
-        "icon": "mdi:transmission-tower-export",
-        "device_class": SensorDeviceClass.POWER,
-        "state_class": SensorStateClass.MEASUREMENT,
-    },
-}
-
-# 子设备传感器配置
-SUBDEVICE_SENSORS = {
-    # 智能插座 (devType=6 or 1)
-    "plug": {
-        "power": {
-            "key": "outPw", # Fallback to 'power'
-            "name": "Power",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:power-socket-eu",
-        },
-        "energy": {
-            "key": "totalEgy",
-            "name": "Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:lightning-bolt",
-            "scale": 0.01,
-        },
-    },
-    # CT / Smart Meter (devType=2, subType 1-4)
-    "ct": {
-        "power": {
-            "key": "phasePw",
-            "name": "Power",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:current-ac",
-        },
-        "energy": {
-            "key": "phaseEgy",
-            "name": "Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:lightning-bolt",
-            "scale": 0.01,
-        },
-    },
-    # SmartMeter 3P / devType=3 (any subType): HTO907A (subType=5), Shelly Pro 3EM (subType=2)
-    # xPhasePw  = Consumption / Grid Import per phase
-    # xnPhasePw = Production  / Grid Export per phase
-    "ct_3phase": {
-        "import_total": {
-            "key": "tPhasePw",
-            "name": "Grid Import Power",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:transmission-tower-import",
-        },
-        "export_total": {
-            "key": "tnPhasePw",
-            "name": "Grid Export Power",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:transmission-tower-export",
-        },
-        "import_l1": {
-            "key": "aPhasePw",
-            "name": "L1 Import Power",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:current-ac",
-        },
-        "import_l2": {
-            "key": "bPhasePw",
-            "name": "L2 Import Power",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:current-ac",
-        },
-        "import_l3": {
-            "key": "cPhasePw",
-            "name": "L3 Import Power",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:current-ac",
-        },
-        "export_l1": {
-            "key": "anPhasePw",
-            "name": "L1 Export Power",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:current-ac",
-        },
-        "export_l2": {
-            "key": "bnPhasePw",
-            "name": "L2 Export Power",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:current-ac",
-        },
-        "export_l3": {
-            "key": "cnPhasePw",
-            "name": "L3 Export Power",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:current-ac",
-        },
-        "import_energy_total": {
-            "key": "tPhaseEgy",
-            "name": "Grid Import Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:transmission-tower-import",
-            "scale": 0.01,
-        },
-        "export_energy_total": {
-            "key": "tnPhaseEgy",
-            "name": "Grid Export Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:transmission-tower-export",
-            "scale": 0.01,
-        },
-        "import_energy_l1": {
-            "key": "aPhaseEgy",
-            "name": "L1 Import Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:lightning-bolt",
-            "scale": 0.01,
-        },
-        "import_energy_l2": {
-            "key": "bPhaseEgy",
-            "name": "L2 Import Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:lightning-bolt",
-            "scale": 0.01,
-        },
-        "import_energy_l3": {
-            "key": "cPhaseEgy",
-            "name": "L3 Import Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:lightning-bolt",
-            "scale": 0.01,
-        },
-        "export_energy_l1": {
-            "key": "anPhaseEgy",
-            "name": "L1 Export Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:lightning-bolt",
-            "scale": 0.01,
-        },
-        "export_energy_l2": {
-            "key": "bnPhaseEgy",
-            "name": "L2 Export Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:lightning-bolt",
-            "scale": 0.01,
-        },
-        "export_energy_l3": {
-            "key": "cnPhaseEgy",
-            "name": "L3 Export Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:lightning-bolt",
-            "scale": 0.01,
-        },
-        # Diagnostik-Sensoren
-        "comm_mode": {
-            "key": "commMode",
-            "name": "Communication Mode",
-            "unit": None,
-            "device_class": SensorDeviceClass.ENUM,
-            "state_class": None,
-            "icon": "mdi:network",
-            "options": ["lan", "cloud"],
-            "options_offset": 1,  # commMode is 1-based: 1=LAN, 2=Cloud
-        },
-        "comm_state": {
-            "key": "commState",
-            "name": "Communication State",
-            "unit": None,
-            "device_class": SensorDeviceClass.ENUM,
-            "state_class": None,
-            "icon": "mdi:connection",
-            "options": ["offline", "online"],
-        },
-        "ip_address": {
-            "key": "wip",
-            "name": "IP Address",
-            "unit": None,
-            "device_class": None,
-            "state_class": None,
-            "icon": "mdi:ip",
-        },
-    },
-    # Meter Collector (devType=4, subType=7, model HTO910A "Smart Meter D0 Reader")
-    # Optical D0 interface reader: sits on the IR port of a German electricity meter and reads
-    # meter data via IEC 62056-21 / SML protocol. Reports totals from the meter — no per-phase
-    # breakdown. Appears in the "collectors" array of type-101 messages (not "cts").
-    # Fields confirmed from live MQTT capture (Issue #19, 2026-07-24):
-    #   inPw  = total grid import power as reported by the meter (W)
-    #   outPw = total grid export power as reported by the meter (W)
-    "collector": {
-        "import_power": {
-            "key": "inPw",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:transmission-tower-import",
-        },
-        "export_power": {
-            "key": "outPw",
-            "unit": UnitOfPower.WATT,
-            "device_class": SensorDeviceClass.POWER,
-            "state_class": SensorStateClass.MEASUREMENT,
-            "icon": "mdi:transmission-tower-export",
-        },
-        "comm_state": {
-            "key": "commState",
-            "device_class": SensorDeviceClass.ENUM,
-            "options": ["offline", "online"],
-            "unit": None,
-            "icon": "mdi:connection",
-        },
-        "comm_mode": {
-            "key": "commMode",
-            "device_class": SensorDeviceClass.ENUM,
-            "options": ["lan", "cloud"],
-            "options_offset": 1,  # commMode is 1-based: 1=LAN, 2=Cloud
-            "unit": None,
-            "icon": "mdi:lan",
-        },
-        "ip_address": {
-            "key": "wip",
-            "unit": None,
-            "icon": "mdi:ip-network",
-        },
-    },
-    # Expansion battery (e.g. BP2500, devType=1, subType=0)
-    # Only cumulative energy is exposed via MQTT (type-23 messages). No real-time power.
-    "expansion_battery": {
-        "charge_energy": {
-            "key": "inEgy",
-            "name": "Charge Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:battery-arrow-up",
-            "scale": 0.01,
-        },
-        "discharge_energy": {
-            "key": "outEgy",
-            "name": "Discharge Energy",
-            "unit": UnitOfEnergy.KILO_WATT_HOUR,
-            "device_class": SensorDeviceClass.ENERGY,
-            "state_class": SensorStateClass.TOTAL_INCREASING,
-            "icon": "mdi:battery-arrow-down",
-            "scale": 0.01,
-        },
-    },
-}
-
-# devType values that identify CT/meter sub-devices (2=standard CT, 3=SmartMeter 3P, 4=Meter Collector)
-CT_DEV_TYPES: frozenset[int] = frozenset({2, 3, 4})
-
-# devType values that identify smart plugs
-PLUG_ITEM_DEV_TYPES: frozenset[int] = frozenset({6})
-
-# commMode constants for smart plugs
-COMM_MODE_LOCAL = 1
-COMM_MODE_CLOUD = 2
-
-COMM_MODE_LABELS: dict[int, str] = {
-    COMM_MODE_LOCAL: "local",
-    COMM_MODE_CLOUD: "cloud",
-}
-
-# CT / meter subType → human readable hardware name (diagnostic attribute only)
-CT_SUBTYPE_MAP: dict[int, str] = {
-    1: "Shelly Single Phase",
-    2: "Shelly Three Phase",
-    3: "Shelly 63A",
-    4: "Eastron Single Phase (4002)",
-    5: "Eastron Three Phase (4003)",
-    6: "Jackery Wireless Smart Meter (US L1/L2 4007)",
-    7: "Jackery Smart Meter 3P (UK 4008)",
-}
-
-# funcEnable bitmask: bit index → feature name (1 = enabled, 0 = disabled).
-# Exposed as attributes of the `func_enable` sensor.
-FUNC_ENABLE_BITS: dict[int, str] = {
-    0: "aerosol",            # bit0 aerosol
-    1: "soc_calibration",    # bit1 SOC calibration
-    2: "low_power",          # bit2 low power
-    3: "soh_calibration",    # bit3 SOH calibration
-    4: "pcs_comm_diag",      # bit4 PCS communication diagnosis
-    5: "shutdown_2h",        # bit5 2h shutdown
-    6: "fault_shutdown",     # bit6 fault shutdown
-    7: "epo",                # bit7 EPO function
-    8: "func_48v",           # bit8 48 V function
-    9: "ethernet_debug",     # bit9 Ethernet debug function
-    10: "energy_flow_fill",  # bit10 energy flow data backfill
-    11: "smart_plug_first",  # bit11 smart plug priority
-}
-
-# Fields that identify a *flat* status message (payload without a type/body wrapper).
-# If any of these appear at the top level, the message body is reconstructed from the
-# remaining top-level keys (see _extract_flat_body).
-_FLAT_PAYLOAD_KEYS: frozenset[str] = frozenset(
-    {
-        "batSoc",
-        "soc",
-        "pvPw",
-        "stat",
-        "workMode",
-        "inOngridPw",
-        "outOngridPw",
-        "gridInPw",
-        "gridOutPw",
-        "inGridSidePw",
-        "outGridSidePw",
-        "swEpsInPw",
-        "swEpsOutPw",
-        "batInPw",
-        "batOutPw",
-        "otherLoadPw",
-    }
-)
-
-# Top-level envelope keys that are never part of the payload body
-_FLAT_META_KEYS: frozenset[str] = frozenset(
-    {"type", "eventId", "messageId", "ts", "deviceType", "token", "softver", "body"}
-)
-
 # Real-time power fields shared between type-2 (~11 s) and type-106 (~30 s).
-# type-2 is more current; once the cache has a type-2 reading for these keys,
-# the snapshot values from a type-106 poll must not overwrite them.
-# At startup (empty cache) type-106 is still allowed to populate them so the
-# initial state is available for the ~11 s before the first type-2 arrives.
-_TYPE106_SKIP_IF_ESTABLISHED: frozenset[str] = frozenset({
+# Preserve live readings for OFFLINE_TIMEOUT, not forever based on key presence.
+# See docs/references/energy-source-policy.md and the snapshot race in commit 8043585.
+_TYPE106_LIVE_PREFERRED: frozenset[str] = frozenset({
     "batInPw", "batOutPw",
     "pvPw", "pv1", "pv2", "pv3", "pv4",
     "swEpsInPw", "swEpsOutPw",
@@ -1103,66 +128,46 @@ _TYPE106_SKIP_IF_ESTABLISHED: frozenset[str] = frozenset({
 })
 
 
-SMARTMETER_HTTP_SENSOR_CONFIGS: dict[str, dict] = {
-    "voltage_l1":        {"key": "volt1", "unit": UnitOfElectricPotential.VOLT,           "device_class": SensorDeviceClass.VOLTAGE,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:lightning-bolt"},
-    "voltage_l2":        {"key": "volt2", "unit": UnitOfElectricPotential.VOLT,           "device_class": SensorDeviceClass.VOLTAGE,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:lightning-bolt"},
-    "voltage_l3":        {"key": "volt3", "unit": UnitOfElectricPotential.VOLT,           "device_class": SensorDeviceClass.VOLTAGE,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:lightning-bolt"},
-    "current_l1":        {"key": "curr1", "unit": UnitOfElectricCurrent.AMPERE,           "device_class": SensorDeviceClass.CURRENT,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:current-ac"},
-    "current_l2":        {"key": "curr2", "unit": UnitOfElectricCurrent.AMPERE,           "device_class": SensorDeviceClass.CURRENT,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:current-ac"},
-    "current_l3":        {"key": "curr3", "unit": UnitOfElectricCurrent.AMPERE,           "device_class": SensorDeviceClass.CURRENT,        "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:current-ac"},
-    "reactive_power_l1": {"key": "rep1",  "unit": UnitOfReactivePower.VOLT_AMPERE_REACTIVE,"device_class": SensorDeviceClass.REACTIVE_POWER, "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:sine-wave"},
-    "reactive_power_l2": {"key": "rep2",  "unit": UnitOfReactivePower.VOLT_AMPERE_REACTIVE,"device_class": SensorDeviceClass.REACTIVE_POWER, "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:sine-wave"},
-    "reactive_power_l3": {"key": "rep3",  "unit": UnitOfReactivePower.VOLT_AMPERE_REACTIVE,"device_class": SensorDeviceClass.REACTIVE_POWER, "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:sine-wave"},
-    "apparent_power_l1": {"key": "ap1",   "unit": UnitOfApparentPower.VOLT_AMPERE,        "device_class": SensorDeviceClass.APPARENT_POWER, "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:flash"},
-    "apparent_power_l2": {"key": "ap2",   "unit": UnitOfApparentPower.VOLT_AMPERE,        "device_class": SensorDeviceClass.APPARENT_POWER, "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:flash"},
-    "apparent_power_l3": {"key": "ap3",   "unit": UnitOfApparentPower.VOLT_AMPERE,        "device_class": SensorDeviceClass.APPARENT_POWER, "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:flash"},
-    "power_factor_l1":   {"key": "fact1", "unit": None, "scale": 0.001,                  "device_class": SensorDeviceClass.POWER_FACTOR,  "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:angle-acute"},
-    "power_factor_l2":   {"key": "fact2", "unit": None, "scale": 0.001,                  "device_class": SensorDeviceClass.POWER_FACTOR,  "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:angle-acute"},
-    "power_factor_l3":   {"key": "fact3", "unit": None, "scale": 0.001,                  "device_class": SensorDeviceClass.POWER_FACTOR,  "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:angle-acute"},
-    "frequency":         {"key": "freq",  "unit": UnitOfFrequency.HERTZ,                 "device_class": SensorDeviceClass.FREQUENCY,     "state_class": SensorStateClass.MEASUREMENT, "icon": "mdi:sine-wave"},
-}
+def _directional_power_observation(
+    payload: dict[str, Any],
+    incoming_key: str,
+    outgoing_key: str,
+) -> bool | None:
+    """Classify an observed pair as valid, explicitly missing, or unusable."""
+    observed = False
+    valid = False
+    for key in (incoming_key, outgoing_key):
+        if key not in payload:
+            continue
+        observed = True
+        value = payload[key]
+        if value is None:
+            continue
+        if _power_sample(value) is None:
+            return None
+        valid = True
+    return valid if observed else None
 
 
-def plug_comm_mode(item: dict) -> int | None:
-    """Read plug commMode (1=local, 2=cloud)."""
-    val = item.get("commMode")
-    if val is None:
-        return None
-    try:
-        return int(val)
-    except (TypeError, ValueError):
-        return None
-
-
-def plug_mqtt_control_allowed(item: dict) -> tuple[bool, str]:
-    """Check if MQTT control is allowed for plug; returns (allowed, reason)."""
-    mode = plug_comm_mode(item)
-    if mode == COMM_MODE_LOCAL:
-        return True, ""
-    if mode == COMM_MODE_CLOUD:
-        return (
-            False,
-            "Smart plug is cloud-connected (commMode=2) and cannot be controlled via MQTT. Please use the Jackery App.",
-        )
-    if mode is None:
-        return (
-            False,
-            "Unknown commMode. MQTT control is only supported when commMode=1 (local).",
-        )
-    return (
-        False,
-        f"Smart plug commMode={mode} does not support MQTT control. Only commMode=1 (local) is supported.",
-    )
-
-
-def should_create_plug_switch(item: dict) -> bool:
-    """Only create switch entities for smart plugs (devType=6)."""
-    return item.get("devType") in PLUG_ITEM_DEV_TYPES
-
-
-def _subdevice_sn(item: dict) -> str | None:
-    """Extract device serial number from a sub-device dict (Ü7)."""
-    return item.get("deviceSn") or item.get("sn")
+def _protocol_observation_bucket(
+    decision: RoutingDecision,
+) -> tuple[ProtocolRouteBucket, bool]:
+    """Map an accepted route to one fixed diagnostics bucket."""
+    if decision.route is MessageRoute.TYPE_23:
+        return ProtocolRouteBucket.TYPE_23, False
+    if decision.route is MessageRoute.TYPE_101:
+        return ProtocolRouteBucket.TYPE_101, False
+    if decision.route is MessageRoute.TYPE_102:
+        return ProtocolRouteBucket.TYPE_102, False
+    if decision.route is MessageRoute.TYPE_106:
+        return ProtocolRouteBucket.TYPE_106, False
+    if decision.route is MessageRoute.TYPE_107:
+        return ProtocolRouteBucket.TYPE_107, False
+    if decision.route is MessageRoute.TYPE_123:
+        return ProtocolRouteBucket.TYPE_123, False
+    if decision.message_type in (2, 25):
+        return ProtocolRouteBucket.GENERIC_KNOWN, False
+    return ProtocolRouteBucket.GENERIC_UNKNOWN, True
 
 
 def _merge_subdevice_list(
@@ -1179,139 +184,29 @@ def _merge_subdevice_list(
     for item in (existing or []) + new_items:
         if not isinstance(item, dict):
             continue
-        sn = item.get("deviceSn") or item.get("sn")
+        sn = _subdevice_sn(item)
         if not sn:
             continue
         merged[sn] = {**merged.get(sn, {}), **item}
     return list(merged.values())
 
 
-def _field_present(data: dict, key: str) -> bool:
-    """Return True if `key` exists in `data` and is not None (0 is a valid reading)."""
-    return key in data and data[key] is not None
-
-
-def _safe_float(value: Any, default: float = 0.0) -> float:
-    """Convert an MQTT field to float, falling back to `default` on None/garbage."""
-    if value is None:
-        return default
-    try:
-        return float(value)
-    except (TypeError, ValueError):
-        return default
-
-
-def _pick_best_power_net(candidates: list[float]) -> float:
-    """Pick the non-zero candidate with the largest magnitude.
-
-    A device may report the same physical quantity through several fields
-    (type-2 vs. type-106).  A field that is present but reports 0 must not
-    mask a field that carries an actual reading, so the largest magnitude wins.
-    If every candidate is 0 the last one is returned (still a valid "no flow").
-    """
-    if not candidates:
-        return 0.0
-    non_zero = [v for v in candidates if abs(v) > 0]
-    if non_zero:
-        return max(non_zero, key=abs)
-    return candidates[-1]
-
-
-def _effective_ongrid_net(
-    data: dict,
-    grid_in: float,
-    grid_out: float,
-    ongrid_charge: float,
-    ongrid_supply: float,
-    in_grid_side: float,
-    out_grid_side: float,
-) -> float:
-    """Net power at the grid-tied port (positive = grid → unit).
-
-    Multi-source: `gridInPw/gridOutPw` (type-106), `inOngridPw/outOngridPw` (type-2)
-    and `inGridSidePw/outGridSidePw` all describe the same port on different firmware
-    revisions.  Only sources actually present in the payload are considered.
-    """
-    candidates: list[float] = []
-    if _field_present(data, "gridInPw") or _field_present(data, "gridOutPw"):
-        candidates.append(grid_in - grid_out)
-    if _field_present(data, "inOngridPw") or _field_present(data, "outOngridPw"):
-        candidates.append(ongrid_charge - ongrid_supply)
-    if _field_present(data, "inGridSidePw") or _field_present(data, "outGridSidePw"):
-        candidates.append(in_grid_side - out_grid_side)
-    return _pick_best_power_net(candidates)
-
-
-def _grid_net_from_system(
-    data: dict,
-    grid_in: float,
-    grid_out: float,
-    ongrid_charge: float,
-    ongrid_supply: float,
-    in_grid_side: float,
-    out_grid_side: float,
-    *,
-    include_ongrid: bool = True,
-) -> tuple[float, bool]:
-    """Derive net grid power from device-reported fields when no CT/meter is available.
-
-    Returns `(net_power, available)`; positive = import from grid.
-
-    `include_ongrid` controls whether `inOngridPw/outOngridPw` may act as the grid
-    reading.  This fork calls it with `include_ongrid=False`: those two fields are
-    already used to compute `p_ong`, so accepting them as the "grid meter" would make
-    `p_home = p_grid - p_ong` collapse to 0 and destroy the AC-output fallback
-    (`p_home = outOngridPw`) used on installations without a meter.
-    """
-    candidates: list[float] = []
-    if _field_present(data, "inGridSidePw") or _field_present(data, "outGridSidePw"):
-        candidates.append(in_grid_side - out_grid_side)
-    if _field_present(data, "gridInPw") or _field_present(data, "gridOutPw"):
-        candidates.append(grid_in - grid_out)
-    if include_ongrid and (
-        _field_present(data, "inOngridPw") or _field_present(data, "outOngridPw")
-    ):
-        candidates.append(ongrid_charge - ongrid_supply)
-    if not candidates:
-        return 0.0, False
-    return _pick_best_power_net(candidates), True
-
-
-def _normalize_payload_fields(payload: dict) -> dict:
-    """Normalize MQTT field aliases before merging a payload into the cache.
-
-    - `gridBuyPw`  → `gridInPw`
-    - `gridSellPw` → `gridOutPw`
-    - `workModel`  (type-106) → `workMode` (type-107 / our sensor key)
-
-    Existing keys are never overwritten, so an explicit value always wins over its alias.
-    """
-    result = dict(payload)
-
-    if result.get("gridInPw") is None and result.get("gridBuyPw") is not None:
-        result["gridInPw"] = result["gridBuyPw"]
-    if result.get("gridOutPw") is None and result.get("gridSellPw") is not None:
-        result["gridOutPw"] = result["gridSellPw"]
-    if result.get("workMode") is None and result.get("workModel") is not None:
-        result["workMode"] = result["workModel"]
-
-    return result
-
-
-def _extract_flat_body(raw_data: dict) -> dict:
-    """Reconstruct a body dict from a flat status message (no `body` wrapper).
-
-    Returns an empty dict when the payload does not look like device status data.
-    """
-    if not any(key in raw_data for key in _FLAT_PAYLOAD_KEYS):
-        return {}
-    return {key: value for key, value in raw_data.items() if key not in _FLAT_META_KEYS}
-
-
 class JackeryDataCoordinator:
     """协调器：管理MQTT订阅和数据获取，供所有传感器实体共享使用."""
 
-    def __init__(self, hass: HomeAssistant, topic_prefix: str, token: str, mqtt_host: str, device_sn: str) -> None:
+    def __init__(
+        self,
+        hass: HomeAssistant,
+        topic_prefix: str,
+        token: str | None,
+        mqtt_host: str | None,
+        device_sn: str | None,
+        *,
+        protocol_discovery_enabled: bool = False,
+        protocol_discovery_capture: ProtocolDiscoveryCapture | None = None,
+        alert_capture: AlertCapture | None = None,
+        bmslog_capture: BmslogCapture | None = None,
+    ) -> None:
         self.hass = hass
         self._topic_prefix = topic_prefix
         self._token = token
@@ -1322,37 +217,108 @@ class JackeryDataCoordinator:
         self._sensors: dict[str, Any] = {}
         self._data_task: asyncio.Task[None] | None = None
         self._subscribed = False
-        self._last_update_time = time.time()
-        self._start_time = time.time()
+        self._mqtt_transport = JackeryMqttTransport(hass)
+        self._lifecycle_lock = asyncio.Lock()
+        self._lifecycle_active = False
+        self._stop_requested = False
+        self._runtime_state = CoordinatorRuntimeState(
+            last_update_time=time.time(),
+            start_time=time.time(),
+        )
+        self._diagnostics_observation = DiagnosticsObservationState()
+        self._protocol_discovery_capture = protocol_discovery_capture
+        self._protocol_discovery = (
+            protocol_discovery_capture.state
+            if protocol_discovery_capture is not None
+            else ProtocolDiscoveryState() if protocol_discovery_enabled else None
+        )
+        self._protocol_discovery_active = False
+        self._alert_capture = alert_capture
+        self._alert_capture_active = False
+        self._bmslog_capture = bmslog_capture
+        self._bmslog_capture_active = False
 
-        self._known_plugs: set[str] = set()
-        self._subdevice_missing_since: dict[str, float] = {}
-        self._subdevice_last_seen: dict[str, float] = {}
-        self._expansion_battery_sns: set[str] = set()
+        self._child_discovery_state = ChildDiscoveryState()
+        # Compatibility aliases retained for existing coordinator consumers.
+        self._known_plugs = self._child_discovery_state.known_children
+        self._subdevice_missing_since = self._child_discovery_state.missing_since
+        self._expansion_battery_sns = self._child_discovery_state.expansion_batteries
         self._poll_105_counter: int = 2  # starts at threshold-1 so type-105 fires on first cycle
         self.add_entities_callback: Any = None
         self.add_switch_entities_callback: Any = None
-        self._data_cache: dict[str, Any] = {}
-
         # Device meta — populated from first MQTT message, used to update device registry (Ü2/Ü3)
         self._device_type: int | None = None
         self._soft_ver: str | None = None
 
         # Re-Auth guard — prevents multiple simultaneous re-auth flows
         self._reauth_started: bool = False
-        # True as soon as one valid message for this device SN was received (re-auth heuristic)
-        self._ever_received: bool = False
+        self._no_mqtt_response_issue_created = False
         self.config_entry_id: str = ""  # set by async_setup_entry
+        self._child_migration: ChildMigrationResult | None = None
 
         # SmartMeter HTTP polling (optional feature, controlled via options flow)
         self._smartmeter_http_task: asyncio.Task[None] | None = None
-        self._http_sm_sensors_created: bool = False
+        self._http_sm_sensor_sns_created: set[str] = set()
 
-        self._topic_status_wildcard = f"{self._topic_root}/device/+/status"
-        self._topic_event_wildcard = f"{self._topic_root}/device/+/event"
+        # Relayed child reports also arrive on the host's status/event topics.
+        topic_sn = device_sn or "+"
+        self._topic_status = f"{self._topic_root}/device/{topic_sn}/status"
+        self._topic_event = f"{self._topic_root}/device/{topic_sn}/event"
+        self._topic_alert = (
+            alert_capture.topic if alert_capture is not None else None
+        )
+        self._topic_bmslog = (
+            bmslog_capture.topic if bmslog_capture is not None else None
+        )
+
+    @property
+    def _data_cache(self) -> dict[str, Any]:
+        return self._runtime_state.data_cache
+
+    @property
+    def _power_live_seen(self) -> dict[str, tuple[int, float]]:
+        return self._runtime_state.power_live_seen
+
+    @property
+    def _power_106_samples(self) -> dict[str, tuple[Any, float]]:
+        return self._runtime_state.power_106_samples
+
+    @property
+    def _energy_sources(self) -> dict[str, Any]:
+        return self._runtime_state.energy_sources
+
+    @property
+    def _subdevice_last_seen(self) -> dict[str, float]:
+        return self._runtime_state.subdevice_last_seen
+
+    @property
+    def _last_update_time(self) -> float:
+        return self._runtime_state.last_update_time
+
+    @property
+    def _start_time(self) -> float:
+        return self._runtime_state.start_time
+
+    @property
+    def _ever_received(self) -> bool:
+        return self._runtime_state.ever_received
+
+    @property
+    def _mqtt_unsubscribers(self) -> list[CALLBACK_TYPE]:
+        """Compatibility view of transport-owned subscription handles."""
+        return self._mqtt_transport.unsubscribers
+
+    def diagnostics_observation(self) -> DiagnosticsObservationSnapshot:
+        """Return an immutable copy of passive per-coordinator observations."""
+        return self._diagnostics_observation.snapshot()
+
+    def protocol_discovery_snapshot(self) -> ProtocolDiscoverySnapshot | None:
+        """Return a detached discovery snapshot when the opt-in mode is active."""
+        state = self._protocol_discovery
+        return state.snapshot() if state is not None else None
 
     def register_sensor(self, sensor_id: str, entity: Any) -> None:
-        """Register any HA entity that implements _update_from_coordinator."""
+        """Register an HA entity for its supported MQTT or HTTP update path."""
         self._sensors[sensor_id] = entity
 
     def unregister_sensor(self, sensor_id: str) -> None:
@@ -1361,197 +327,410 @@ class JackeryDataCoordinator:
             del self._sensors[sensor_id]
 
     async def async_start(self) -> None:
-        """启动协调器."""
-        if self._subscribed:
-            return
+        """Own every subscription as soon as it is created; unwind failed starts."""
+        async with self._lifecycle_lock:
+            if self._subscribed:
+                return
+            self._stop_requested = False
+            self._protocol_discovery_active = self._protocol_discovery_capture is not None
+            try:
+                @callback
+                def message_received(msg):
+                    self._handle_message(msg)
 
-        try:
-            # 订阅状态主题 (Wildcard) 以发现设备和接收数据
-            @callback
-            def message_received(msg):
-                self._handle_message(msg)
+                await self._mqtt_transport.async_subscribe(
+                    (self._topic_status, self._topic_event),
+                    message_received,
+                )
+                if self._alert_capture is not None and self._topic_alert is not None:
+                    @callback
+                    def alert_message_received(msg):
+                        self._handle_alert_message(msg)
 
-            await ha_mqtt.async_subscribe(
-                self.hass,
-                self._topic_status_wildcard,
-                message_received,
-                1
-            )
-            _LOGGER.info(f"Coordinator subscribed to: {self._topic_status_wildcard}")
+                    self._alert_capture_active = True
+                    await self._mqtt_transport.async_subscribe(
+                        (self._topic_alert,),
+                        alert_message_received,
+                    )
+                if self._bmslog_capture is not None and self._topic_bmslog is not None:
+                    @callback
+                    def bmslog_message_received(msg):
+                        self._handle_bmslog_message(msg)
 
-            # Subscribe to event topic for sub-device data (Type 101)
-            await ha_mqtt.async_subscribe(
-                self.hass,
-                self._topic_event_wildcard,
-                message_received,
-                1
-            )
-            _LOGGER.info(f"Coordinator subscribed to: {self._topic_event_wildcard}")
+                    self._bmslog_capture_active = True
+                    await self._mqtt_transport.async_subscribe(
+                        (self._topic_bmslog,),
+                        bmslog_message_received,
+                    )
+                _LOGGER.debug("MQTT subscriptions created for entry %s", self.config_entry_id)
 
-            self._subscribed = True
-
-            # 启动定时轮询
-            self._data_task = asyncio.create_task(self._periodic_data_request())
-
-            # Start optional SmartMeter HTTP polling if enabled in options
-            entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
-            if entry and entry.options.get("smartmeter_http_poll", False):
-                self._smartmeter_http_task = asyncio.create_task(self._smartmeter_http_poll_loop())
-                _LOGGER.info("SmartMeter HTTP polling enabled (interval=%ds)", entry.options.get("smartmeter_poll_interval", 10))
-
-        except Exception as e:
-            _LOGGER.error(f"Failed to start coordinator: {e}")
+                self._data_task = asyncio.create_task(self._periodic_data_request())
+                # HTTP retains its existing independent polling/health policy.
+                entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
+                if entry and entry.options.get("smartmeter_http_poll", False):
+                    self._smartmeter_http_task = asyncio.create_task(self._smartmeter_http_poll_loop())
+                    _LOGGER.info("SmartMeter HTTP polling enabled (interval=%ds)", entry.options.get("smartmeter_poll_interval", 10))
+                self._subscribed = True
+                self._lifecycle_active = not self._stop_requested
+            except (Exception, asyncio.CancelledError):
+                await self._async_release_resources()
+                raise
 
     async def async_stop(self) -> None:
-        """停止协调器."""
-        if self._data_task and not self._data_task.done():
-            self._data_task.cancel()
+        """Release only this coordinator's resources, once, even after a partial start."""
+        self._stop_requested = True
+        self._lifecycle_active = False
+        async with self._lifecycle_lock:
+            await self._async_release_resources()
+        _LOGGER.debug("Coordinator stopped for entry %s", self.config_entry_id)
+
+    async def _async_release_resources(self) -> None:
+        """Attempt all cleanup before reporting errors; caller holds lifecycle lock."""
+        self._lifecycle_active = False
+        self._subscribed = False
+        self._alert_capture_active = False
+        self._bmslog_capture_active = False
+        self._protocol_discovery_active = False
+        self._delete_no_mqtt_response_issue()
+        errors: list[Exception] = []
+        had_subscriptions = self._mqtt_transport.unsubscribe_count > 0
+        try:
+            await self._mqtt_transport.async_stop()
+        except ExceptionGroup as error:
+            errors.extend(error.exceptions)
+        if had_subscriptions:
+            _LOGGER.debug("MQTT subscription cleanup attempted for entry %s", self.config_entry_id)
+
+        tasks = [task for task in (self._data_task, self._smartmeter_http_task) if task and not task.done()]
+        for task in tasks:
+            task.cancel()
+        # Child-task cancellation is expected. Cancellation of the caller must
+        # still propagate; gather distinguishes it from the collected results.
+        results = await asyncio.gather(*tasks, return_exceptions=True)
+        errors.extend(result for result in results if isinstance(result, Exception))
+        if self._alert_capture is not None:
             try:
-                await self._data_task
-            except asyncio.CancelledError:
-                pass
-        if self._smartmeter_http_task and not self._smartmeter_http_task.done():
-            self._smartmeter_http_task.cancel()
+                await self._alert_capture.async_flush()
+            except Exception as error:
+                errors.append(error)
+        if self._bmslog_capture is not None:
             try:
-                await self._smartmeter_http_task
-            except asyncio.CancelledError:
-                pass
-        _LOGGER.info("Coordinator stopped")
+                await self._bmslog_capture.async_flush()
+            except Exception as error:
+                errors.append(error)
+        if self._protocol_discovery_capture is not None:
+            try:
+                await self._protocol_discovery_capture.async_flush()
+            except Exception as error:
+                errors.append(error)
+        if errors:
+            raise ExceptionGroup("Coordinator resource cleanup failed", errors)
+
+    def _handle_alert_message(self, msg: Any) -> None:
+        """Observe only the exact host alert topic, without normal status effects."""
+        capture = self._alert_capture
+        topic = getattr(msg, "topic", None)
+        if (
+            not self._alert_capture_active
+            or capture is None
+            or topic != self._topic_alert
+        ):
+            return
+        capture.observe(
+            topic=topic,
+            payload=getattr(msg, "payload", None),
+            qos=getattr(msg, "qos", None),
+            retain=getattr(msg, "retain", None),
+        )
+
+    def _handle_bmslog_message(self, msg: Any) -> None:
+        """Observe only the exact host BMS log topic, outside normal routing."""
+        capture = self._bmslog_capture
+        topic = getattr(msg, "topic", None)
+        if (
+            not self._bmslog_capture_active
+            or capture is None
+            or topic != self._topic_bmslog
+        ):
+            return
+        capture.observe(
+            topic=topic,
+            payload=getattr(msg, "payload", None),
+            qos=getattr(msg, "qos", None),
+            retain=getattr(msg, "retain", None),
+        )
 
     def _handle_message(self, msg) -> None:
         """处理接收到的 MQTT 消息."""
-        self._last_update_time = time.time()
         try:
             topic = msg.topic
-            payload = msg.payload
-            if isinstance(payload, bytes):
-                payload = payload.decode("utf-8")
+            topic_info = parse_topic(self._topic_root, topic)
+            if topic_info is None:
+                self._diagnostics_observation.record_protocol_error(
+                    ProtocolErrorBucket.INVALID_TOPIC
+                )
+                return
+            sn = topic_info.device_sn
+            if self._device_sn and self._device_sn != sn:
+                self._diagnostics_observation.record_protocol_error(
+                    ProtocolErrorBucket.FOREIGN_HOST
+                )
+                _LOGGER.debug(f"Ignoring data from another device: {sn}")
+                return
 
-            # Extract device SN from topic: {prefix}/device/{sn}/status OR .../event
-            match = re.search(rf"{self._topic_root}/device/([^/]+)/(status|event)", topic)
-            if match:
-                sn = match.group(1)
-                if not self._device_sn:
-                    self._device_sn = sn
-                    _LOGGER.info(f"Discovered device SN: {self._device_sn}")
-                elif self._device_sn != sn:
-                    # Ü1: ignore messages from other devices on the same broker
-                    _LOGGER.debug(f"Ignoring data from another device: {sn}")
-                    return
-
-            # A valid message for our device arrived → token is accepted, no re-auth needed
-            self._ever_received = True
-
-            # Parse Payload
             try:
-                raw_data = json.loads(payload)
-                msg_code = raw_data.get("type")
-                body = raw_data.get("body")
-
-                # No `body` wrapper: some firmware revisions send a flat status payload
-                # with all fields at the top level. Reconstruct the body from those.
-                if body is None:
-                     # If Type 101 and body is None, ignore.
-                     if msg_code == 101:
-                         return
-                     flat_body = _extract_flat_body(raw_data)
-                     body = flat_body if flat_body else {}
-
-                # Capture device model/firmware from first message (Ü2)
-                if isinstance(body, dict):
-                    self._capture_device_meta(raw_data, body)
-
-                # Merge logic
-                # Type 23: Statistical/Energy Data
-                if msg_code == 23 and isinstance(body, dict):
-                    device_sn_in_body = body.get("deviceSn")
-                    dev_type_in_body = body.get("devType")
-                    if device_sn_in_body == "system" or device_sn_in_body is None:
-                        # Merge into main device cache
-                        self._merge_normalized_cache(body)
-                    elif dev_type_in_body == 1:
-                        # Expansion battery (e.g. BP2500) — not in type-101, store separately
-                        exp_bats = self._data_cache.setdefault("expansion_batteries", {})
-                        if device_sn_in_body not in exp_bats:
-                            exp_bats[device_sn_in_body] = {}
-                        # Only update with non-null values to preserve previously cached real data.
-                        # Devices occasionally send null for energy fields (e.g. during a restart);
-                        # overwriting with null would cause sensors to show "unknown" until the
-                        # next type-23 arrives (~10 min later).
-                        for k, v in body.items():
-                            if v is not None:
-                                exp_bats[device_sn_in_body][k] = v
-                        # Update last_seen so offline detection doesn't mark them unavailable
-                        self._subdevice_last_seen[device_sn_in_body] = time.time()
-                        self._check_for_new_expansion_batteries()
-                    else:
-                        # Find and update sub-device in cache (CTs, SmartMeter)
-                        for key in ["plugs", "plug", "cts"]:
-                            items = self._data_cache.get(key)
-                            if isinstance(items, list):
-                                for item in items:
-                                    if item.get("sn") == device_sn_in_body or item.get("deviceSn") == device_sn_in_body:
-                                        item.update(body)
-                                        break
-
-                # Type 101: Sub-device full data
-                elif msg_code == 101 and isinstance(body, dict):
-                    self._merge_subdevice_arrays(body)
-
-                # Type 102: Sub-device incremental / point updates
-                # (plug switchSta/outPw, CT phase power, …). Not observed on the
-                # SolarVault 3 Pro Max, but sent by newer firmware / other models.
-                elif msg_code == 102 and isinstance(body, dict):
-                    if not self._merge_subdevice_arrays(body):
-                        self._merge_subdevice_point_update(body)
-
-                # Type 106: Full system state (response to type-105 poll)
-                elif msg_code == 106 and isinstance(body, dict):
-                    # Settings (workMode, maxFeedGrid, …): always update.
-                    # Real-time power fields: only populate if not already established
-                    # by a fresher type-2 message — prevents 30 s-stale snapshots
-                    # from overwriting live readings (see _TYPE106_SKIP_IF_ESTABLISHED).
-                    normalized = _normalize_payload_fields(body)
-                    for k, v in normalized.items():
-                        if k not in _TYPE106_SKIP_IF_ESTABLISHED or k not in self._data_cache:
-                            self._data_cache[k] = v
-                    _LOGGER.debug("Received type-106 system state (%d fields)", len(body))
-
-                # Type 107: Incremental system update (soc, workMode, …)
-                elif msg_code == 107 and isinstance(body, dict):
-                    self._merge_normalized_cache(body)
-                    _LOGGER.debug("Received type-107 incremental update: %s", body)
-
-                # Type 123: Auth error from device
-                elif msg_code == 123 and isinstance(body, dict):
-                    error_code = body.get("errorCode")
-                    if error_code == 401:
-                        self._trigger_reauth("device reported token mismatch (type-123/401)")
-
-                # Type 25 or Status: Main device data
-                elif isinstance(body, dict):
-                    # Merge top-level keys into cache to preserve fields not present in current message
-                    self._merge_normalized_cache(body)
-
-            except json.JSONDecodeError:
+                parsed = parse_envelope(msg.payload)
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                self._capture_invalid_protocol_message(topic, sn, msg)
+                self._diagnostics_observation.record_protocol_error(
+                    ProtocolErrorBucket.INVALID_JSON
+                )
                 _LOGGER.warning(f"Invalid JSON payload on {topic}")
                 return
+            if parsed is None:
+                self._capture_invalid_protocol_message(topic, sn, msg)
+                self._diagnostics_observation.record_protocol_error(
+                    ProtocolErrorBucket.INVALID_ENVELOPE
+                )
+                return
+
+            if not self._device_sn:
+                self._device_sn = sn
+                _LOGGER.info(f"Discovered device SN: {self._device_sn}")
+            # The topic identifies the host; payload SNs may identify its children.
+            # Invalid or foreign traffic must not postpone offline/reauth checks.
+            self._delete_no_mqtt_response_issue()
+            received_at = time.time()
+            self._runtime_state.record_host_activity(received_at)
+
+            # Discovery observes only host-owned, parsed and structurally accepted
+            # envelopes.  It cannot affect routing or any operational state.
+            protocol_discovery = self._protocol_discovery
+            protocol_capture = getattr(self, "_protocol_discovery_capture", None)
+            if (
+                protocol_capture is not None
+                and getattr(self, "_protocol_discovery_active", False)
+                and self._device_sn == sn
+            ):
+                try:
+                    protocol_capture.observe(
+                        topic=topic,
+                        payload=getattr(msg, "payload", None),
+                        raw_envelope=parsed.raw_data,
+                        body=parsed.body,
+                        message_type=parsed.decision.message_type,
+                        now=received_at,
+                        qos=getattr(msg, "qos", None),
+                        retain=getattr(msg, "retain", None),
+                    )
+                except Exception:
+                    _LOGGER.warning(
+                        "Protocol discovery capture failed for entry %s",
+                        self.config_entry_id,
+                    )
+            elif protocol_discovery is not None:
+                protocol_discovery.observe(
+                    parsed.raw_data,
+                    parsed.body,
+                    message_type=parsed.decision.message_type,
+                    now=received_at,
+                )
+
+            # The topic owns the host identity. Child arrays may redundantly
+            # include that same serial, but it must not enter child-owned state.
+            body = exclude_serial_from_child_arrays(parsed.body, self._device_sn)
+            decision = parsed.decision
+            if decision.captures_host_metadata and is_host_message_body(
+                body,
+                self._device_sn,
+            ):
+                self._capture_device_meta(parsed.raw_data, body)
+
+            self._apply_message_route(decision, body)
+            if decision.refreshes_generic_children:
+                self._refresh_generic_child_activity(body)
 
             # Enrich data with calculations using merged cache
             # operate on copy or direct? Direct is fine.
-            self._data_cache = self._calculate_energy_flow(self._data_cache)
+            self._calculate_energy_flow(self._data_cache)
 
             # Check for new plugs
             self._check_for_new_plugs(self._data_cache)
 
             self._distribute_data(self._data_cache)
 
+            route_bucket, unknown_message_type = _protocol_observation_bucket(
+                decision
+            )
+            self._diagnostics_observation.record_protocol_route(
+                route_bucket,
+                unknown_message_type=unknown_message_type,
+            )
+
         except Exception as e:
+            self._diagnostics_observation.record_protocol_error(
+                ProtocolErrorBucket.HANDLER_ERROR
+            )
             _LOGGER.error(f"Error handling message: {e}")
 
-    def _merge_normalized_cache(self, payload: dict) -> None:
+    def _capture_invalid_protocol_message(self, topic: str, sn: str, msg: Any) -> None:
+        """Capture malformed bytes only for a configured, exact host topic."""
+        capture = getattr(self, "_protocol_discovery_capture", None)
+        if (
+            not getattr(self, "_protocol_discovery_active", False)
+            or capture is None
+            or self._device_sn is None
+            or self._device_sn != sn
+        ):
+            return
+        try:
+            capture.observe_invalid(
+                topic=topic,
+                payload=getattr(msg, "payload", None),
+                now=time.time(),
+                qos=getattr(msg, "qos", None),
+                retain=getattr(msg, "retain", None),
+            )
+        except Exception:
+            _LOGGER.warning(
+                "Protocol discovery capture failed for entry %s",
+                self.config_entry_id,
+            )
+
+    def _apply_message_route(
+        self,
+        decision: RoutingDecision,
+        body: dict[str, Any],
+    ) -> None:
+        """Apply one pure routing decision to coordinator-owned state."""
+        if decision.route is MessageRoute.TYPE_23:
+            self._handle_type23(body)
+        elif decision.route is MessageRoute.TYPE_101:
+            self._merge_subdevice_arrays(body)
+        elif decision.route is MessageRoute.TYPE_102:
+            if not self._merge_subdevice_arrays(body):
+                self._merge_subdevice_point_update(body)
+        elif decision.route is MessageRoute.TYPE_106:
+            self._handle_type106(body)
+        elif decision.route is MessageRoute.TYPE_107:
+            self._merge_normalized_cache(body, decision.message_type)
+            _LOGGER.debug("Received type-107 incremental update: %s", body)
+        elif decision.route is MessageRoute.TYPE_123:
+            if body.get("errorCode") == 401:
+                self._trigger_reauth("device reported token mismatch (type-123/401)")
+        else:
+            self._merge_normalized_cache(body, decision.message_type)
+
+    def _handle_type23(self, body: dict[str, Any]) -> None:
+        """Apply statistical host or child data to coordinator-owned state."""
+        device_sn_in_body = body.get("deviceSn")
+        child_sn = _subdevice_sn(body)
+        is_expansion_battery = (
+            classify_device(body, ClassificationContext.TYPE23_CHILD).family
+            is DeviceFamily.EXPANSION_BATTERY
+        )
+        is_sn_only_expansion = (
+            device_sn_in_body is None
+            and child_sn is not None
+            and is_expansion_battery
+        )
+        if is_host_message_body(body, self._device_sn) and not is_sn_only_expansion:
+            self._merge_normalized_cache(body, 23)
+        elif is_expansion_battery and child_sn is not None:
+            # Expansion battery (e.g. BP2500) — not in type-101.
+            exp_bats = self._data_cache.setdefault("expansion_batteries", {})
+            if child_sn not in exp_bats:
+                exp_bats[child_sn] = {}
+            # Null energy reports must not erase the last real long-cadence value.
+            for key, value in body.items():
+                if value is not None:
+                    exp_bats[child_sn][key] = value
+            self._runtime_state.record_child_activity(
+                child_sn,
+                time.time(),
+            )
+            self._check_for_new_expansion_batteries()
+        else:
+            # Existing type-23 search intentionally excludes collectors.
+            for data_key in ("plugs", "plug", "cts"):
+                items = self._data_cache.get(data_key)
+                if isinstance(items, list):
+                    for item in items:
+                        if (
+                            item.get("sn") == device_sn_in_body
+                            or item.get("deviceSn") == device_sn_in_body
+                        ):
+                            item.update(body)
+                            self._runtime_state.record_child_activity(
+                                device_sn_in_body,
+                                time.time(),
+                            )
+                            break
+
+    def _handle_type106(self, body: dict[str, Any]) -> None:
+        """Apply a full-system snapshot with coordinator-owned live preference."""
+        normalized = normalize_payload_fields(body)
+        ongrid_observation = _directional_power_observation(
+            normalized,
+            "gridInPw",
+            "gridOutPw",
+        )
+        if ongrid_observation is not None:
+            self._runtime_state.record_ongrid_type106_evidence(
+                ongrid_observation,
+            )
+        self._runtime_state.merge_type106_snapshot(
+            normalized,
+            live_preferred=_TYPE106_LIVE_PREFERRED,
+            live_timeout=OFFLINE_TIMEOUT,
+        )
+        _LOGGER.debug("Received type-106 system state (%d fields)", len(body))
+
+    def _refresh_generic_child_activity(self, body: dict[str, Any]) -> None:
+        """Refresh reported child activity for established generic routes."""
+        for key in ("plugs", "plug", "cts", "collectors"):
+            items = body.get(key)
+            if isinstance(items, list):
+                for item in items:
+                    if isinstance(item, dict) and (child_sn := _subdevice_sn(item)):
+                        self._runtime_state.record_child_activity(
+                            child_sn,
+                            self._last_update_time,
+                        )
+
+    def _merge_normalized_cache(self, payload: dict, msg_code: Any = None) -> None:
         """Normalize field aliases and merge a main-device payload into the cache."""
-        self._data_cache.update(_normalize_payload_fields(payload))
+        normalized = normalize_payload_fields(payload)
+        live_type = msg_code if msg_code in (2, 23, 25, 107) else None
+        if live_type is not None:
+            ongrid_observation = _directional_power_observation(
+                normalized,
+                "inOngridPw",
+                "outOngridPw",
+            )
+            if ongrid_observation is not None:
+                self._runtime_state.record_ongrid_live_evidence(
+                    ongrid_observation,
+                )
+        valid_live_fields = {
+            key
+            for key in _TYPE106_LIVE_PREFERRED.intersection(payload)
+            if live_type is not None and _power_sample(payload[key]) is not None
+        }
+        self._runtime_state.merge_main_payload(
+            normalized,
+            observed_keys=payload,
+            message_type=live_type,
+            live_preferred=_TYPE106_LIVE_PREFERRED,
+            valid_live_fields=valid_live_fields,
+        )
+        plug_items = normalized.get("plug")
+        if not isinstance(plug_items, list):
+            plug_items = normalized.get("plugs")
+        if isinstance(plug_items, list):
+            # Both aliases are one canonical cache view, including generic routes.
+            self._data_cache["plugs"] = plug_items
+            self._data_cache["plug"] = self._data_cache["plugs"]
 
     def _merge_subdevice_arrays(self, body: dict) -> bool:
         """Merge plugs/cts/collectors arrays from a body into the cache.
@@ -1577,12 +756,13 @@ class JackeryDataCoordinator:
             for item in raw_plugs:
                 if not isinstance(item, dict):
                     continue
+                classification = classify_device(item, ClassificationContext.PLUG_ARRAY)
                 if item.get("devType") is None:
-                    item = {**item, "devType": 6}
+                    item = {**item, "devType": classification.dev_type}
                 new_plugs.append(item)
                 sn = _subdevice_sn(item)
                 if sn:
-                    self._subdevice_last_seen[sn] = now_ts
+                    self._runtime_state.record_child_activity(sn, now_ts)
             self._data_cache["plugs"] = _merge_subdevice_list(
                 self._data_cache.get("plugs"), new_plugs
             )
@@ -1594,12 +774,13 @@ class JackeryDataCoordinator:
             for item in raw_cts:
                 if not isinstance(item, dict):
                     continue
+                classification = classify_device(item, ClassificationContext.CT_ARRAY)
                 if item.get("devType") is None:
-                    item = {**item, "devType": 2}
+                    item = {**item, "devType": classification.dev_type}
                 new_cts.append(item)
                 sn = _subdevice_sn(item)
                 if sn:
-                    self._subdevice_last_seen[sn] = now_ts
+                    self._runtime_state.record_child_activity(sn, now_ts)
             self._data_cache["cts"] = _merge_subdevice_list(
                 self._data_cache.get("cts"), new_cts
             )
@@ -1615,7 +796,7 @@ class JackeryDataCoordinator:
                 new_collectors.append(item)
                 sn = _subdevice_sn(item)
                 if sn:
-                    self._subdevice_last_seen[sn] = now_ts
+                    self._runtime_state.record_child_activity(sn, now_ts)
             self._data_cache["collectors"] = _merge_subdevice_list(
                 self._data_cache.get("collectors"), new_collectors
             )
@@ -1634,7 +815,7 @@ class JackeryDataCoordinator:
         if not sn or sn == self._device_sn or sn == "system":
             return False
 
-        self._subdevice_last_seen[sn] = time.time()
+        self._runtime_state.record_child_activity(sn, time.time())
 
         # 1. Known device → patch in place (skip null values, they carry no information)
         for key in ("plugs", "plug", "cts", "collectors"):
@@ -1648,23 +829,26 @@ class JackeryDataCoordinator:
 
         # 2. New device → classify by devType, inferring it from the fields if absent
         entry = dict(body)
-        dev_type = entry.get("devType")
-        if dev_type is None:
-            if any(k in body for k in ("switchSta", "sysSwitch", "totalEgy")):
-                dev_type = 6
-            elif any(k in body for k in ("aPhasePw", "AphasePw", "tPhasePw", "TphasePw", "phasePw")):
-                dev_type = 3
-            if dev_type is not None:
-                entry["devType"] = dev_type
+        classification = classify_device(entry, ClassificationContext.POINT_UPDATE)
+        dev_type = classification.dev_type
+        if entry.get("devType") is None and dev_type is not None:
+            entry["devType"] = dev_type
 
-        if dev_type in PLUG_ITEM_DEV_TYPES:
+        if classification.family is DeviceFamily.UNKNOWN:
+            return False
+
+        if classification.family is DeviceFamily.PLUG:
             self._data_cache["plugs"] = _merge_subdevice_list(
                 self._data_cache.get("plugs"), [entry]
             )
             self._data_cache["plug"] = self._data_cache["plugs"]
             return True
-        if dev_type in CT_DEV_TYPES:
-            key = "collectors" if (dev_type == 4 and entry.get("subType") == 7) else "cts"
+        if classification.family in (DeviceFamily.CT, DeviceFamily.SMARTMETER, DeviceFamily.COLLECTOR):
+            key = (
+                "collectors"
+                if classification.family is DeviceFamily.COLLECTOR
+                else "cts"
+            )
             self._data_cache[key] = _merge_subdevice_list(
                 self._data_cache.get(key), [entry]
             )
@@ -1676,9 +860,15 @@ class JackeryDataCoordinator:
         changed = False
         device_type = raw_data.get("deviceType")
         if device_type is not None and self._device_type is None:
-            self._device_type = int(device_type)
-            changed = True
+            try:
+                self._device_type = int(device_type)
+            except (TypeError, ValueError, OverflowError):
+                _LOGGER.debug("Ignoring invalid host deviceType")
+            else:
+                changed = True
         soft_ver = body.get("softver")
+        if soft_ver is None:
+            soft_ver = raw_data.get("softver")
         if soft_ver is not None and soft_ver != self._soft_ver:
             self._soft_ver = str(soft_ver)
             changed = True
@@ -1691,33 +881,94 @@ class JackeryDataCoordinator:
         registry = dr.async_get(self.hass)
         model = DEVICE_TYPE_MODEL_MAP.get(self._device_type or 0, DEFAULT_MODEL)
         identifier = self._device_sn or self.config_entry_id
-        device = registry.async_get_device(identifiers={(DOMAIN, identifier)})
+        matches = find_devices_by_identifier(registry, (DOMAIN, identifier))
+        device = find_device_by_identifier(registry, (DOMAIN, identifier), self.config_entry_id)
+        if matches and (len(matches) != 1 or device is None or not device_owned_by_entry(device, self.config_entry_id)):
+            _LOGGER.warning("Skipping device metadata update: config-entry ownership is ambiguous")
+            return
         if device:
             registry.async_update_device(device.id, model=model, sw_version=self._soft_ver)
             _LOGGER.debug("Device registry updated: model=%s sw_version=%s", model, self._soft_ver)
 
     def _trigger_reauth(self, reason: str) -> None:
         """Initiate a re-authentication flow in HA (Re-Auth feature)."""
-        if self._reauth_started:
+        if self._reauth_started or not self._lifecycle_active:
+            return
+        entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
+        if entry is None:
+            _LOGGER.debug(
+                "Skipping re-authentication for missing config entry %s",
+                self.config_entry_id,
+            )
             return
         self._reauth_started = True
         _LOGGER.warning("Triggering re-authentication: %s", reason)
-        from homeassistant.config_entries import SOURCE_REAUTH
-        self.hass.async_create_task(
-            self.hass.config_entries.flow.async_init(
-                DOMAIN,
-                context={"source": SOURCE_REAUTH, "entry_id": self.config_entry_id},
-                data={},
-            )
+        entry.async_start_reauth(self.hass)
+
+    @property
+    def _no_mqtt_response_issue_id(self) -> str:
+        """Return a stable, per-config-entry Home Assistant repair issue ID."""
+        return f"{NO_MQTT_RESPONSE_ISSUE_PREFIX}{self.config_entry_id}"
+
+    @callback
+    def _create_no_mqtt_response_issue(self) -> None:
+        """Report missing MQTT replies without asserting that the token is invalid."""
+        if getattr(self, "_no_mqtt_response_issue_created", False) or not self.config_entry_id:
+            return
+        self._no_mqtt_response_issue_created = True
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self._no_mqtt_response_issue_id,
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="no_mqtt_response",
         )
+        _LOGGER.warning(
+            "No valid MQTT reply received within %s seconds for config entry %s; "
+            "check the device serial number, token, and device/broker connectivity",
+            NO_MQTT_RESPONSE_TIMEOUT,
+            self.config_entry_id,
+        )
+
+    @callback
+    def _delete_no_mqtt_response_issue(self) -> None:
+        """Remove the repair issue after a valid host reply or coordinator stop."""
+        if not getattr(self, "_no_mqtt_response_issue_created", False):
+            return
+        ir.async_delete_issue(self.hass, DOMAIN, self._no_mqtt_response_issue_id)
+        self._no_mqtt_response_issue_created = False
 
     def _entity_keys_for_subdevice(self, sn: str) -> list[str]:
         """Return all registered entity keys (unique_ids) belonging to a sub-device SN."""
         return [
             sensor_id
-            for sensor_id in self._sensors
-            if f"_{sn}_" in sensor_id or sensor_id.endswith(f"_{sn}")
+            for sensor_id, entity in self._sensors.items()
+            if getattr(entity, "_plug_sn", None) == sn or getattr(entity, "_sm_sn", None) == sn
         ]
+
+    def child_identity_allowed(self, sn: str) -> bool:
+        """Do not recreate children whose persisted identity could not migrate."""
+        migration = getattr(self, "_child_migration", None)
+        return migration is None or migration.allows(sn)
+
+    def _child_membership(self) -> ChildDiscoveryState:
+        """Return discovery state, adapting minimal test coordinators if needed."""
+        state = getattr(self, "_child_discovery_state", None)
+        if (
+            state is None
+            or state.known_children is not self._known_plugs
+            or state.expansion_batteries is not self._expansion_battery_sns
+            or state.missing_since is not self._subdevice_missing_since
+        ):
+            state = ChildDiscoveryState(
+                known_children=self._known_plugs,
+                expansion_batteries=self._expansion_battery_sns,
+                missing_since=self._subdevice_missing_since,
+            )
+            self._child_discovery_state = state
+        return state
 
     def _remove_subdevice_from_ha(self, sn: str) -> None:
         """Remove an unbound sub-device and all its entities from Home Assistant.
@@ -1727,11 +978,19 @@ class JackeryDataCoordinator:
         `async_remove(force_remove=True)` on every entity individually, which left the
         empty device behind.
         """
+        if not self.child_identity_allowed(sn):
+            return
         try:
             from homeassistant.helpers import device_registry as dr
             dev_reg = dr.async_get(self.hass)
             # Identifier must match JackerySubDeviceSensor._attr_device_info
-            device = dev_reg.async_get_device(identifiers={(DOMAIN, f"sub_{sn}")})
+            host = self._device_sn or self.config_entry_id
+            identifier = (DOMAIN, child_device_identifier(host, sn))
+            matches = find_devices_by_identifier(dev_reg, identifier)
+            device = find_device_by_identifier(dev_reg, identifier, self.config_entry_id)
+            if matches and (len(matches) != 1 or device is None or not device_owned_by_entry(device, self.config_entry_id)):
+                _LOGGER.warning("Skipping child device removal: config-entry ownership is ambiguous")
+                return
             if device is not None:
                 dev_reg.async_remove_device(device.id)
                 _LOGGER.info("Sub-device %s unbound — removed from HA device registry.", sn)
@@ -1739,15 +998,14 @@ class JackeryDataCoordinator:
             _LOGGER.warning("Could not remove sub-device %s from device registry: %s", sn, err)
 
         # Drop all in-memory references so the device can be re-discovered cleanly
-        self._known_plugs.discard(sn)
-        self._expansion_battery_sns.discard(sn)
-        self._subdevice_missing_since.pop(sn, None)
+        self._child_membership().remove(sn)
         self._subdevice_last_seen.pop(sn, None)
         for sensor_id in self._entity_keys_for_subdevice(sn):
             self.unregister_sensor(sensor_id)
 
     def _check_for_new_plugs(self, data: dict) -> None:
         """Check and sync plugs/CTs/collectors (add new, remove old)."""
+        self._update_subdevice_availability()
         all_devices = []
         for key in ("plugs", "plug", "cts", "collectors"):
             items = data.get(key)
@@ -1763,88 +1021,48 @@ class JackeryDataCoordinator:
             if sn:
                 current_sns.add(sn)
 
-        now = time.time()
-
-        # 0. Update sub-device availability based on last_seen timestamps
-        for sn in self._known_plugs:
-            last_seen = self._subdevice_last_seen.get(sn, 0)
-            # During the first 60s after start, don't mark offline (device might not have reported yet)
-            if last_seen == 0 and (now - self._start_time) < OFFLINE_TIMEOUT:
-                continue
-            # Expansion batteries report cumulative energy via type-23 (~10 min cadence).
-            # Once data has been received (last_seen > 0), keep available indefinitely —
-            # the value is still valid between updates. Only go unavailable if never seen.
-            if sn in self._expansion_battery_sns:
-                is_available = last_seen > 0
-            else:
-                is_available = last_seen > 0 and (now - last_seen) <= OFFLINE_TIMEOUT
-            for sensor_id in self._entity_keys_for_subdevice(sn):
-                entity = self._sensors.get(sensor_id)
-                if entity is None or entity.available == is_available:
-                    continue
-                entity._attr_available = is_available
-                entity.async_write_ha_state()
-                if not is_available:
-                    _LOGGER.debug("Sub-device %s offline (last seen %.0fs ago)", sn, now - last_seen)
-
-        # 1. 更新 missing 状态
-        for sn in current_sns:
-            if sn in self._subdevice_missing_since:
-                _LOGGER.info(f"Sub-device {sn} reappeared, cancelling deletion.")
-                del self._subdevice_missing_since[sn]
-
-        for sn in self._known_plugs:
-            if sn in self._expansion_battery_sns:
-                continue  # expansion batteries appear in type-23, not type-101 — never subject to deletion timer
-            if sn not in current_sns:
-                if sn not in self._subdevice_missing_since:
-                    self._subdevice_missing_since[sn] = now
-                    _LOGGER.info(f"Sub-device {sn} missing, starting {OFFLINE_TIMEOUT}s deletion timer...")
-
-        # 2. 执行真正的移除
-        for sn in list(self._subdevice_missing_since.keys()):
-            if sn not in self._known_plugs:
-                del self._subdevice_missing_since[sn]
-                continue
-            if sn in self._expansion_battery_sns:
-                del self._subdevice_missing_since[sn]
-                continue
-            if sn in current_sns:
-                del self._subdevice_missing_since[sn]
-                continue
-
-            missing_time = self._subdevice_missing_since[sn]
-            if now - missing_time > OFFLINE_TIMEOUT:
-                _LOGGER.info(f"Sub-device {sn} missing for >{OFFLINE_TIMEOUT}s. Removing.")
-                self._remove_subdevice_from_ha(sn)
+        changes = self._child_membership().reconcile(
+            current_sns,
+            now=time.time(),
+            deletion_timeout=OFFLINE_TIMEOUT,
+        )
+        for sn in changes.reappeared:
+            _LOGGER.info("Sub-device %s reappeared, cancelling deletion.", sn)
+        for sn in changes.newly_missing:
+            _LOGGER.info(
+                "Sub-device %s missing, starting %ss deletion timer...",
+                sn,
+                OFFLINE_TIMEOUT,
+            )
+        for sn in changes.due_for_removal:
+            _LOGGER.info(
+                "Sub-device %s missing for >%ss. Removing.", sn, OFFLINE_TIMEOUT
+            )
+            self._remove_subdevice_from_ha(sn)
 
         # 3. Add newly discovered devices
         new_entities = []
         new_switch_entities = []
         for plug in all_devices:
             sn = plug.get("deviceSn") or plug.get("sn")
-            dev_type = plug.get("devType")
+            classification = classify_device(plug)
+            dev_type = classification.dev_type
             sub_type = plug.get("subType")
-            if dev_type is None and sub_type == 2:
-                dev_type = 2
 
-            if sn and sn not in self._known_plugs:
+            # Match the supported point-update/static-switch types. Unknown
+            # metadata remains cached but must not invent writable plug entities.
+            entity_spec = child_entity_spec(classification)
+            if entity_spec is None:
+                continue
+
+            if sn and sn not in self._known_plugs and self.child_identity_allowed(sn):
                 _LOGGER.info(f"Discovered new sub-device: {sn} (devType={dev_type}, subType={sub_type})")
-                self._known_plugs.add(sn)
+                self._child_membership().register(sn)
 
                 if hasattr(self, "config_entry_id"):
-                    # Determine sensor group and data source key
-                    is_collector = dev_type == 4 and sub_type == 7
-                    is_ct = dev_type in CT_DEV_TYPES and not is_collector
-                    if is_collector:
-                        sensor_group = "collector"
-                        data_key = "collectors"
-                    elif is_ct:
-                        sensor_group = "ct_3phase" if dev_type == 3 else "ct"
-                        data_key = "cts"
-                    else:
-                        sensor_group = "plug"
-                        data_key = "plugs"
+                    sensor_group = entity_spec.sensor_group
+                    data_key = entity_spec.data_key
+                    assert data_key is not None
 
                     group_config = SUBDEVICE_SENSORS.get(sensor_group, {})
                     for sensor_key, sensor_cfg in group_config.items():
@@ -1860,7 +1078,7 @@ class JackeryDataCoordinator:
                         )
                         new_entities.append(entity)
 
-                    if not is_ct and not is_collector:
+                    if entity_spec.create_plug_switch:
                         from .switch import JackeryPlugSwitch
                         switch_entity = JackeryPlugSwitch(
                             plug_sn=sn,
@@ -1882,9 +1100,8 @@ class JackeryDataCoordinator:
             return
         new_entities = []
         for sn in exp_bats:
-            if sn not in self._known_plugs:
-                self._known_plugs.add(sn)
-                self._expansion_battery_sns.add(sn)
+            if sn not in self._known_plugs and self.child_identity_allowed(sn):
+                self._child_membership().register(sn, expansion_battery=True)
                 _LOGGER.info(f"Discovered expansion battery: {sn}")
                 group_config = SUBDEVICE_SENSORS.get("expansion_battery", {})
                 exp_data = exp_bats.get(sn, {})
@@ -1942,29 +1159,23 @@ class JackeryDataCoordinator:
             _LOGGER.warning("Cannot control sub-device: device SN not discovered")
             return
 
-        action_topic = f"{self._topic_root}/device/{self._device_sn}/action"
-        ts = int(time.time())
-        payload = {
-            "type": 103,
-            "eventId": 0,
-            "messageId": random.randint(1000, 9999),
-            "ts": ts,
-            "body": {
-                "deviceSn": plug_sn,
-                "devType": dev_type,
-                "sysSwitch": 1 if is_on else 0,
-            },
-        }
-        if self._token:
-            payload["token"] = self._token
+        allowed, reason = plug_mqtt_control_allowed(self.get_plug_item(plug_sn) or {})
+        if not allowed:
+            _LOGGER.warning("Cannot control smart plug %s via MQTT: %s", plug_sn, reason)
+            raise HomeAssistantError(reason)
 
-        await ha_mqtt.async_publish(
-            self.hass,
-            action_topic,
-            json.dumps(payload),
-            0,
-            False
+        topic = action_topic(self._topic_root, self._device_sn)
+        ts = int(time.time())
+        payload = build_subdevice_switch(
+            message_id=random.randint(1000, 9999),
+            timestamp=ts,
+            token=self._token,
+            device_serial=plug_sn,
+            device_type=dev_type,
+            is_on=is_on,
         )
+
+        await self._mqtt_transport.async_publish(topic, payload)
 
     async def async_control_main_device(self, params: dict[str, Any]) -> None:
         """Control main device via type 1, cmd 5."""
@@ -1972,217 +1183,108 @@ class JackeryDataCoordinator:
             _LOGGER.warning("Cannot control main device: device SN not discovered")
             return
 
-        action_topic = f"{self._topic_root}/device/{self._device_sn}/action"
+        topic = action_topic(self._topic_root, self._device_sn)
         ts = int(time.time())
-        body = {"cmd": 5, "rc": 1}
-        body.update(params)
-        payload = {
-            "type": 1,
-            "eventId": 3,
-            "messageId": random.randint(1000, 9999),
-            "ts": ts,
-            "body": body,
-        }
-        if self._token:
-            payload["token"] = self._token
-
-        await ha_mqtt.async_publish(
-            self.hass,
-            action_topic,
-            json.dumps(payload),
-            0,
-            False
+        payload = build_main_control(
+            message_id=random.randint(1000, 9999),
+            timestamp=ts,
+            token=self._token,
+            params=params,
         )
 
+        await self._mqtt_transport.async_publish(topic, payload)
+
     def _calculate_energy_flow(self, data: dict) -> dict:
-        """Compute the derived energy-flow values from the merged cache.
-
-        Sources, in priority order:
-        - PV:      `pvPw` (scalar or dict)
-        - Ongrid:  `_effective_ongrid_net()` over gridInPw/gridOutPw, inOngridPw/outOngridPw
-                   and inGridSidePw/outGridSidePw (positive = grid → unit)
-        - ACSocket: `swEpsInPw` / `swEpsOutPw`
-        - Grid:    CT (`cts`) → Meter Collector (`collectors`) → `_grid_net_from_system()`
-        - Battery: `batInPw`/`batOutPw` when reported, else the estimate pv + p_ac + p_ong
-        - Home:    p_grid − p_ong (clamped to ≥ 0), else the unit's net AC output
-        """
+        """Normalize/cache runtime inputs, then delegate pure energy calculation."""
         try:
-            # 0. Normalize field aliases (gridBuyPw→gridInPw, gridSellPw→gridOutPw,
-            #    workModel→workMode) so the multi-source helpers see canonical keys.
-            data.update(_normalize_payload_fields(data))
-
-            # 1. PV
-            # Handle dict for PV if necessary (copied from sensor logic)
-            pv_val = data.get("pvPw", 0)
-            if isinstance(pv_val, dict):
-                pv = _safe_float(pv_val.get("pvPw") or pv_val.get("w") or pv_val.get("power"))
-            else:
-                pv = _safe_float(pv_val)
-
-            # 2. Ongrid — net power at the grid-tied port, multi-source so that a
-            #    type-106 zero cannot mask a live type-2 reading (and vice versa).
-            grid_in = _safe_float(data.get("gridInPw"))
-            grid_out = _safe_float(data.get("gridOutPw"))
-            ongrid_charge = _safe_float(data.get("inOngridPw"))
-            ongrid_supply = _safe_float(data.get("outOngridPw"))
-            in_grid_side = _safe_float(data.get("inGridSidePw"))
-            out_grid_side = _safe_float(data.get("outGridSidePw"))
-            p_ong = _effective_ongrid_net(  # 流入主机为正
-                data,
-                grid_in,
-                grid_out,
-                ongrid_charge,
-                ongrid_supply,
-                in_grid_side,
-                out_grid_side,
-            )
-
-            # 3. ACSocket (EPS)
-            ac_in = _safe_float(data.get("swEpsInPw"))
-            ac_out = _safe_float(data.get("swEpsOutPw"))
-
-            # 4. Grid (Meter)
-            # 优先从 'cts' 数组中提取 CT 数据 (Smart CT Meter)
-            # cts item: { ..., "TphasePw": <Import>, "TnphasePw": <Export>, "commState": 1/0, ... }
-            grid_available = False
-            grid_buy = 0.0
-            grid_sell = 0.0
-
-            cts = data.get("cts")
-            if cts and isinstance(cts, list) and len(cts) > 0:
-                # 尝试获取第一个 CT 数据
-                ct_data = cts[0]
-                # 检查通讯状态 (如果 commState 存在且为 0 可能表示离线，视具体协议而定，这里暂定只要有数据即可)
-                # TphasePw: 总正向有功 (Grid Buy)
-                # TnphasePw: 总负向有功 (Grid Sell)
-                t_phase_pw = ct_data.get("TphasePw") or ct_data.get("tPhasePw")
-                tn_phase_pw = ct_data.get("TnphasePw") or ct_data.get("tnPhasePw")
-
-                # Fallback: if total phase missing, sum A/B/C
-                if t_phase_pw is None:
-                    a_pw = ct_data.get("AphasePw") or ct_data.get("aPhasePw") or 0
-                    b_pw = ct_data.get("BphasePw") or ct_data.get("bPhasePw") or 0
-                    c_pw = ct_data.get("CphasePw") or ct_data.get("cPhasePw") or 0
-                    if any(v is not None for v in [a_pw, b_pw, c_pw]):
-                        t_phase_pw = float(a_pw) + float(b_pw) + float(c_pw)
-
-                if tn_phase_pw is None:
-                    an_pw = ct_data.get("AnphasePw") or ct_data.get("anPhasePw") or 0
-                    bn_pw = ct_data.get("BnphasePw") or ct_data.get("bnPhasePw") or 0
-                    cn_pw = ct_data.get("CnphasePw") or ct_data.get("cnPhasePw") or 0
-                    if any(v is not None for v in [an_pw, bn_pw, cn_pw]):
-                        tn_phase_pw = float(an_pw) + float(bn_pw) + float(cn_pw)
-
-                if t_phase_pw is not None or tn_phase_pw is not None:
-                    grid_buy = float(t_phase_pw or 0)
-                    grid_sell = float(tn_phase_pw or 0)
-                    grid_available = True
-
-            # Fallback 1: Meter Collector (HTO910A, devType=4, subType=7)
-            # Appears in data_cache["collectors"]; fields inPw/outPw are direct W values.
-            if not grid_available:
-                collectors = data.get("collectors")
-                if collectors and isinstance(collectors, list):
-                    for collector in collectors:
-                        if not isinstance(collector, dict):
+            data.update(normalize_payload_fields(data))
+            freshness: dict[str, SourceFreshness] | None = None
+            if self is not None:
+                now = time.time()
+                freshness = {}
+                for array in ("cts", "collectors"):
+                    items = data.get(array)
+                    if not isinstance(items, list):
+                        continue
+                    for item in items:
+                        if not isinstance(item, dict) or (sn := _subdevice_sn(item)) is None:
                             continue
-                        in_pw = collector.get("inPw")
-                        out_pw = collector.get("outPw")
-                        if in_pw is not None or out_pw is not None:
-                            grid_buy = float(in_pw or 0)
-                            grid_sell = float(out_pw or 0)
-                            grid_available = True
-                            break
-
-            # Fallback 2: device-reported system fields (gridInPw/gridOutPw — already
-            # alias-normalized from gridBuyPw/gridSellPw — or inGridSidePw/outGridSidePw).
-            # inOngridPw/outOngridPw are deliberately excluded (see _grid_net_from_system).
-            if not grid_available:
-                sys_net, sys_available = _grid_net_from_system(
-                    data,
-                    grid_in,
-                    grid_out,
-                    ongrid_charge,
-                    ongrid_supply,
-                    in_grid_side,
-                    out_grid_side,
-                    include_ongrid=False,
+                        seen = self._subdevice_last_seen.get(sn)
+                        freshness[sn] = SourceFreshness(
+                            available=self._subdevice_is_available(sn, now),
+                            activity_age=now - seen if seen is not None else None,
+                        )
+            selected = select_grid_source(data, freshness)
+            ongrid_evidence = None
+            if self is not None:
+                runtime = self._runtime_state
+                ongrid_evidence = OnGridSourceEvidence(
+                    live_observed=runtime.ongrid_live_observed,
+                    live_seen_at=runtime.ongrid_live_seen_at,
+                    type106_observed=runtime.ongrid_type106_observed,
+                    type106_seen_at=runtime.ongrid_type106_seen_at,
+                    live_preference_seconds=OFFLINE_TIMEOUT,
                 )
-                if sys_available:
-                    grid_available = True
-                    grid_buy = max(0.0, sys_net)
-                    grid_sell = max(0.0, -sys_net)
-
-            # Calculate P_grid
-            p_grid = None
-            if grid_available:
-                p_grid = grid_buy - grid_sell
-
-                # 🔴异常流程（仅当电表可用且并网口处于充电态时生效）
-                # GridAvailable=true 且 GridBuy < OngridCharge 且 (OngridCharge - GridBuy) <= 50W
-                if grid_buy < ongrid_charge and (ongrid_charge - grid_buy) <= 50:
-                    p_grid = p_ong
-
-            # 5. Battery (total stack — main unit + expansion batteries)
-            # batInPw/batOutPw are main-unit-only and do NOT include expansion batteries
-            # (e.g. BP2500). Confirmed 2026-08-04 by parallel MQTT/app measurement:
-            # energy balance matches the Jackery app within ≤13 W; batInPw diverges by
-            # 200–300 W when the BP2500 is actively charging.
-            # Formula: PV + grid_in − grid_out_to_ac − eps_out + eps_in
-            total_batt_net = pv + ongrid_charge - ongrid_supply - ac_out + ac_in
-            total_batt_charge = max(0.0, total_batt_net)
-            total_batt_discharge = max(0.0, -total_batt_net)
-            p_batt = total_batt_net
-
-            # 6. Home (Calculated)
-            p_home = 0.0
-
-            if p_grid is not None:
-                # 电表可用
-                # Base formula: p_home = p_grid - p_ong
-                #   = (grid_buy - grid_sell) - (ongrid_charge - ongrid_supply)
-                #   = ongrid_supply + grid_buy - grid_sell - ongrid_charge
-                # This correctly handles all normal scenarios including phase-balanced
-                # feed-in (outOngridPw is total SolarVault AC output, not net-to-grid).
-                p_home = p_grid - p_ong
-
-                # 🔴 异常分支 1: measurement noise — grid_buy slightly below ongrid_charge
-                if grid_buy > 0 and ongrid_charge > 0 and grid_buy < ongrid_charge and (ongrid_charge - grid_buy) <= 50:
-                    p_home = 0.0
-
-                # 🔴 异常分支 2: larger discrepancy between grid_buy and ongrid_charge
-                elif grid_buy > 0 and ongrid_charge > 0 and grid_buy < ongrid_charge and (ongrid_charge - grid_buy) > 50:
-                    p_home = ongrid_charge - grid_buy
-
-            else:
-                # 电表不可用 (No CT / collector / system fields) — the unit's net AC output
-                # is the only available estimate of the house load.
-                p_home = max(0.0, -p_ong)
-
-            # House loads cannot be negative — clamp any sensor-timing artefact to 0.
-            p_home = max(0.0, p_home)
-
-            # Store calculated values
-            data["calc_home_power"] = p_home
-            data["calc_batt_net_power"] = p_batt
-            data["total_battery_charge_power"] = total_batt_charge
-            data["total_battery_discharge_power"] = total_batt_discharge
-            data["grid_available"] = grid_available
-            data["calc_grid_net_power"] = p_grid if grid_available else None
+            calculate_energy_flow(data, selected, ongrid_evidence)
+            if self is not None:
+                self._runtime_state.record_energy_source("grid", selected.metadata())
 
         except Exception as e:
             _LOGGER.error(f"Error calculating energy flow: {e}")
 
         return data
 
+    def _subdevice_is_available(self, sn: str, now: float) -> bool:
+        """Apply the existing per-child timeout and cumulative-energy exception."""
+        return self._runtime_state.child_is_available(
+            sn,
+            now,
+            timeout=OFFLINE_TIMEOUT,
+            retain_after_first_seen=sn in self._expansion_battery_sns,
+        )
+
+    def _update_subdevice_availability(self) -> None:
+        """Check child MQTT health independently of discovery and incoming traffic."""
+        now = time.time()
+        for sn in list(self._known_plugs):
+            last_seen = self._subdevice_last_seen.get(sn, 0)
+            if last_seen == 0 and (now - self._start_time) < OFFLINE_TIMEOUT:
+                continue
+            is_available = self._subdevice_is_available(sn, now)
+            for sensor_id in self._entity_keys_for_subdevice(sn):
+                # HTTP registration keys share the child SN, but health is HTTP-owned.
+                if sensor_id.startswith("http_"):
+                    continue
+                entity = self._sensors.get(sensor_id)
+                if entity is None or entity.available == is_available:
+                    continue
+                entity._attr_available = is_available
+                entity.async_write_ha_state()
+                if not is_available:
+                    _LOGGER.debug("Sub-device %s offline (last seen %.0fs ago)", sn, now - last_seen)
+
     def _distribute_data(self, data: dict) -> None:
-        """分发数据给传感器."""
-        for sensor_id, entity in self._sensors.items():
-            entity._update_from_coordinator(data)
+        """Distribute MQTT data only to entities supporting that callback."""
+        # HTTP-only sensors share this registry; callbacks may unregister entities.
+        for entity in list(self._sensors.values()):
+            update = getattr(entity, "_update_from_coordinator", None)
+            if callable(update):
+                sn = getattr(entity, "_plug_sn", None)
+                if sn is not None and not self._subdevice_is_available(sn, time.time()):
+                    # Cached values must not undo a child's timeout during fan-out.
+                    if entity.available:
+                        entity._attr_available = False
+                        entity.async_write_ha_state()
+                    continue
+                update(data)
 
     def _mark_all_offline(self) -> None:
-        """Mark all entities as unavailable."""
-        for entity in self._sensors.values():
+        """Mark MQTT entities offline, preserving independent HTTP and energy counters."""
+        for entity in list(self._sensors.values()):
+            if not callable(getattr(entity, "_update_from_coordinator", None)):
+                continue
+            if getattr(entity, "_plug_sn", None) in self._expansion_battery_sns:
+                continue
             if entity.available:
                 entity._attr_available = False
                 entity.async_write_ha_state()
@@ -2199,21 +1301,28 @@ class JackeryDataCoordinator:
 
         while True:
             try:
-                if time.time() - self._last_update_time > OFFLINE_TIMEOUT:
+                self._update_subdevice_availability()
+                if self._runtime_state.host_is_stale(time.time(), OFFLINE_TIMEOUT):
                     self._mark_all_offline()
+                elif self._data_cache:
+                    # Child expiry can change the energy source between messages.
+                    # Reuse this timer; update only changed derived grid/home entities.
+                    previous = {key: self._data_cache.get(key) for key in ("calc_grid_net_power", "calc_home_power")}
+                    self._calculate_energy_flow(self._data_cache)
+                    changed = {key for key, value in previous.items() if self._data_cache.get(key) != value}
+                    for sensor_id, key in (("grid_net_power", "calc_grid_net_power"), ("home_power", "calc_home_power")):
+                        entity = self._sensors.get(sensor_id)
+                        if key in changed and isinstance(entity, JackerySensor):
+                            entity._update_from_coordinator(self._data_cache)
 
-                # Re-auth heuristic: the device stays completely silent when it rejects
-                # the token (it does not answer with an error). If we have been polling
-                # for REAUTH_HINT_TIMEOUT seconds without a single reply, the token
-                # (or the configured SN) is most likely wrong.
+                # Silence does not prove an authentication failure. The device may
+                # be offline or the configured serial may not match the MQTT topic.
                 if (
                     not self._ever_received
                     and self._device_sn
-                    and time.time() - self._start_time > REAUTH_HINT_TIMEOUT
+                    and time.time() - self._start_time > NO_MQTT_RESPONSE_TIMEOUT
                 ):
-                    self._trigger_reauth(
-                        f"no device response within {REAUTH_HINT_TIMEOUT}s after setup"
-                    )
+                    self._create_no_mqtt_response_issue()
 
                 if not self._device_sn:
                     _LOGGER.debug("Waiting for device SN discovery...")
@@ -2233,29 +1342,25 @@ class JackeryDataCoordinator:
         """Send type-25, throttled type-105, and type-100 poll requests."""
         if not self._device_sn:
             return
-        action_topic = f"{self._topic_root}/device/{self._device_sn}/action"
+        topic = action_topic(self._topic_root, self._device_sn)
         ts = int(time.time())
 
         # 1. Poll device status (type-25)
         try:
-            payload_25 = {
-                "type": 25, "eventId": 0,
-                "messageId": random.randint(1000, 9999),
-                "ts": ts, "token": self._token, "body": None,
-            }
-            await ha_mqtt.async_publish(self.hass, action_topic, json.dumps(payload_25), 0, False)
+            payload_25 = build_status_request(
+                message_id=random.randint(1000, 9999), timestamp=ts, token=self._token
+            )
+            await self._mqtt_transport.async_publish(topic, payload_25)
         except Exception as e:
             _LOGGER.warning("Error polling device status (type-25): %s", e)
 
         # 1b. Read-all-settings request (type-2). Some firmware answers this with a
         # settings block that type-25 does not contain; harmless when unsupported.
         try:
-            payload_2 = {
-                "type": 2, "eventId": 0,
-                "messageId": random.randint(1000, 9999),
-                "ts": ts, "token": self._token, "body": None,
-            }
-            await ha_mqtt.async_publish(self.hass, action_topic, json.dumps(payload_2), 0, False)
+            payload_2 = build_settings_request(
+                message_id=random.randint(1000, 9999), timestamp=ts, token=self._token
+            )
+            await self._mqtt_transport.async_publish(topic, payload_2)
         except Exception as e:
             _LOGGER.debug("Error sending read-all-settings request (type-2): %s", e)
 
@@ -2264,37 +1369,43 @@ class JackeryDataCoordinator:
         if self._poll_105_counter >= 3:
             self._poll_105_counter = 0
             try:
-                payload_105 = {
-                    "type": 105, "eventId": 0,
-                    "messageId": random.randint(1000, 9999),
-                    "ts": ts, "token": self._token, "body": None,
-                }
-                await ha_mqtt.async_publish(self.hass, action_topic, json.dumps(payload_105), 0, False)
+                payload_105 = build_full_state_request(
+                    message_id=random.randint(1000, 9999), timestamp=ts, token=self._token
+                )
+                await self._mqtt_transport.async_publish(topic, payload_105)
                 _LOGGER.debug("Sent type-105 poll (full system state)")
             except Exception as e:
                 _LOGGER.warning("Error polling full system state (type-105): %s", e)
 
         # 3. Poll sub-devices (type-100): CTs (2), SmartMeter 3P (3), Plugs (6)
-        try:
-            for dev_type in [2, 3, 6]:
-                payload_100 = {
-                    "type": 100, "eventId": 0,
-                    "messageId": random.randint(1000, 9999),
-                    "ts": ts, "token": self._token,
-                    "body": {"devType": dev_type},
-                }
-                await ha_mqtt.async_publish(self.hass, action_topic, json.dumps(payload_100), 0, False)
-                await asyncio.sleep(0.5)
-        except Exception as e:
-            _LOGGER.warning("Error polling sub-devices (type-100): %s", e)
+        for dev_type in [2, 3, 6]:
+            payload_100 = build_subdevice_request(
+                message_id=random.randint(1000, 9999),
+                timestamp=ts,
+                token=self._token,
+                device_type=dev_type,
+            )
+            try:
+                await self._mqtt_transport.async_publish(topic, payload_100)
+            except Exception as e:
+                _LOGGER.warning(
+                    "Error polling sub-device category (type-100 devType=%s): %s",
+                    dev_type,
+                    e,
+                )
+                continue
+            await asyncio.sleep(0.5)
 
-        _LOGGER.debug("Sent poll requests to %s", action_topic)
+        _LOGGER.debug("Sent poll requests to %s", topic)
 
     def _find_smartmeter_ip_and_sn(self) -> tuple[str | None, str | None]:
         """Find SmartMeter HTO907A IP and SN from MQTT cache (cts list, devType=3, subType=5)."""
         cts = self._data_cache.get("cts") or []
         for item in cts:
-            if isinstance(item, dict) and item.get("devType") == 3 and item.get("subType") == 5:
+            if (
+                isinstance(item, dict)
+                and classify_device(item).model is DeviceModel.HTO907A
+            ):
                 ip = item.get("wip")
                 sn = item.get("deviceSn") or item.get("sn")
                 if ip and sn:
@@ -2305,9 +1416,10 @@ class JackeryDataCoordinator:
         """Poll SmartMeter HTO907A HTTP API for additional sensor data (voltage, current, etc.)."""
         entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
         poll_interval: int = entry.options.get("smartmeter_poll_interval", 10) if entry else 10
-        session = async_get_clientsession(self.hass)
-        # Mark unavailable after this many consecutive failures (~3 × poll_interval without data)
-        _FAILURE_THRESHOLD = 3
+        transport = SmartMeterHttpTransport(async_get_clientsession(self.hass))
+        measurement_keys = tuple(
+            config["key"] for config in SMARTMETER_HTTP_SENSOR_CONFIGS.values()
+        )
         consecutive_failures = 0
         last_sm_sn: str | None = None
 
@@ -2316,45 +1428,71 @@ class JackeryDataCoordinator:
         while True:
             try:
                 ip, sm_sn = self._find_smartmeter_ip_and_sn()
-                if not ip or not sm_sn:
-                    await asyncio.sleep(30)
-                    continue
-
-                last_sm_sn = sm_sn
-                url = f"http://{ip}/api/measurement"
+                self._diagnostics_observation.observe_http_target(sm_sn)
                 success = False
-                try:
-                    async with session.get(url, timeout=aiohttp.ClientTimeout(total=5)) as resp:
-                        if resp.status == 200:
-                            data = await resp.json(content_type=None)
-                            if not self._http_sm_sensors_created:
+                outcome = HttpOutcome.NO_TARGET
+                if ip and sm_sn:
+                    if last_sm_sn and last_sm_sn != sm_sn:
+                        self._mark_http_sensors_unavailable(last_sm_sn)
+                        consecutive_failures = 0
+                    last_sm_sn = sm_sn
+                    try:
+                        self._diagnostics_observation.record_http_attempt(
+                            time.time()
+                        )
+                        result = await transport.fetch_measurement(ip, measurement_keys)
+                        data = result.data
+                        outcome = result.outcome
+                        success = data is not None
+                        if data is not None:
+                            if sm_sn not in self._http_sm_sensor_sns_created:
                                 await self._create_http_sensors(sm_sn)
-                                self._http_sm_sensors_created = True
+                                self._http_sm_sensor_sns_created.add(sm_sn)
                             self._distribute_http_data(sm_sn, data)
-                            success = True
-                        else:
-                            _LOGGER.debug("SmartMeter HTTP %d from %s", resp.status, url)
-                except (aiohttp.ClientError, TimeoutError) as e:
-                    _LOGGER.debug("SmartMeter HTTP poll failed (%s): %s", ip, e)
+                        elif result.status != 200:
+                            _LOGGER.debug(
+                                "SmartMeter HTTP %d from %s",
+                                result.status,
+                                result.url,
+                            )
+                    except SmartMeterHttpRequestError as e:
+                        outcome = e.outcome
+                        _LOGGER.debug("SmartMeter HTTP poll failed (%s): %s", ip, e)
 
                 if success:
                     consecutive_failures = 0
-                else:
+                elif last_sm_sn:
                     consecutive_failures += 1
-                    if consecutive_failures == _FAILURE_THRESHOLD:
+                    if consecutive_failures == HTTP_FAILURE_THRESHOLD:
                         _LOGGER.warning(
                             "SmartMeter HTTP unreachable for %d polls — marking sensors unavailable",
-                            _FAILURE_THRESHOLD,
+                            HTTP_FAILURE_THRESHOLD,
                         )
-                        self._mark_http_sensors_unavailable(sm_sn)
+                        self._mark_http_sensors_unavailable(last_sm_sn)
 
-                await asyncio.sleep(poll_interval)
+                self._diagnostics_observation.record_http_outcome(
+                    outcome,
+                    now=time.time(),
+                    consecutive_failures=consecutive_failures,
+                    failure_threshold=HTTP_FAILURE_THRESHOLD,
+                )
+
+                await asyncio.sleep(poll_interval if ip and sm_sn else 30)
 
             except asyncio.CancelledError:
                 break
             except Exception as e:
+                self._diagnostics_observation.record_http_outcome(
+                    HttpOutcome.UNEXPECTED_ERROR,
+                    now=time.time(),
+                    consecutive_failures=consecutive_failures,
+                    failure_threshold=HTTP_FAILURE_THRESHOLD,
+                )
                 _LOGGER.error("SmartMeter HTTP poll loop error: %s", e)
-                await asyncio.sleep(poll_interval)
+                try:
+                    await asyncio.sleep(poll_interval)
+                except asyncio.CancelledError:
+                    break
 
         if last_sm_sn:
             self._mark_http_sensors_unavailable(last_sm_sn)
@@ -2362,7 +1500,7 @@ class JackeryDataCoordinator:
 
     async def _create_http_sensors(self, sm_sn: str) -> None:
         """Create JackerySmartMeterHttpSensor entities for the given SmartMeter SN."""
-        if not self.add_entities_callback:
+        if not self.add_entities_callback or not self.child_identity_allowed(sm_sn):
             return
         new_entities = [
             JackerySmartMeterHttpSensor(
@@ -2399,23 +1537,14 @@ async def async_setup_entry(
     async_add_entities: AddEntitiesCallback,
 ) -> None:
     """Set up Jackery sensors."""
-    config = config_entry.data
-    topic_prefix = config.get("topic_prefix", "hb")
-    token = config.get("token")
-    mqtt_host = config.get("mqtt_host")
-    device_sn = config.get("device_sn")
-
-    coordinator = JackeryDataCoordinator(hass, topic_prefix, token, mqtt_host, device_sn)
-    coordinator.config_entry_id = config_entry.entry_id
+    coordinator = hass.data[DOMAIN][config_entry.entry_id]["coordinator"]
 
     # Register callback for dynamic entities
     def add_entities_callback(new_entities):
         async_add_entities(new_entities)
     coordinator.add_entities_callback = add_entities_callback
 
-    hass.data[DOMAIN][config_entry.entry_id]["coordinator"] = coordinator
-
-    entities = []
+    entities: list[SensorEntity] = []
     for sensor_id, sensor_config in SENSORS.items():
         if sensor_config.get("json_key") is None:
             continue
@@ -2427,12 +1556,85 @@ async def async_setup_entry(
         )
         entities.append(entity)
 
+    host = coordinator._device_sn
+    if host:
+        legacy_work_mode = find_owned_main_entity(
+            hass,
+            domain="sensor",
+            host=host,
+            platform=DOMAIN,
+            config_entry_id=config_entry.entry_id,
+            unique_id=official_work_mode_sensor_unique_id(host),
+        )
+        if legacy_work_mode is not None:
+            entities.append(JackeryLegacyWorkModeSensor(coordinator, config_entry.entry_id))
+
     async_add_entities(entities)
-    await coordinator.async_start()
+
+
+class JackeryLegacyWorkModeSensor(SensorEntity):
+    """Read-only Work Mode sensor retained for an existing Official registry row."""
+
+    _attr_native_value: float | str | None
+
+    def __init__(self, coordinator: JackeryDataCoordinator, config_entry_id: str) -> None:
+        """Initialize using the pinned Official identity and sensor semantics."""
+        self._coordinator = coordinator
+        host = coordinator._device_sn or config_entry_id
+        self._attr_translation_key = "legacy_work_mode"
+        self._attr_icon = "mdi:cog-outline"
+        self._attr_native_unit_of_measurement = None
+        self._attr_device_class = None
+        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_has_entity_name = True
+        self._attr_unique_id = official_work_mode_sensor_unique_id(host)
+        self._attr_device_info = {
+            "identifiers": {(DOMAIN, host)},
+            "name": "Jackery",
+            "manufacturer": "Jackery",
+            "model": DEFAULT_MODEL,
+        }
+
+    @property
+    def should_poll(self) -> bool:
+        """Coordinator data is the only source for this compatibility sensor."""
+        return False
+
+    async def async_added_to_hass(self) -> None:
+        """Subscribe to the existing coordinator fan-out only."""
+        await super().async_added_to_hass()
+        self._coordinator.register_sensor("main_legacy_work_mode", self)
+
+    async def async_will_remove_from_hass(self) -> None:
+        """Release the coordinator callback when the entity is unloaded."""
+        self._coordinator.unregister_sensor("main_legacy_work_mode")
+        await super().async_will_remove_from_hass()
+
+    def _update_from_coordinator(self, data: dict) -> None:
+        """Expose normalized ``workMode`` with Official's raw numeric semantics."""
+        value = data.get("workMode")
+        if value is None:
+            return
+        try:
+            self._attr_native_value = float(value)
+        except (TypeError, ValueError):
+            self._attr_native_value = value if isinstance(value, str) else str(value)
+        self._attr_available = True
+        self.async_write_ha_state()
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Keep the two small attributes exposed by Official's sensor."""
+        return {
+            "device_sn": self._coordinator._device_sn,
+            "raw_key": "workMode",
+        }
 
 
 class JackerySensor(SensorEntity):
     """Jackery Sensor."""
+    # These entities expose numeric measurements and textual/enum states.
+    _attr_native_value: float | str | None
     # ... (Existing JackerySensor Code) ...
     def __init__(
         self,
@@ -2450,6 +1652,11 @@ class JackerySensor(SensorEntity):
         self._attr_icon = self._config["icon"]
         self._attr_device_class = self._config["device_class"]
         self._attr_state_class = self._config["state_class"]
+        self._attr_entity_registry_enabled_default = self._config.get(
+            "entity_registry_enabled_default", True
+        )
+        self._has_enum_raw_value = False
+        self._enum_raw_value: Any = None
         # Multi-instance unique ID: includes device_sn so two SolarVaults on the same HA don't clash
         device_sn = coordinator._device_sn or config_entry_id
         self._attr_unique_id = f"jackery_{device_sn}_{sensor_id}"
@@ -2480,10 +1687,10 @@ class JackerySensor(SensorEntity):
         """Receive data from coordinator."""
         # Special handling for EPS Output Power (Bidirectional)
         if self._sensor_id == "eps_output_power":
-            out_p = float(data.get("swEpsOutPw", 0))
-            in_p = float(data.get("swEpsInPw", 0))
-            self._attr_native_value = out_p - in_p
-            self._attr_available = True
+            out_p = _power_sample(data.get("swEpsOutPw", 0))
+            in_p = _power_sample(data.get("swEpsInPw", 0))
+            self._attr_available = out_p is not None and in_p is not None
+            self._attr_native_value = out_p - in_p if out_p is not None and in_p is not None else None
             self.async_write_ha_state()
             return
 
@@ -2494,7 +1701,10 @@ class JackerySensor(SensorEntity):
         value = data[json_key]
 
         if self._sensor_id == "grid_net_power" and value is None:
-            # Keep last value when CT data is temporarily missing
+            # Keep the last value for recovery, but do not present it as current.
+            if self.available:
+                self._attr_available = False
+                self.async_write_ha_state()
             return
 
         # Process specific conversions
@@ -2515,15 +1725,18 @@ class JackerySensor(SensorEntity):
             elif "power" in value:
                 self._attr_native_value = value["power"]
             else:
-                self._attr_native_value = str(value)  # type: ignore[assignment]
+                self._attr_native_value = str(value)
         else:
             value_map = self._config.get("value_map")
             if value_map is not None:
-                # ENUM sensor: translate integer MQTT value to option string (Ü5)
+                # ENUM sensors must only publish configured options or None. Keep
+                # the original value for diagnostics when protocol enums grow.
+                self._enum_raw_value = value
+                self._has_enum_raw_value = True
                 try:
-                    self._attr_native_value = value_map.get(int(value), str(value))
-                except (TypeError, ValueError):
-                    self._attr_native_value = str(value)  # type: ignore[assignment]
+                    self._attr_native_value = value_map.get(int(value))
+                except (TypeError, ValueError, OverflowError):
+                    self._attr_native_value = None
             else:
                 scale = self._config.get("scale", 1)
                 try:
@@ -2544,6 +1757,8 @@ class JackerySensor(SensorEntity):
             "device_sn": self._coordinator._device_sn,
             "raw_key": self._config.get("json_key"),
         }
+        if getattr(self, "_has_enum_raw_value", False):
+            attrs["raw_value"] = self._enum_raw_value
         # Decode the funcEnable bitmask into named flags for troubleshooting.
         if self._sensor_id == "func_enable":
             raw_bits: Any = self._coordinator._data_cache.get("funcEnable")
@@ -2561,12 +1776,16 @@ class JackerySensor(SensorEntity):
 class JackerySubDeviceSensor(SensorEntity):
     """Jackery Smart Plug / CT Sub-device Sensor."""
 
+    _attr_native_value: float | str | None
+    # Every constructor path assigns the string returned by child_unique_id.
+    _attr_unique_id: str
+
     def __init__(
         self,
         plug_sn: str,
         dev_type: int,
         sensor_key: str,
-        sensor_config: dict,
+        sensor_config: ChildSensorConfig,
         coordinator: JackeryDataCoordinator,
         config_entry_id: str,
         data_key: str = "plugs",
@@ -2609,19 +1828,20 @@ class JackerySubDeviceSensor(SensorEntity):
         if self._sensor_config.get("options"):
             self._attr_options = self._sensor_config["options"]
 
-        # Unique ID: jackery_ct_{sn}_power, jackery_plug_{sn}_energy, etc.
+        main_device_id = coordinator._device_sn or config_entry_id
         safe_key = self._sensor_key.replace("_", "") # e.g. energy_import -> energyimport
-        self._attr_unique_id = f"jackery_{device_name.lower()}_{plug_sn}_{safe_key}"
+        self._attr_unique_id = child_unique_id(main_device_id, plug_sn, device_name.lower(), safe_key)
         self._attr_has_entity_name = True
 
-        main_device_id = coordinator._device_sn or config_entry_id
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"sub_{plug_sn}")},
-            "via_device": (DOMAIN, main_device_id),
-            "name": f"Jackery {device_name} {plug_sn}",
-            "manufacturer": "Jackery",
-            "model": f"Sub-device Type {dev_type}",
-        }
+        self._attr_device_info = build_device_info(
+            getattr(coordinator, "hass", None),
+            config_entry_id,
+            identifiers={(DOMAIN, child_device_identifier(main_device_id, plug_sn))},
+            parent_identifier=(DOMAIN, main_device_id),
+            name=f"Jackery {device_name} {plug_sn}",
+            manufacturer="Jackery",
+            model=f"Sub-device Type {dev_type}",
+        )
 
     @property
     def should_poll(self) -> bool:
@@ -2720,7 +1940,10 @@ class JackerySubDeviceSensor(SensorEntity):
                         a_pw = my_plug.get("AphasePw") or my_plug.get("aPhasePw") or 0
                         b_pw = my_plug.get("BphasePw") or my_plug.get("bPhasePw") or 0
                         if any(v is not None for v in [a_pw, b_pw]):
-                            val = float(a_pw) + float(b_pw)
+                            try:
+                                val = float(a_pw) + float(b_pw)
+                            except (TypeError, ValueError, OverflowError):
+                                return
                 else:
                     val = my_plug.get("TphasePw") or my_plug.get("tPhasePw")
             else:
@@ -2735,7 +1958,10 @@ class JackerySubDeviceSensor(SensorEntity):
                         a_egy = my_plug.get("AphaseEgy") or my_plug.get("aPhaseEgy") or 0
                         b_egy = my_plug.get("BphaseEgy") or my_plug.get("bPhaseEgy") or 0
                         if any(v is not None for v in [a_egy, b_egy]):
-                            val = float(a_egy) + float(b_egy)
+                            try:
+                                val = float(a_egy) + float(b_egy)
+                            except (TypeError, ValueError, OverflowError):
+                                return
                 else:
                     val = my_plug.get("TphaseEgy") or my_plug.get("tPhaseEgy")
                 # If subtype energy is zero/None but total is non-zero, fall back to the single non-zero phase
@@ -2853,7 +2079,7 @@ class JackerySmartMeterHttpSensor(SensorEntity):
         self,
         sm_sn: str,
         sensor_key: str,
-        sensor_config: dict,
+        sensor_config: ChildSensorConfig,
         coordinator: JackeryDataCoordinator,
         config_entry_id: str,
     ) -> None:
@@ -2870,16 +2096,17 @@ class JackerySmartMeterHttpSensor(SensorEntity):
         self._attr_icon = sensor_config.get("icon")
         self._attr_available = False
 
-        self._attr_unique_id = f"jackery_{coordinator._device_sn}_http_sm_{sm_sn}_{sensor_key}"
-
         main_device_id = coordinator._device_sn or config_entry_id
-        self._attr_device_info = {
-            "identifiers": {(DOMAIN, f"sub_{sm_sn}")},
-            "via_device": (DOMAIN, main_device_id),
-            "name": f"Jackery SmartMeter {sm_sn}",
-            "manufacturer": "Jackery",
-            "model": "SmartMeter HTO907A",
-        }
+        self._attr_unique_id = http_unique_id(main_device_id, sm_sn, sensor_key)
+        self._attr_device_info = build_device_info(
+            getattr(coordinator, "hass", None),
+            config_entry_id,
+            identifiers={(DOMAIN, child_device_identifier(main_device_id, sm_sn))},
+            parent_identifier=(DOMAIN, main_device_id),
+            name=f"Jackery SmartMeter {sm_sn}",
+            manufacturer="Jackery",
+            model="SmartMeter HTO907A",
+        )
 
     @property
     def should_poll(self) -> bool:

@@ -6,8 +6,8 @@
     "dependencies": [
         "mqtt"
     ],
-    "documentation": "https://github.com/csoscd/ha-solarvault",
+    "documentation": "https://github.com/fred-head/ha-jackery-solarvault-ng",
     "iot_class": "local_push",
-    "issue_tracker": "https://github.com/csoscd/ha-solarvault/issues",
+    "issue_tracker": "https://github.com/fred-head/ha-jackery-solarvault-ng/issues",
     "version": "2.4.0"
 }

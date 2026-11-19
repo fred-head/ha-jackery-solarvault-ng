@@ -1,6 +1,6 @@
 """Jackery Number Platform."""
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
 from homeassistant.components.number import NumberEntity, NumberMode
 from homeassistant.config_entries import ConfigEntry
@@ -16,7 +16,25 @@ if TYPE_CHECKING:
 _LOGGER = logging.getLogger(__name__)
 
 
-NUMBERS = {
+class NumberBounds(TypedDict, total=False):
+    """Optional telemetry fields for live number bounds."""
+
+    min_key: str
+    max_key: str
+
+
+class NumberConfig(NumberBounds):
+    """Static number metadata; numeric bounds are checked where declared."""
+
+    translation_key: str
+    min: float
+    max: float
+    step: float
+    unit: str
+    optimistic: NotRequired[bool]
+
+
+NUMBERS: dict[str, NumberConfig] = {
     "socChgLimit": {
         "translation_key": "soc_charge_limit",
         "min": 50, "max": 100, "step": 1,
@@ -29,7 +47,6 @@ NUMBERS = {
         "min_key": "minSocDischg", "max_key": "maxSocDischg",
         "unit": PERCENTAGE,
     },
-    # maxOutPw moved to select.py (only 800 W / 2500 W are valid app values)
     # socForceChg moved to switch.py (binary 0/1, not a percentage target)
     # defaultPw: fallback output power for Benutzerdefiniert mode (workModel=4).
     # Active when no time-based schedule entry is in effect.
@@ -39,9 +56,9 @@ NUMBERS = {
         "min": 0, "max": 200, "step": 10,
         "unit": UnitOfPower.WATT, "optimistic": True,
     },
-    # maxOutPw: maximum OnGrid AC output power (Einspeiseleistung).
-    # Live MQTT test (2026-08-06) confirmed the device accepts and enforces arbitrary
-    # values in 10 W steps — not limited to the app's preset options (800/1200/2500 W).
+    # maxOutPw: maximum OnGrid AC output power (house bus limit).
+    # The HA number entity is a slider from 0–2500 W in 10 W steps. A live MQTT
+    # test (2026-08-06) confirmed the device accepts and enforces intermediate values.
     "maxOutPw": {
         "translation_key": "max_feed_in_power",
         "min": 0, "max": 2500, "step": 10,
@@ -51,7 +68,7 @@ NUMBERS = {
     # may export to the PUBLIC electricity grid (not the house AC bus).
     # App "Einspeiseleistungsgrenze", 0–2500 W in 10 W steps.
     # Confirmed writable via cmd=5 (device acks with cmd=107).
-    # Distinct from maxOutPw (house AC bus limit, 800/2500 W select).
+    # Distinct from maxOutPw, which limits the house AC output power.
     # Effect only visible when the device is actually exporting to the public grid;
     # in Eigenverbrauch mode with near-zero net export the limit appears inactive.
     "maxFeedGrid": {
@@ -144,22 +161,30 @@ class JackeryMainNumber(NumberEntity):
         await super().async_will_remove_from_hass()
 
     def _update_from_coordinator(self, data: dict) -> None:
-        cfg = NUMBERS.get(self._key, {})
+        cfg: NumberBounds = NUMBERS.get(self._key, {})
         changed = False
 
         min_key = cfg.get("min_key")
         if min_key and min_key in data:
-            new_min = float(data[min_key])
-            if new_min != self._attr_native_min_value:
-                self._attr_native_min_value = new_min
-                changed = True
+            try:
+                new_min = float(data[min_key])
+            except (TypeError, ValueError, OverflowError):
+                pass
+            else:
+                if new_min != self._attr_native_min_value:
+                    self._attr_native_min_value = new_min
+                    changed = True
 
         max_key = cfg.get("max_key")
         if max_key and max_key in data:
-            new_max = float(data[max_key])
-            if new_max != self._attr_native_max_value:
-                self._attr_native_max_value = new_max
-                changed = True
+            try:
+                new_max = float(data[max_key])
+            except (TypeError, ValueError, OverflowError):
+                pass
+            else:
+                if new_max != self._attr_native_max_value:
+                    self._attr_native_max_value = new_max
+                    changed = True
 
         if self._key in data:
             val = data.get(self._key)

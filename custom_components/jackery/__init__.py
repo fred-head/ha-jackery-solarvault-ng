@@ -1,5 +1,7 @@
 """Energy Monitor MQTT Integration for Home Assistant."""
+import asyncio
 import logging
+from typing import cast
 
 from homeassistant.components import mqtt
 from homeassistant.config_entries import ConfigEntry
@@ -8,13 +10,21 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
 
+from .identity import auto_standby_select_unique_id
+
 _LOGGER = logging.getLogger(__name__)
 
 DOMAIN = "jackery"
 PLATFORMS = [Platform.SENSOR, Platform.SWITCH, Platform.NUMBER, Platform.BUTTON, Platform.SELECT]
+_MAIN_CONTROL_KEYS = {
+    "switch": {"isAutoStandby", "swEps", "offGridDown", "socForceChg", "isFollowMeterPw"},
+    "number": {"socChgLimit", "socDischgLimit", "defaultPw", "maxOutPw", "maxFeedGrid"},
+}
 
 
-async def _migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
+async def _migrate_unique_ids(
+    hass: HomeAssistant, entry: ConfigEntry, *, protected_entities: set[str] | None = None,
+) -> None:
     """Migrate entity unique IDs from v1.x single-instance format to v2.0 multi-instance format.
 
     Old main-sensor format:    jackery_{sensor_id}
@@ -27,39 +37,149 @@ async def _migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
     Old control-entity format: jackery_{config_entry_id}_{x}
     New control-entity format: jackery_{device_sn}_{x}
 
-    Sub-device sensors (SmartMeter, expansion battery, plug) already contain the
-    sub-device SN (uppercase) and are left as-is.
+    Child identities belong to the separate preflight migration and are left as-is.
+    Registry ownership and HA domain/platform identity govern every mutation.
 
-    v2.0.1 bug residue: entities with unique_id jackery_{device_sn}_main_{key} were
-    created by the buggy v2.0.1 migration — they are removed here.
+    Host-prefixed ``main`` controls from Official/v2.0.1 are normalized in
+    place. Sensor-only v2.0.1 ``main`` residues are removed.
     """
+    from .registry_identity import (
+        device_owned_by_entry,
+        find_devices_by_identifier,
+        find_owned_main_entity,
+        get_device_by_id,
+        iter_device_identifiers,
+    )
+
     device_sn = entry.data.get("device_sn", "").strip()
     if not device_sn:
         return
+
+    from .entities.sensor_definitions import SENSORS, SUBDEVICE_SENSORS
 
     entry_id = entry.entry_id
     new_prefix = f"jackery_{device_sn}_"
 
     ent_reg = er.async_get(hass)
     all_entries = list(er.async_entries_for_config_entry(ent_reg, entry_id))
-    existing_uids: set[str] = {e.unique_id for e in all_entries if e.unique_id}
+    device_reg = dr.async_get(hass)
+    child_groups = {
+        "smartmeter_": "ct_3phase", "SmartMeter_": "ct_3phase",
+        "battery_": "expansion_battery", "Battery_": "expansion_battery",
+        "plug_": "plug", "ct_": "ct", "collector_": "collector",
+    }
 
     for entity_entry in all_entries:
+        if protected_entities and entity_entry.entity_id in protected_entities:
+            continue
         uid = entity_entry.unique_id
-        if not uid or not uid.startswith("jackery_"):
+        if entity_entry.platform != DOMAIN or not uid or not uid.startswith("jackery_") or uid.startswith("jackery_child:"):
+            continue
+
+        device = get_device_by_id(device_reg, entity_entry.device_id) if entity_entry.device_id else None
+        if device:
+            if not device_owned_by_entry(device, entry_id):
+                _LOGGER.warning("Skipping identity migration for entity %s: device ownership is ambiguous", entity_entry.entity_id)
+                continue
+            # The device identifier stores the whole serial; never split serials at underscores.
+            if any(
+                domain == DOMAIN and identifier.startswith(("sub_", "child:"))
+                for domain, identifier in iter_device_identifiers(device)
+            ):
+                continue
+
+        # Exact Official 2.0.0 main-device identities. Keep each existing
+        # registry row (and its entity_id/history) while adopting the current
+        # constructor's unique_id. Cross-domain Work Mode is intentionally not
+        # included here.
+        target_uid = None
+        if (
+            entity_entry.domain == "button"
+            and uid == f"jackery_{device_sn}_main_reboot"
+        ):
+            target_uid = f"jackery_{device_sn}_reboot"
+        elif (
+            entity_entry.domain == "sensor"
+            and uid == f"jackery_{device_sn}_average_soc"
+        ):
+            target_uid = f"jackery_{device_sn}_bms_soc"
+        elif (
+            entity_entry.domain == "select"
+            and uid == f"jackery_{device_sn}_main_autoStandby"
+        ):
+            target_uid = auto_standby_select_unique_id(device_sn)
+        if target_uid is not None:
+            if (
+                device is None
+                or (DOMAIN, device_sn) not in device.identifiers
+            ):
+                _LOGGER.warning(
+                    "Skipping Official main identity migration for %s: linked main-device ownership is unproven",
+                    entity_entry.entity_id,
+                )
+                continue
+            if entity_entry.domain == "select" and find_owned_main_entity(
+                hass,
+                domain="select",
+                host=device_sn,
+                platform=DOMAIN,
+                config_entry_id=entry_id,
+                unique_id=uid,
+            ) is None:
+                _LOGGER.warning(
+                    "Skipping Official Auto Standby migration for %s: main-device ownership is unproven",
+                    entity_entry.entity_id,
+                )
+                continue
+            target_id = ent_reg.async_get_entity_id(
+                entity_entry.domain, entity_entry.platform, target_uid,
+            )
+            if target_id is not None and target_id != entity_entry.entity_id:
+                _LOGGER.warning(
+                    "Skipping Official main identity migration for %s: target %s already exists; retaining both records",
+                    entity_entry.entity_id, target_id,
+                )
+            else:
+                _LOGGER.info("Migrating unique_id: %s → %s", uid, target_uid)
+                ent_reg.async_update_entity(entity_entry.entity_id, new_unique_id=target_uid)
             continue
 
         if uid.startswith(new_prefix):
             suffix_after_sn = uid[len(new_prefix):]
-            # Remove wrongly-migrated jackery_{sn}_main_* entities from v2.0.1 bug 2
-            if suffix_after_sn.startswith("main_"):
+            # Official 2.0 and the historical v2.0.1 migration used
+            # jackery_{host}_main_{key} for main switches/numbers. Preserve the
+            # registry row while moving it to the platform-qualified NG ID.
+            if entity_entry.domain in _MAIN_CONTROL_KEYS and suffix_after_sn.startswith("main_"):
+                mqtt_key = suffix_after_sn[len("main_"):]
+                if mqtt_key not in _MAIN_CONTROL_KEYS[entity_entry.domain]:
+                    continue
+                target_uid = f"{new_prefix}{entity_entry.domain}_{mqtt_key}"
+                target_id = ent_reg.async_get_entity_id(
+                    entity_entry.domain, entity_entry.platform, target_uid,
+                )
+                if target_id is not None and target_id != entity_entry.entity_id:
+                    _LOGGER.warning(
+                        "Skipping identity migration for %s: target %s already exists; "
+                        "retaining both records",
+                        entity_entry.entity_id, target_id,
+                    )
+                else:
+                    _LOGGER.info("Migrating unique_id: %s → %s", uid, target_uid)
+                    ent_reg.async_update_entity(entity_entry.entity_id, new_unique_id=target_uid)
+                continue
+            # Remove wrongly-migrated sensor residues from v2.0.1 bug 2.
+            if (
+                entity_entry.domain == "sensor"
+                and suffix_after_sn.startswith("main_")
+                and suffix_after_sn[len("main_"):] in SENSORS
+            ):
                 _LOGGER.info(
                     "Removing v2.0.1 wrongly-migrated entity: %s (%s)",
                     uid, entity_entry.entity_id,
                 )
                 ent_reg.async_remove(entity_entry.entity_id)
             # Remove obsolete select entity replaced by number slider in v2.3.2
-            elif suffix_after_sn == "max_feed_in_select":
+            elif entity_entry.domain == "select" and suffix_after_sn == "max_feed_in_select":
                 _LOGGER.info(
                     "Removing obsolete select entity (replaced by number slider): %s (%s)",
                     uid, entity_entry.entity_id,
@@ -69,18 +189,21 @@ async def _migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
 
         suffix = uid[len("jackery_"):]
 
-        # Sub-device sensors: identified by uppercase SN after device-name prefix.
-        # v1.3.9 format: jackery_SmartMeter_{SN}_{key}, jackery_Battery_{SN}_{key}
-        # The character after the prefix is uppercase for sub-device SNs.
-        is_subdevice = False
-        for sub_prefix in ("smartmeter_", "battery_", "plug_", "ct_"):
-            if suffix.startswith(sub_prefix):
-                rest = suffix[len(sub_prefix):]
-                if rest and rest[0].isupper():
-                    is_subdevice = True
-                    break
-        if is_subdevice:
-            continue
+        # Known main keys (e.g. battery_soc) overlap child family prefixes.
+        # Use exact keys and device links, never the serial's case or alphabet.
+        child_prefix = next((prefix for prefix in child_groups if suffix.startswith(prefix)), None)
+        if child_prefix:
+            if entity_entry.domain != "sensor" or suffix not in SENSORS:
+                continue
+            if device is None:
+                rest = suffix[len(child_prefix):]
+                keys = cast(dict[str, object], SUBDEVICE_SENSORS[child_groups[child_prefix]])
+                if any(
+                    rest.endswith(f"_{key}") and len(rest) > len(key) + 1
+                    for raw_key in keys for key in (raw_key, raw_key.replace("_", ""))
+                ):
+                    _LOGGER.warning("Skipping identity migration for %s: main/child identity is ambiguous", entity_entry.entity_id)
+                    continue
 
         # Determine target unique_id
         if suffix.startswith(f"{entry_id}_"):
@@ -100,27 +223,33 @@ async def _migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
             # Main sensors: jackery_{sensor_id} → jackery_{device_sn}_{sensor_id}
             target_uid = f"{new_prefix}{suffix}"
 
-        if target_uid in existing_uids:
-            # Target already exists (created fresh by v2.0.1) — delete old orphan to
-            # eliminate duplicate "unavailable" entities in the UI.
-            _LOGGER.info(
-                "Removing orphaned entity: %s (%s) — target %s already present",
-                uid, entity_entry.entity_id, target_uid,
+        target_id = ent_reg.async_get_entity_id(entity_entry.domain, entity_entry.platform, target_uid)
+        if target_id is not None:
+            # Even same-entry duplicates may hold user settings/history. A matching
+            # UID does not establish that either record is an expendable orphan.
+            _LOGGER.warning(
+                "Skipping identity migration for %s: target %s already exists; retaining both records",
+                entity_entry.entity_id, target_id,
             )
-            ent_reg.async_remove(entity_entry.entity_id)
-        else:
-            _LOGGER.info("Migrating unique_id: %s → %s", uid, target_uid)
-            ent_reg.async_update_entity(entity_entry.entity_id, new_unique_id=target_uid)
-            existing_uids.discard(uid)
-            existing_uids.add(target_uid)
+            continue
+        _LOGGER.info("Migrating unique_id: %s → %s", uid, target_uid)
+        ent_reg.async_update_entity(entity_entry.entity_id, new_unique_id=target_uid)
 
-    # Migrate main device identifier in device registry from config_entry_id to device_sn
-    device_reg = dr.async_get(hass)
-    old_device = device_reg.async_get_device(identifiers={(DOMAIN, entry_id)})
-    if old_device:
+    # Global identifiers require exclusive ownership before an in-place update.
+    old_devices = find_devices_by_identifier(device_reg, (DOMAIN, entry_id))
+    target_devices = find_devices_by_identifier(device_reg, (DOMAIN, device_sn))
+    if old_devices:
+        old_device = old_devices[0] if len(old_devices) == 1 else None
+        if (
+            old_device is None
+            or not device_owned_by_entry(old_device, entry_id)
+            or any(target.id != old_device.id for target in target_devices)
+        ):
+            _LOGGER.warning("Skipping main device migration for entry %s: ownership or target conflict", entry_id)
+            return
         device_reg.async_update_device(
             old_device.id,
-            new_identifiers={(DOMAIN, device_sn)},
+            new_identifiers=(old_device.identifiers - {(DOMAIN, entry_id)}) | {(DOMAIN, device_sn)},
         )
         _LOGGER.info("Migrated device identifier: %s → %s", entry_id, device_sn)
 
@@ -128,6 +257,55 @@ async def _migrate_unique_ids(hass: HomeAssistant, entry: ConfigEntry) -> None:
 async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Set up Jackery from a config entry."""
     _LOGGER.info("Setting up Jackery integration")
+
+    # Restored ConfigEntry data does not pass through the config-flow schema.
+    # Reject malformed values before migration or any entity/transport effects.
+    config = entry.data
+    topic_prefix: object = config.get("topic_prefix", "hb")
+    device_sn: object = config.get("device_sn")
+    token: object = config.get("token")
+    mqtt_host: object = config.get("mqtt_host")
+    if (
+        not isinstance(topic_prefix, str)
+        or (device_sn is not None and not isinstance(device_sn, str))
+        or ("device_sn" in config and device_sn is None)
+        or (token is not None and not isinstance(token, str))
+        or (mqtt_host is not None and not isinstance(mqtt_host, str))
+    ):
+        _LOGGER.error("Invalid Jackery configuration field types; setup aborted")
+        return False
+
+    from .alert_capture import (
+        OPTION_ALERT_CAPTURE_ENABLED,
+        AlertCapture,
+        async_delete_alert_capture,
+        build_alert_topic,
+    )
+    from .bmslog_capture import (
+        OPTION_BMSLOG_CAPTURE_ENABLED,
+        BmslogCapture,
+        async_delete_bmslog_capture,
+        build_bmslog_topic,
+    )
+
+    alert_capture_enabled = entry.options.get(OPTION_ALERT_CAPTURE_ENABLED) is True
+    if not alert_capture_enabled:
+        # Disabling this opt-in explicitly purges persisted raw MQTT data.
+        await async_delete_alert_capture(hass, entry.entry_id)
+
+    bmslog_capture_enabled = entry.options.get(OPTION_BMSLOG_CAPTURE_ENABLED) is True
+    if not bmslog_capture_enabled:
+        await async_delete_bmslog_capture(hass, entry.entry_id)
+
+    from .protocol_capture import (
+        ProtocolDiscoveryCapture,
+        async_delete_protocol_capture,
+    )
+    from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
+
+    protocol_discovery_enabled = entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is True
+    if not protocol_discovery_enabled:
+        await async_delete_protocol_capture(hass, entry.entry_id)
 
     if not await mqtt.async_wait_for_mqtt_client(hass):
         _LOGGER.error(
@@ -139,16 +317,72 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     _LOGGER.info("MQTT integration is available and ready")
 
-    # Migrate unique IDs from v1.x single-instance format (runs harmlessly if already migrated)
-    await _migrate_unique_ids(hass, entry)
+    from .child_migration import migrate_child_identities
 
+    # Child preflight precedes all platform creation; conflicts must not cause
+    # discovery to replace the retained legacy records with fresh entities.
+    child_migration = migrate_child_identities(hass, entry)
+
+    # Keep the existing main-device migration, excluding old/new child records.
+    await _migrate_unique_ids(hass, entry, protected_entities=child_migration.protected_entities)
+
+    # All platforms need the same runtime object, regardless of forwarding order.
+    from .sensor import JackeryDataCoordinator
+
+    alert_capture = None
+    if alert_capture_enabled:
+        alert_topic = build_alert_topic(topic_prefix, device_sn)
+        alert_capture = AlertCapture(hass, entry.entry_id, alert_topic, device_sn)
+        await alert_capture.async_load()
+
+    bmslog_capture = None
+    if bmslog_capture_enabled:
+        bmslog_topic = build_bmslog_topic(topic_prefix, device_sn)
+        bmslog_capture = BmslogCapture(hass, entry.entry_id, bmslog_topic, device_sn)
+        await bmslog_capture.async_load()
+
+    protocol_discovery_capture = None
+    if protocol_discovery_enabled and device_sn:
+        protocol_discovery_capture = ProtocolDiscoveryCapture(
+            hass,
+            entry.entry_id,
+            topic_prefix,
+            device_sn,
+        )
+        await protocol_discovery_capture.async_load()
+
+    coordinator = JackeryDataCoordinator(
+        hass,
+        topic_prefix,
+        token,
+        mqtt_host,
+        device_sn,
+        protocol_discovery_enabled=protocol_discovery_enabled,
+        protocol_discovery_capture=protocol_discovery_capture,
+        alert_capture=alert_capture,
+        bmslog_capture=bmslog_capture,
+    )
+    coordinator.config_entry_id = entry.entry_id
+    coordinator._child_migration = child_migration
     hass.data.setdefault(DOMAIN, {})
     hass.data[DOMAIN][entry.entry_id] = {
         "config": entry.data,
-        "coordinator": None,
+        "coordinator": coordinator,
     }
 
-    await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+    try:
+        await hass.config_entries.async_forward_entry_setups(entry, PLATFORMS)
+        # Discovery must not run until both dynamic entity callbacks are installed.
+        await coordinator.async_start()
+    except (Exception, asyncio.CancelledError):
+        # HA cannot unload a coordinator whose setup never completed. Release
+        # resources here, including already-forwarded entity platforms.
+        try:
+            await coordinator.async_stop()
+        finally:
+            if await hass.config_entries.async_unload_platforms(entry, PLATFORMS):
+                hass.data[DOMAIN].pop(entry.entry_id, None)
+        raise
 
     return True
 
@@ -159,13 +393,56 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
     entry_data = hass.data[DOMAIN].get(entry.entry_id, {})
     coordinator = entry_data.get("coordinator")
-    if coordinator:
-        await coordinator.async_stop()
-        _LOGGER.info("Coordinator stopped")
+    from .alert_capture import (
+        OPTION_ALERT_CAPTURE_ENABLED,
+        async_delete_alert_capture,
+    )
+    from .bmslog_capture import (
+        OPTION_BMSLOG_CAPTURE_ENABLED,
+        async_delete_bmslog_capture,
+    )
+    from .protocol_capture import async_delete_protocol_capture
+    from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
 
-    unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+    try:
+        if coordinator:
+            await coordinator.async_stop()
+    finally:
+        try:
+            if entry.options.get(OPTION_ALERT_CAPTURE_ENABLED) is not True:
+                capture = getattr(coordinator, "_alert_capture", None)
+                if capture is not None:
+                    await capture.async_clear()
+                else:
+                    await async_delete_alert_capture(hass, entry.entry_id)
+            if entry.options.get(OPTION_BMSLOG_CAPTURE_ENABLED) is not True:
+                capture = getattr(coordinator, "_bmslog_capture", None)
+                if capture is not None:
+                    await capture.async_clear()
+                else:
+                    await async_delete_bmslog_capture(hass, entry.entry_id)
+            if entry.options.get(OPTION_PROTOCOL_DISCOVERY_ENABLED) is not True:
+                capture = getattr(coordinator, "_protocol_discovery_capture", None)
+                if capture is not None:
+                    await capture.async_clear()
+                else:
+                    await async_delete_protocol_capture(hass, entry.entry_id)
+        finally:
+            # A faulty unsubscribe must not prevent entity references being released.
+            unload_ok = await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
 
     if unload_ok:
         hass.data[DOMAIN].pop(entry.entry_id)
 
     return unload_ok
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Remove all opt-in raw capture records when a config entry is deleted."""
+    from .alert_capture import async_delete_alert_capture
+    from .bmslog_capture import async_delete_bmslog_capture
+    from .protocol_capture import async_delete_protocol_capture
+
+    await async_delete_alert_capture(hass, entry.entry_id)
+    await async_delete_bmslog_capture(hass, entry.entry_id)
+    await async_delete_protocol_capture(hass, entry.entry_id)

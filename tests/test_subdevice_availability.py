@@ -11,6 +11,7 @@ from __future__ import annotations
 import time
 from unittest.mock import MagicMock, patch
 
+from custom_components.jackery.coordinator_state import CoordinatorRuntimeState
 from custom_components.jackery.sensor import OFFLINE_TIMEOUT, JackeryDataCoordinator
 
 PLUG_SN = "PLUG001"
@@ -25,10 +26,11 @@ def make_coordinator() -> JackeryDataCoordinator:
     coord._known_plugs = set()
     coord._expansion_battery_sns = set()
     coord._subdevice_missing_since = {}
-    coord._subdevice_last_seen = {}
-    coord._start_time = time.time() - 200   # well past the 60s grace period
+    coord._runtime_state = CoordinatorRuntimeState(
+        last_update_time=time.time(),
+        start_time=time.time() - 200,  # well past the 60s grace period
+    )
     coord._sensors = {}
-    coord._data_cache = {}
     coord.add_entities_callback = None
     coord.add_switch_entities_callback = None
     return coord
@@ -86,7 +88,7 @@ def test_expansion_battery_stays_available_after_long_gap():
     coord._expansion_battery_sns.add(EXP_SN)
     coord._subdevice_last_seen[EXP_SN] = time.time() - 600  # seen long ago
 
-    fake_entity = MagicMock()
+    fake_entity = MagicMock(_plug_sn=EXP_SN)
     fake_entity.available = False  # currently offline
     coord._sensors[f"jackery_battery_{EXP_SN}_foo"] = fake_entity
 
@@ -105,7 +107,7 @@ def test_expansion_battery_unavailable_if_never_seen():
     coord._expansion_battery_sns.add(EXP_SN)
     # last_seen = 0 (never seen), start_time is in the past (past grace period)
 
-    fake_entity = MagicMock()
+    fake_entity = MagicMock(_plug_sn=EXP_SN)
     fake_entity.available = True  # currently falsely marked online
     coord._sensors[f"jackery_battery_{EXP_SN}_foo"] = fake_entity
 
@@ -140,12 +142,13 @@ def test_plug_deleted_after_offline_timeout():
 def test_startup_grace_period_suppresses_offline():
     """Within first OFFLINE_TIMEOUT seconds, never-seen devices are not marked offline."""
     coord = make_coordinator()
-    coord._start_time = time.time() - 30   # only 30s since start, within grace period
+    # Only 30s since start, within the startup grace period.
+    coord._runtime_state.start_time = time.time() - 30
     coord._known_plugs.add(PLUG_SN)
     coord._known_plugs.add(DUMMY_SN)
     # last_seen = 0 (never seen)
 
-    fake_entity = MagicMock()
+    fake_entity = MagicMock(_plug_sn=PLUG_SN)
     fake_entity.available = True
     coord._sensors[f"jackery_plug_{PLUG_SN}_foo"] = fake_entity
 
