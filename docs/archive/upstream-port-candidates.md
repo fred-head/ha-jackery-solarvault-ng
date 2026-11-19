@@ -1,6 +1,6 @@
 # Official upstream port candidates
 
-This is a review queue, **not implementation authorization**. Source references and introduced commits are in the [feature matrix](upstream-feature-matrix.md), pinned by [baseline](baseline.md). MUST_PORT means preserve the relevant correctness behavior in a later independently reviewed fix; it does not mean transplant the upstream function. Official has no checked-in tests.
+This is a review queue, **not implementation authorization**. Source references and introduced commits are in the [feature matrix](../references/upstream-feature-matrix.md), pinned by [baseline](baseline.md). MUST_PORT means preserve the relevant correctness behavior in a later independently reviewed fix; it does not mean transplant the upstream function. Official has no checked-in tests.
 
 | Candidate / related matrix behavior | Decision | Reason, compatibility constraints and required evidence |
 | --- | --- | --- |

@@ -28,6 +28,10 @@ environment. Its project name ends in `-tooling` and its sentinel version is
 the release content under `[Unreleased]` until a separately reviewed version
 change assigns it to a release.
 
+Stable versions use `X.Y.Z`; release candidates use `X.Y.Z-rc.N`, with a
+positive candidate number and no leading zero (for example `3.0.0-rc.1`).
+The corresponding Git tag adds `v`: `v3.0.0-rc.1`.
+
 ## Home Assistant compatibility
 
 The declared minimum is **Home Assistant 2025.8.0**. This is the first stable
@@ -119,11 +123,13 @@ credited as project lineage; they are never release destinations for NG.
 2. Merge the reviewed release commit to `main` and wait for that exact commit's
    `Validate` workflow to pass, including HACS and Hassfest validation.
 3. Check out the exact `main` commit with a clean tree and run
-   `./release.sh vX.Y.Z`.
+   `./release.sh vX.Y.Z` (stable) or `./release.sh vX.Y.Z-rc.N` (release candidate).
 4. Review the preflight result. The script deliberately creates no commit, tag,
    push, or GitHub release.
 5. Create the annotated tag and GitHub release manually only after that final
-   review.
+   review. For release candidates, the suggested GitHub CLI command includes
+   `--prerelease --latest=false` so the candidate is explicitly marked as a
+   pre-release and does not become the latest stable release.
 
 `release.sh` fails closed when the repository, branch, working tree, remote
 commit, manifest version, tag state, dependency lock, local gates, or GitHub CI

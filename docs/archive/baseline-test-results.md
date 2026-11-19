@@ -1,6 +1,6 @@
 # Baseline checks and results
 
-Analysis date 2026-09-11 UTC; commits and environment: [baseline](baseline.md). Production code, tests, pyproject.toml and uv.lock were not changed. No device or live MQTT broker was contacted. Log evidence: [baseline-evidence](baseline-evidence/).
+Analysis date 2026-09-11 UTC; commits and environment: [baseline](baseline.md). Production code, tests, pyproject.toml and uv.lock were not changed. No device or live MQTT broker was contacted. Log evidence: [baseline-evidence](../baseline-evidence).
 
 ## Results
 
@@ -22,7 +22,7 @@ Analysis date 2026-09-11 UTC; commits and environment: [baseline](baseline.md). 
 | Whitespace / unchanged tracked tree | `git diff --check`; `git diff --exit-code HEAD -- custom_components/jackery tests pyproject.toml uv.lock .github/workflows/validate.yml` | PASS. Additional untracked documentation checks described below. |
 | Coverage extraction | `.venv/bin/python -m coverage json -o /tmp/jackery-baseline/results/coverage.json` | PASS; read-only analysis of authoritative test coverage. Root .coverage subsequently moved to /tmp. |
 
-The configured workflow is [.github/workflows/validate.yml](../.github/workflows/validate.yml). It runs pytest, Ruff, mypy, translation completeness, HACS and Hassfest; it does not configure formatter, Markdown lint or separate build checks. Its commands `uv run pytest tests/ -v`, `uv run ruff check ...`, `uv run mypy ...` were executed via the installed venv binaries to keep the frozen combined environment stable. The shell's `python` alias was absent, so the translation command used `python3` instead.
+The configured workflow is [.github/workflows/validate.yml](../../.github/workflows/validate.yml). It runs pytest, Ruff, mypy, translation completeness, HACS and Hassfest; it does not configure formatter, Markdown lint or separate build checks. Its commands `uv run pytest tests/ -v`, `uv run ruff check ...`, `uv run mypy ...` were executed via the installed venv binaries to keep the frozen combined environment stable. The shell's `python` alias was absent, so the translation command used `python3` instead.
 
 The current [Hassfest action definition](https://raw.githubusercontent.com/home-assistant/actions/master/hassfest/action.yml) invokes its Docker image; [HACS action](https://raw.githubusercontent.com/hacs/action/main/action.yml) is Docker-based and has comment output enabled by default, so the attempted local command explicitly disabled comments. Historical exact-C validation: [Validate job](https://github.com/csoscd/ha-solarvault/actions/runs/31801070343/job/94768919465), HACS/Hassfest success 2026-08-14. Moving action references and Docker tags are not pinned in repository CI.
 

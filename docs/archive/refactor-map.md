@@ -5,14 +5,14 @@ payload normalization into `protocol/normalization.py`, the energy calculation
 bundle into `calculations/energy_flow.py` and child-device classification into
 `devices/classification.py`. Ephemeral cache, freshness, Type-106 evidence and
 source metadata now live in `coordinator_state.py`; see
-[architecture.md](architecture.md). The routing
+[architecture.md](../references/architecture.md). The routing
 module depends only on normalization and the standard library; the other four
 use only the standard library. `sensor.py` retains route application, child
 cache placement, discovery orchestration, entity effects and error logging.
 Child membership/timer decisions live in `discovery.py`; registry/entity updates
 and all transport behavior remain in `sensor.py`. The
 runtime-state extraction preserves the contract in
-[energy-source-policy.md](energy-source-policy.md).
+[energy-source-policy.md](../references/energy-source-policy.md).
 
 The subsequent [MQTT lifecycle fix](mqtt-lifecycle.md) retains subscription
 cleanup handles per coordinator and adds setup-failure/unload cleanup in place.

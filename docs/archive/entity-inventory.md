@@ -19,7 +19,7 @@ No disabled-by-default settings are declared for any platform. Device class/stat
 
 ## Writable entities
 
-All main controls associate with `(jackery, main_sn)` and use MQTT type=1/cmd=5; the plug uses type=103. All are enabled by default. See [MQTT inventory](mqtt-protocol-inventory.md) for envelopes and response limitations.
+All main controls associate with `(jackery, main_sn)` and use MQTT type=1/cmd=5; the plug uses type=103. All are enabled by default. See [MQTT inventory](../references/mqtt-protocol-inventory.md) for envelopes and response limitations.
 
 | Entity field / key | Platform | Unit / limits | Source / optimistic behavior | Source location |
 | --- | --- | --- | --- | --- |

@@ -11,7 +11,7 @@ upstreams. No production or test code was changed for this audit.
 
 This document records the Phase 3 state as audited on its date. Protocol
 Discovery has since been extended with bounded, host-bound persistence and
-sampled raw payloads; see [diagnostics architecture](diagnostics-architecture.md)
+sampled raw payloads; see [diagnostics architecture](../references/diagnostics-architecture.md)
 for its current storage, sampling and export contract. Statements below that
 describe the original memory-only P3.5 implementation are historical.
 

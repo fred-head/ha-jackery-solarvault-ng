@@ -33,8 +33,10 @@ def contract_errors() -> list[str]:
     if manifest.get("issue_tracker") != f"{NG_REPOSITORY}/issues":
         errors.append("manifest issue_tracker must point to the NG issue tracker")
     version = manifest.get("version")
-    if not isinstance(version, str) or not re.fullmatch(r"[0-9]+\.[0-9]+\.[0-9]+", version):
-        errors.append("manifest version must be an unprefixed X.Y.Z release version")
+    if not isinstance(version, str) or not re.fullmatch(
+        r"[0-9]+\.[0-9]+\.[0-9]+(?:-rc\.[1-9][0-9]*)?", version
+    ):
+        errors.append("manifest version must be unprefixed X.Y.Z or X.Y.Z-rc.N (N >= 1)")
     if hacs.get("homeassistant") != MINIMUM_HA:
         errors.append(f"hacs homeassistant must match the evidenced floor {MINIMUM_HA}")
 

@@ -1,13 +1,13 @@
 # Current community capabilities
 
-The later [energy/source contract](energy-source-policy.md) inventories raw power
+The later [energy/source contract](../references/energy-source-policy.md) inventories raw power
 and energy fields, preserves total-stack formulas, corrects repeated Type-106
 updates and excludes expired/measurement-less meters from grid selection. HTTP
 measurements remain supplemental and do not supply active grid-power fallback.
 
 This is the historical community inventory. The current tested classification and
 command behavior, including explicitly rejected unknown-device discovery, is in
-[protocol-routing-commands.md](protocol-routing-commands.md). Merged lifecycle,
+[protocol-routing-commands.md](../references/protocol-routing-commands.md). Merged lifecycle,
 freshness and identity fixes supersede the corresponding limitations below.
 
 Pinned baseline and C/O source notation: [baseline](baseline.md). This is a description of C, including limitations, rather than a promise of hardware coverage.
@@ -23,8 +23,8 @@ The user supplies `device_sn`, token and optional topic prefix (`hb`). A config-
 
 | Model | Evidence / scope |
 | --- | --- |
-| SolarVault 3 Pro Max | Explicit hardware-tested claim in [README](../README.md), including SmartMeter and Shelly installations. Synthetic calculations/routing tests support selected behaviors; no hardware test executed here. |
-| SolarVault 3 | [CHANGELOG](../CHANGELOG.md) reports SOC bound confirmation on this model and Pro Max. This does not establish all-feature coverage. |
+| SolarVault 3 Pro Max | Explicit hardware-tested claim in [README](../../README.md), including SmartMeter and Shelly installations. Synthetic calculations/routing tests support selected behaviors; no hardware test executed here. |
+| SolarVault 3 | [CHANGELOG](../../CHANGELOG.md) reports SOC bound confirmation on this model and Pro Max. This does not establish all-feature coverage. |
 | SolarVault 3 Pro / other variants | No distinct runtime classifier or model-specific test fixture found. Generic field-based compatibility is inferred, not verified model support. |
 
 75 main sensor definitions are created unconditionally; there is no capability-based suppression or disabled-by-default declaration. [Entity inventory](entity-inventory.md) enumerates every field, unit and transformation. Status includes SOC, battery count/temperature/state, device/ongrid/CT/link enums, EPS, network details, ability and funcEnable. Energy includes PV total/per-input, main battery, AC/grid-port paths and CT totals. Reported power limits/settings remain visible even when their semantics or writability are not confirmed.
@@ -86,7 +86,7 @@ Main timeout is 60 seconds, checked by the poll loop. However `_last_update_time
 
 Subdevice availability uses per-SN last-seen and 60-second startup grace; expansion battery energy remains available once seen regardless of age and is exempt from deletion. `_check_for_new_plugs` returns early if all lists are empty. Missing-list deletion timers are fed the **merged cache**, so ordinary omission/empty type-101 messages normally cannot remove an old cached device. In a message path, availability is then overwritten to true by sensor/plug updates from that same stale cache. Existing isolated availability tests do not cover that whole sequence (`sensor.py:1749,2639`; `switch.py:149`).
 
-No per-measurement timestamp exists. A metadata-only cloud-mode message updates last-seen and can keep old measurements visible. `commState` does not consistently gate values. Calculation chooses first CT even without real measurement fields, then collector, then system fields; HTTP never participates in grid selection. See [protocol inventory](mqtt-protocol-inventory.md) for exact merge rules.
+No per-measurement timestamp exists. A metadata-only cloud-mode message updates last-seen and can keep old measurements visible. `commState` does not consistently gate values. Calculation chooses first CT even without real measurement fields, then collector, then system fields; HTTP never participates in grid selection. See [protocol inventory](../references/mqtt-protocol-inventory.md) for exact merge rules.
 
 ## Optional HTTP SmartMeter transport
 

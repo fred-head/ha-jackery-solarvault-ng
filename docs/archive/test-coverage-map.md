@@ -247,7 +247,7 @@ Final extraction validation: **1,085 passed, 92.68% coverage**. The extracted
 module itself has 99% statement coverage; repository coverage increased slightly
 from 92.57% despite moving code. No skips or xfails were introduced.
 
-The [energy/source follow-up](energy-source-policy.md) adds
+The [energy/source follow-up](../references/energy-source-policy.md) adds
 `test_energy_source_policy.py`, replaces the Type-106 frozen-value diagnostic in
 `test_protocol_contract.py`, and extends `test_availability_freshness.py`.
 Coverage includes all eleven fields across five value transitions, six ordering
@@ -262,7 +262,7 @@ Final energy/source validation: **1,081 passed, 92.57% coverage** (219 additiona
 cases relative to foundation). Ruff, translations and CI mypy pass; HA-aware
 mypy retains the same 23 findings in four files with no new findings.
 
-The subsequent [protocol/command contract](protocol-routing-commands.md) adds
+The subsequent [protocol/command contract](../references/protocol-routing-commands.md) adds
 `test_protocol_contract.py`, `test_classification_contract.py` and
 `test_command_contract.py`: real MQTT routing/cache/discovery, known device families,
 exact action envelopes, HA number-service boundaries, commMode rejection, optimism,

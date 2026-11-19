@@ -30,15 +30,15 @@ and architecture documents remain authoritative.
 - **Foundation refactoring (P1/P2):** cohesive pure and transport layers replaced
   much of the original `sensor.py` monolith. See the
   [refactoring roadmap](refactoring-roadmap.md) and
-  [architecture](architecture.md).
+  [architecture](../references/architecture.md).
 - **Diagnostics and protocol discovery (P3.1-P3.5):** the diagnostics contract,
   passive observations, HA adapter, adversarial hardening, and opt-in structural
   discovery are complete. See the
-  [diagnostics architecture](diagnostics-architecture.md).
+  [diagnostics architecture](../references/diagnostics-architecture.md).
 - **Standby/live-zero correctness (P4.1):** the bounded, timestamp-aware fix is
   merged with focused regressions. See the
   [P4.1 audit](p4-standby-live-zero-audit.md) and
-  [energy-source policy](energy-source-policy.md).
+  [energy-source policy](../references/energy-source-policy.md).
 - **Best-of-both-worlds audit:** current Community and Official deltas are
   classified into port, adaptation, evidence, investigation, superseded, and
   no-action groups. See the
@@ -157,8 +157,8 @@ work, and no private reverse-engineering details belong in this public status.
 - Determine freshness from accepted evidence rather than cache presence.
 - Do not introduce global mutable runtime state.
 
-See the [architecture](architecture.md),
-[diagnostics architecture](diagnostics-architecture.md), and
+See the [architecture](../references/architecture.md),
+[diagnostics architecture](../references/diagnostics-architecture.md), and
 [Phase 4 guardrails](phase3-closeout-phase4-plan.md#14-architecture-guardrails-for-phase-4)
 for the full contracts.
 
@@ -166,13 +166,13 @@ for the full contracts.
 
 | Topic | Authoritative detail |
 | --- | --- |
-| Architecture and extraction history | [Architecture](architecture.md), [refactoring roadmap](refactoring-roadmap.md) |
+| Architecture and extraction history | [Architecture](../references/architecture.md), [refactoring roadmap](refactoring-roadmap.md) |
 | Phase 3 and Phase 4 decision basis | [Phase 3 closeout](phase3-closeout-phase4-plan.md) |
-| Diagnostics and structural discovery | [Diagnostics architecture](diagnostics-architecture.md) |
-| P4.1 live-zero behavior | [P4.1 audit](p4-standby-live-zero-audit.md), [energy-source policy](energy-source-policy.md) |
+| Diagnostics and structural discovery | [Diagnostics architecture](../references/diagnostics-architecture.md) |
+| P4.1 live-zero behavior | [P4.1 audit](p4-standby-live-zero-audit.md), [energy-source policy](../references/energy-source-policy.md) |
 | Upstream deltas and candidate groups | [Best-of-both-worlds audit](upstream-best-of-both-worlds-audit.md) |
 | Test evidence and remaining blind spots | [Test coverage map](test-coverage-map.md) |
 | MQTT reconnect evidence | [MQTT reconnect validation](mqtt-reconnect-validation.md) |
 | Release, compatibility and upgrade policy | [Release and compatibility contract](release-compatibility-contract.md) |
 | Upgrade, migration and rollback evidence | [Upgrade/migration validation](upgrade-migration-validation.md) |
-| User-facing capability and setup | [README](../README.md) |
+| User-facing capability and setup | [README](../../README.md) |

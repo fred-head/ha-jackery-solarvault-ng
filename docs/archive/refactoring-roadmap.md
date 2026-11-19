@@ -28,7 +28,7 @@ Established aliases and flat-status body reconstruction live in
 decisions now live in `protocol/routing.py`; coordinator-owned route application,
 entity construction, discovery/deletion policy and availability side effects
 remain in `sensor.py`. Runtime cache, freshness, Type-106 evidence and source
-metadata live in `coordinator_state.py`. See [architecture.md](architecture.md).
+metadata live in `coordinator_state.py`. See [architecture.md](../references/architecture.md).
 Rows 1 through 10 record completed or intentionally partial extraction history.
 Rows 11 and 12 remain possible work, not an approved Phase 4 plan.
 

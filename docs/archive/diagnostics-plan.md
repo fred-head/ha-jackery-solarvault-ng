@@ -1,7 +1,7 @@
 # Diagnostics plan (superseded)
 
 This Phase 0/1 proposal has been consolidated into
-[Phase 3 diagnostics architecture](diagnostics-architecture.md), which is the
+[Phase 3 diagnostics architecture](../references/diagnostics-architecture.md), which is the
 single source of truth for the diagnostics contract, ownership, privacy model,
 snapshot boundary, test strategy and implementation sequence.
 

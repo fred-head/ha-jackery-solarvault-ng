@@ -1,6 +1,6 @@
 # Proposed target architecture
 
-This design applies [AGENTS.md](../AGENTS.md) to the actual [coupling map](refactor-map.md). It is a staged proposal; no modules below have been created. The current custom coordinator can remain a plain class. Adopting HA DataUpdateCoordinator is not a prerequisite for separation.
+This design applies [AGENTS.md](../../AGENTS.md) to the actual [coupling map](refactor-map.md). It is a staged proposal; no modules below have been created. The current custom coordinator can remain a plain class. Adopting HA DataUpdateCoordinator is not a prerequisite for separation.
 
 ## Smallest useful decomposition
 
