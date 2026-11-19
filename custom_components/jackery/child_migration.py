@@ -26,6 +26,7 @@ from .registry_identity import (
     find_devices_by_identifier,
     get_device_by_id,
     iter_all_devices,
+    iter_device_identifiers,
     update_device_identifiers,
 )
 
@@ -154,7 +155,11 @@ def _is_official_type3_ct_device(
     if device is None:
         return False
     official_identifier = (DOMAIN, f"sub_{host}_{serial}")
-    own_identifiers = {(domain, identifier) for domain, identifier in device.identifiers if domain == DOMAIN}
+    own_identifiers = {
+        (domain, identifier)
+        for domain, identifier in iter_device_identifiers(device)
+        if domain == DOMAIN
+    }
     if own_identifiers != {official_identifier}:
         return False
 
@@ -281,7 +286,11 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
     # Include foreign records as well: their identifiers can occupy a target
     # even though scoped ownership prevents this entry from claiming them.
     for device in iter_all_devices(devices):
-        identifiers = [identifier for domain, identifier in device.identifiers if domain == DOMAIN]
+        identifiers = [
+            identifier
+            for domain, identifier in iter_device_identifiers(device)
+            if domain == DOMAIN
+        ]
         linked_entities = list(
             er.async_entries_for_device(entities, device.id, include_disabled_entities=True)
         )

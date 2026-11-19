@@ -47,6 +47,7 @@ from .entities.sensor_definitions import SENSORS
 from .identity import parse_child_device_identifier
 from .protocol.routing import subdevice_serial
 from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
+from .registry_identity import iter_device_identifiers
 from .sensor import (
     HTTP_FAILURE_THRESHOLD,
     OFFLINE_TIMEOUT,
@@ -599,7 +600,7 @@ def _registry_inputs(
         is_child = any(
             domain == DOMAIN
             and parse_child_device_identifier(identifier) is not None
-            for domain, identifier in device.identifiers
+            for domain, identifier in iter_device_identifiers(device)
         )
         device_counts["child" if is_child else "host"] += 1
 
