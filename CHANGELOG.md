@@ -3,9 +3,11 @@
 All notable user-facing changes to Jackery SolarVault NG are documented here.
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 
-Changes in **Unreleased** are planned for the **3.0.0** release.
+Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
+
+## [3.0.0-rc.1] - 2026-11-19
 
 ### Added
 
@@ -75,7 +77,7 @@ The entries below summarize user-visible changes from versions before 3.0.0.
 Historical behavior may have changed since those releases; see the current
 user guides for supported devices, controls, and setup instructions.
 The former 2.3.0 section was marked unreleased; applicable changes from it have
-been consolidated into the 3.0.0 changes above.
+been consolidated into the 3.0.0 release-candidate notes above.
 
 ## [2.2.0] - 2026-07-27
 
