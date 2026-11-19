@@ -118,7 +118,7 @@ DEFAULT_MODEL = "Energy Monitor"
 
 # Real-time power fields shared between type-2 (~11 s) and type-106 (~30 s).
 # Preserve live readings for OFFLINE_TIMEOUT, not forever based on key presence.
-# See docs/energy-source-policy.md and the snapshot race in commit 8043585.
+# See docs/references/energy-source-policy.md and the snapshot race in commit 8043585.
 _TYPE106_LIVE_PREFERRED: frozenset[str] = frozenset({
     "batInPw", "batOutPw",
     "pvPw", "pv1", "pv2", "pv3", "pv4",

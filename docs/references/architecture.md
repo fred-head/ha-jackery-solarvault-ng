@@ -1,7 +1,7 @@
 # Implemented architecture
 
 This document describes only code that exists on the current branch. The
-incremental target and risk order remain in [refactoring-roadmap.md](refactoring-roadmap.md).
+incremental target and risk order remain in [refactoring-roadmap.md](../archive/refactoring-roadmap.md).
 
 ## Current dependency direction
 
@@ -48,7 +48,7 @@ loading `sensor.py`; historical imports from `sensor.py` remain compatibility
 re-exports. Pure Smart Plug communication-mode conversion lives in
 `entities/transforms.py` and is consumed directly by the switch platform. The
 complete ownership inventory and intentionally retained coupling are in
-[entity-boundaries.md](entity-boundaries.md).
+[entity-boundaries.md](../archive/entity-boundaries.md).
 
 ## Protocol command builders
 
@@ -119,7 +119,7 @@ availability writes, MQTT/HTTP lifecycle, reauth, device metadata,
 identity and migration stay outside runtime state. Existing private cache and
 freshness attributes are compatibility views of the same state, not duplicate
 storage. The complete field inventory and reset contract are in
-[coordinator-state.md](coordinator-state.md).
+[coordinator-state.md](../archive/coordinator-state.md).
 
 ## Child discovery
 

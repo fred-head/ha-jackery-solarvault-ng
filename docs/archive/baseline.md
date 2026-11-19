@@ -1,6 +1,6 @@
 # Phase 0/1 engineering baseline
 
-Analysis date: **2026-09-11 (UTC)**. Scope: source analysis, existing checks and documentation only. The user request takes precedence over the broader future implementation milestone in [AGENTS.md](../AGENTS.md). In particular, `COMMUNITY_ONLY` is used instead of the policy's `LOCAL_ONLY` label. No Phase 2 implementation is included.
+Analysis date: **2026-09-11 (UTC)**. Scope: source analysis, existing checks and documentation only. The user request takes precedence over the broader future implementation milestone in [AGENTS.md](../../AGENTS.md). In particular, `COMMUNITY_ONLY` is used instead of the policy's `LOCAL_ONLY` label. No Phase 2 implementation is included.
 
 ## Repository identity
 
@@ -30,7 +30,7 @@ Community `v2.4.0` points directly to C (release published 2026-08-14); `v2.4.0-
 | HACS advertised minimum | `hacs.json`: HA 2024.1.0; **not verified** against this older HA version |
 | Real hardware / broker | None connected or exercised during this analysis |
 
-Dependencies were installed from the unchanged `uv.lock` using `uv sync --frozen`. Combined test/lint environment: `.venv`; separate CI-style lint environment: `/tmp/jackery-baseline/lint-venv`. The venv is ignored by Git. Test artifacts were moved out of the root; selected logs are retained under [baseline-evidence](baseline-evidence/).
+Dependencies were installed from the unchanged `uv.lock` using `uv sync --frozen`. Combined test/lint environment: `.venv`; separate CI-style lint environment: `/tmp/jackery-baseline/lint-venv`. The venv is ignored by Git. Test artifacts were moved out of the root; selected logs are retained under [baseline-evidence](../baseline-evidence).
 
 ## Evidence conventions
 

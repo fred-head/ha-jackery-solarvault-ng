@@ -18,7 +18,7 @@ counters remain entirely separate from MQTT runtime state.
 Reload creates a new runtime state; cache, activity timestamps, live/snapshot
 evidence and source metadata never persist across coordinator instances.
 
-The subsequent [energy/source policy](energy-source-policy.md) also applies the
+The subsequent [energy/source policy](../references/energy-source-policy.md) also applies the
 existing child timeout to CT/collector selection. Incoming MQTT and the existing
 timer reevaluate derived grid/home values; no remaining grid source makes the
 grid entity unavailable. EPS null becomes unavailable without interrupting

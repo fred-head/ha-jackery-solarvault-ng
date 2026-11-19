@@ -43,7 +43,7 @@ historical observations below remain evidence of the earlier implementation.
 The [protocol/command audit](protocol-routing-commands.md) supersedes the historical
 inventory below for the current foundation. It supplies tested inbound, classification
 and exact outbound matrices, Type-106 ordering evidence and upstream decisions.
-Host subscriptions and cleanup follow [mqtt-lifecycle.md](mqtt-lifecycle.md);
+Host subscriptions and cleanup follow [mqtt-lifecycle.md](../archive/mqtt-lifecycle.md);
 freshness and physical identity follow their merged dedicated fixes. The current
 hardening adds actual-host type23 statistics, host-only metadata capture, malformed
 child-array/control-value guards and rejection of unsupported automatic plug creation.
@@ -54,9 +54,9 @@ supersedes only the relevant power/source behavior.
 ## Historical Phase 0/1 inventory
 
 For post-baseline host identity validation, child activity tracking and HTTP/MQTT
-health isolation, see the [availability/freshness audit](availability-freshness.md).
+health isolation, see the [availability/freshness audit](../archive/availability-freshness.md).
 
-See [baseline](baseline.md) for pinned sources. Message **type**, `body.cmd`, `eventId`, and `body.devType` are separate namespaces. `body.cmd=106` inside type=2 is not top-level type=106. Body devType can be a query category; item devType classifies a child. No command semantics beyond source and attributed evidence are assumed.
+See [baseline](../archive/baseline.md) for pinned sources. Message **type**, `body.cmd`, `eventId`, and `body.devType` are separate namespaces. `body.cmd=106` inside type=2 is not top-level type=106. Body devType can be a query category; item devType classifies a child. No command semantics beyond source and attributed evidence are assumed.
 
 ## Topics and envelopes
 

@@ -135,7 +135,7 @@ Compare the current repository against:
 
 Create:
 
-`docs/upstream-feature-matrix.md`
+`docs/references/upstream-feature-matrix.md`
 
 Every relevant feature should be classified as:
 
@@ -970,7 +970,7 @@ Instead:
 
 Maintain:
 
-`docs/upstream-sync.md`
+`docs/references/upstream-sync.md`
 
 Suggested format:
 
@@ -992,12 +992,12 @@ Notes:
 Maintain:
 
 ```text
-docs/architecture.md
-docs/protocol.md
-docs/device-support.md
-docs/upstream-feature-matrix.md
-docs/upstream-sync.md
-docs/diagnostics.md
+docs/references/architecture.md
+docs/references/protocol-routing-commands.md
+docs/devices-and-entities.md
+docs/references/diagnostics-architecture.md
+docs/references/upstream-feature-matrix.md
+docs/references/upstream-sync.md
 ```
 
 Architecture decisions that affect future development should be documented.
@@ -1006,7 +1006,9 @@ Architecture decisions that affect future development should be documented.
 
 # Device Support Matrix
 
-Maintain an explicit support matrix.
+Maintain the public device and entity support matrix in
+`docs/devices-and-entities.md`. Keep technical comparison and evidence notes in
+the relevant maintainer references under `docs/references/`.
 
 For each device/model record:
 

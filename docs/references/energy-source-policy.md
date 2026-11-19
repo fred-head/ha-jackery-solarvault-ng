@@ -45,7 +45,7 @@ from type 23. Unknown raw fields remain cached but do not create entities.
 
 Energy counters do not enter instantaneous W calculations. All listed host
 energy counters scale by 0.01 kWh, as do plug and legacy CT counters. Host and
-child entity conversion/scaling is preserved; [entity-inventory.md](entity-inventory.md)
+child entity conversion/scaling is preserved; [entity-inventory.md](../archive/entity-inventory.md)
 provides the complete entity-key mapping. Power limit/status fields (`maxOutPw`,
 `maxFeedGrid`, `energyPlanPw`, `standbyPw`, `pvMaxChgPower`, `maxSysInPw`,
 `maxSysOutPw`, `maxInvStdPw`, `maxGridStdPw`, `batSoc`, `soc`, `ctStat`,
@@ -126,7 +126,7 @@ Its historical goal was to avoid snapshot zero masking a live host alias.
 Conflicting host aliases still need device evidence before changing priority.
 
 Post-Phase-3 note: the
-[P4.1 standby/live-zero audit](p4-standby-live-zero-audit.md) now reproduces a
+[P4.1 standby/live-zero audit](../archive/p4-standby-live-zero-audit.md) now reproduces a
 specific counterexample for `_effective_ongrid_net()`: a newer explicit live
 zero loses to an older Type-106 non-zero and makes Home Power collapse. The P4.1
 candidate records per-coordinator receipt metadata for the live and Type-106

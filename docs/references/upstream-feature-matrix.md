@@ -38,7 +38,7 @@ matrices and [upstream-sync.md](upstream-sync.md) for exact source provenance.
 
 ## Historical Phase 0/1 comparison
 
-Comparison is of actual source at [C and O](baseline.md), not repository age or names. `SAME` means the scoped behavior matches, not that the implementations are byte-identical. `COMMUNITY_ONLY` follows the task's terminology (`LOCAL_ONLY` in AGENTS.md). Hardware observations are not independently repeated here. Official contains no test directory.
+Comparison is of actual source at [C and O](../archive/baseline.md), not repository age or names. `SAME` means the scoped behavior matches, not that the implementations are byte-identical. `COMMUNITY_ONLY` follows the task's terminology (`LOCAL_ONLY` in AGENTS.md). Hardware observations are not independently repeated here. Official contains no test directory.
 
 ## Behavior matrix
 
@@ -88,7 +88,7 @@ Comparison is of actual source at [C and O](baseline.md), not repository age or 
 | AC socket calculated cache value | OFFICIAL_ONLY | O stores calc_ac_socket_power=in if positive else out; **no SENSORS entry consumes it**. C EPS output entity computes signed out−in. `O:1666,1766`; `C:2479`. |
 | Poll cadence / error isolation | DIFFERENT | C 10s post-batch, type105 every 3, type100 [2,3,6] with 0.5s gaps; one child-loop exception skips subsequent categories. O 5s post-batch, type105 every cycle, categories [2,6] individually caught. `C:2232`; `O:1880`. |
 | Unload cleanup | SAME | Both cancel/await poll task, stop coordinator then unload platforms/pop entry. Both omit subscription unsubscribe handles; C also cancels HTTP task. `C/O async_stop,async_unload_entry`. |
-| Logging | DIFFERENT | O INFO logs every 101/106 and plug command with serial/topic; C 106 is DEBUG, discoveries INFO, HTTP failure threshold warning. Both emit identifiers and plug raw_data attributes; no redacted diagnostics. `C/O _LOGGER sites`, [logging plan](logging-plan.md). |
+| Logging | DIFFERENT | O INFO logs every 101/106 and plug command with serial/topic; C 106 is DEBUG, discoveries INFO, HTTP failure threshold warning. Both emit identifiers and plug raw_data attributes; no redacted diagnostics. `C/O _LOGGER sites`, [logging plan](../archive/logging-plan.md). |
 | Error handling | DIFFERENT | Both broad exception guards prevent parse/calc exceptions escaping but can abandon remaining fan-out. O guards more metadata/child boundaries and each child poll separately; C adds HTTP-specific catches/null guards. Neither centrally validates payload types or isolates every entity callback. |
 | Translations | DIFFERENT | C de/en/fr complete relative to strings; O zh-Hans and English source names, different entity translation structure. Not a drop-in language-file port. |
 | Command execution/firmware guarantees | UNKNOWN | Neither implements correlated positive acknowledgements or firmware capability negotiation. Comments/captures do not establish universal firmware support. |
@@ -97,8 +97,8 @@ Comparison is of actual source at [C and O](baseline.md), not repository age or 
 
 ### Official is not uniformly correct
 
-A source probe against the isolated O snapshot confirmed a startup edge case: the first type101 message with `body.devType=2` and a cts array sets only `cache['cts']`, then reads `cache['plugs']` unconditionally. It logs `Error handling message: 'plugs'`, skips calculation/discovery/distribution for that message and leaves `_known_plugs` empty. A subsequent plug response can initialize the missing list. This is a reason to test message ordering before adopting O's full-list replacement logic, not to discard its independently useful guards. See the [reproducible probe](baseline-test-results.md#official-startup-probe).
+A source probe against the isolated O snapshot confirmed a startup edge case: the first type101 message with `body.devType=2` and a cts array sets only `cache['cts']`, then reads `cache['plugs']` unconditionally. It logs `Error handling message: 'plugs'`, skips calculation/discovery/distribution for that message and leaves `_known_plugs` empty. A subsequent plug response can initialize the missing list. This is a reason to test message ordering before adopting O's full-list replacement logic, not to discard its independently useful guards. See the [reproducible probe](../archive/baseline-test-results.md#official-startup-probe).
 
 Commit IDs above were located using `git log <ref> -S '<distinctive source text>' -- <path>` and checked against the final source. They identify introduction/change in that upstream history, not necessarily the first vendor firmware release. Relevant community changes also include `d1a6da9` obsolete select migration, `47c51fd` maxOutPw slider, `b069e24` binary force-charge switch, and `d99b8ca` all-type3 Shelly path. No historical commit was merged or cherry-picked.
 
-The [port candidates](upstream-port-candidates.md) assess every Official-only row, and the Official side of material differences. Same or differently-solved functionality is not automatically a missing feature.
+The [port candidates](../archive/upstream-port-candidates.md) assess every Official-only row, and the Official side of material differences. Same or differently-solved functionality is not automatically a missing feature.

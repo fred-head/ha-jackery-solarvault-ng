@@ -9,19 +9,19 @@
 | [baseline.md](baseline.md) | SHAs, remotes, releases, versions, evidence conventions |
 | [baseline-test-results.md](baseline-test-results.md) | Exact checks, results, classifications and reproducible probes |
 | [current-capability-inventory.md](current-capability-inventory.md) | Devices, supported groups, controls, availability and HTTP |
-| [mqtt-protocol-inventory.md](mqtt-protocol-inventory.md) | Types, shapes, cache effects and every action publish path |
+| [mqtt-protocol-inventory.md](../references/mqtt-protocol-inventory.md) | Types, shapes, cache effects and every action publish path |
 | [entity-inventory.md](entity-inventory.md) | Every sensor definition, all controls, metadata, IDs and migration |
 | [test-coverage-map.md](test-coverage-map.md) | Behavior map, ranked gaps and complete 174-test source index |
-| [upstream-feature-matrix.md](upstream-feature-matrix.md) | Scoped SAME/COMMUNITY_ONLY/OFFICIAL_ONLY/DIFFERENT/UNKNOWN comparison |
+| [upstream-feature-matrix.md](../references/upstream-feature-matrix.md) | Scoped SAME/COMMUNITY_ONLY/OFFICIAL_ONLY/DIFFERENT/UNKNOWN comparison |
 | [upstream-port-candidates.md](upstream-port-candidates.md) | Per-behavior assessment; nothing ported |
 | [refactor-map.md](refactor-map.md) | Responsibilities, callers, shared state, tests and extraction risk |
 | [architecture-plan.md](architecture-plan.md) | Minimal staged target modules and data ownership |
 | [refactoring-roadmap.md](refactoring-roadmap.md) | Small phases, invariants, tests, acceptance and rollback |
-| [diagnostics-plan.md](diagnostics-plan.md) | Historical Phase 0/1 proposal; now redirects to the binding [Phase 3 diagnostics architecture](diagnostics-architecture.md) |
+| [diagnostics-plan.md](diagnostics-plan.md) | Historical Phase 0/1 proposal; now redirects to the binding [Phase 3 diagnostics architecture](../references/diagnostics-architecture.md) |
 | [logging-plan.md](logging-plan.md) | Existing weaknesses, levels, context and noise control |
 | [phase-0-1-report.md](phase-0-1-report.md) | This review entry point |
 
-Six supporting evidence files are in [baseline-evidence](baseline-evidence/): pytest, Ruff, mypy-with-HA, mypy-lint-only, translations and exact-SHA upstream CI job/step results. Existing docs, production files, tests and AGENTS.md were not edited.
+Six supporting evidence files are in [baseline-evidence](../baseline-evidence): pytest, Ruff, mypy-with-HA, mypy-lint-only, translations and exact-SHA upstream CI job/step results. Existing docs, production files, tests and AGENTS.md were not edited.
 
 ## Validation outcome
 

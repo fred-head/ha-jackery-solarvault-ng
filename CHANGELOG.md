@@ -1,809 +1,269 @@
 # Changelog
 
-All notable changes to this project will be documented in this file.
-Format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+All notable user-facing changes to Jackery SolarVault NG are documented here.
+The format follows [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
+
+Changes in **Unreleased** are planned for the **3.0.0** release.
 
 ## [Unreleased]
 
 ### Added
 
-- Add a Home-Assistant-independent diagnostics contract and pure snapshot
-  builder with explicit semantic allowlists, snapshot-local device aliases,
-  deterministic bounds and neutral placeholders for later runtime observation.
-  No Home Assistant diagnostics endpoint is exposed yet.
-- Add per-coordinator passive diagnostics observations for fixed protocol
-  route/error counters and SmartMeter HTTP outcomes, health, failure/recovery and
-  target replacement. Observations are ephemeral and read-only and do not alter
-  routing, polling, availability or transport behavior.
-- Add Home Assistant config-entry diagnostics backed by the existing pure
-  snapshot contract and passive observations. The read-only adapter exports only
-  bounded semantic state and entry-scoped registry aggregates, with shared
-  snapshot-local aliases and no raw identities, state attributes or network data.
-- Harden diagnostics against adversarial privacy, size, alias, registry and
-  mutation inputs. Runtime collections are copied at the HA adapter boundary so
-  diagnostics cannot retain or mutate live cache/child views, while the existing
-  64-KiB contract, fixed allowlists and side-effect-free behavior remain intact.
-- Extend opt-in protocol discovery with persistent, host-bound structural
-  history and sampled original MQTT payload bytes. Structural observations stay
-  value-free; raw records use Base64, fixed reason categories, ring/storage
-  limits and a separate privacy-warned diagnostics section. Reloads and HA
-  restarts preserve history; deactivation or host changes clear this feature's
-  data without affecting Alert Capture.
-- Add an independent, disabled-by-default experimental MQTT alert observer. It
-  captures opaque host alert payload bytes in private per-entry Home Assistant
-  storage with explicit event, payload, storage and diagnostics-export limits.
-  A versioned host fingerprint preserves history across prefix changes and
-  clears it on host changes; unbound legacy data is discarded. The normal
-  diagnostics contract stays unchanged while enabled exports add a separately
-  versioned, privacy-warned raw-data section; disabling or removing the entry
-  deletes persisted capture data.
-- Add a separate, disabled-by-default experimental `/bmslog` observer for the
-  configured SolarVault. It passively stores opaque payload bytes in its own
-  bounded, host-bound private ring buffer and privacy-warned diagnostics section;
-  it has separate counters and storage from `/alert` and sends no commands.
-
-### Refactored
-
-- Share bounded private MQTT capture storage between Alert Capture and BMS Log
-  Capture while preserving the existing Alert Capture store key and event format.
-- Declare sensor/number metadata schemas and entity-ID invariants for accurate
-  HA-aware type checking.
-- Extract child membership, missing-timer decisions and family-to-entity
-  specifications into a Home-Assistant-independent discovery module while
-  preserving identity, callbacks, registry removal and availability behavior.
-- Move unchanged sensor metadata and pure Smart Plug communication-mode
-  transformations behind explicit HA entity modules while preserving setup,
-  discovery, identity and entity behavior.
-- Isolate SmartMeter HTTP URL, request, timeout, response decoding and numeric
-  measurement validation behind a dedicated transport while preserving polling,
-  health, replacement and entity policy in the coordinator.
-- Isolate per-coordinator MQTT subscribe, publish, JSON serialization and
-  unsubscribe mechanics behind a dedicated transport module while preserving
-  lifecycle and polling policy.
-- Extract MQTT action-topic and command/poll payload construction into a pure
-  protocol module while preserving publication, timing, token and optimistic
-  state behavior.
-- Extract ephemeral protocol cache, host/child freshness, Type-106 evidence and
-  energy-source metadata into a Home-Assistant-independent coordinator runtime
-  state while preserving availability and discovery behavior.
-- Extract pure MQTT topic/envelope parsing and message-route decisions into a
-  standalone protocol module while retaining cache, freshness, Type-106,
-  reauthentication, discovery and entity-update state in the coordinator.
-- Extract child-device family and known-model classification into a standalone,
-  Home-Assistant-independent module while preserving route-specific defaults,
-  discovery output, identity and cache behavior.
-- Extract MQTT field-alias normalization and flat status-body reconstruction
-  into a standalone, Home-Assistant-independent protocol module without changing
-  routing or payload behavior.
-- Extract energy-flow formulas and grid-source calculation into a standalone,
-  Home-Assistant-independent calculation module without changing runtime behavior.
+- Add a downloadable Home Assistant diagnostics report for the integration,
+  including connection freshness, child-device and entity health information.
+  The standard report is bounded and designed to omit or redact sensitive
+  identifiers.
+- Add optional, disabled-by-default protocol, alert, and BMS log capture for
+  targeted troubleshooting. These features can retain raw device data; review
+  their diagnostic output before sharing it.
+- Add dedicated user guides for installation, upgrades, devices and entities,
+  and troubleshooting.
 
 ### Changed
 
-- Centralize Home Assistant Device Registry compatibility behind feature
-  detection. Keep HA 2025.8.0 as the minimum and use config-entry-scoped lookup,
-  singular ownership and `via_device_id` on current HA versions. Automated
-  minimum-version and HA 2026.10.4 API validation passes; a real HA OS
-  2026.10.4 upgrade and second-restart retest reported no Jackery Device
-  Registry deprecation warnings.
-- Define the experimental NG release and compatibility contract: support links
-  now point to the NG repository, Home Assistant 2025.8.0 is the evidenced API
-  floor, the manifest is the sole integration-version authority, CI consumes a
-  frozen Python 3.13.5 toolchain, and release tooling is a fail-closed preflight
-  that never stages files, replaces tags, pushes, or publishes automatically.
+- Refactor the original integration’s core, moving key protocol, calculation,
+  device-classification, transport, runtime-state, discovery, and
+  entity-definition responsibilities into dedicated modules. Preserve
+  established behavior and Home Assistant entity identities while providing a
+  more maintainable foundation for future development.
+- Expose Forced Charging as an on/off switch. It does not set a charge
+  percentage.
+- Set the default charge-limit range to 50–100% and the discharge-limit range
+  to 5–49%; use device-reported bounds when available.
+- Allow the public-grid export limit control to reach 2500 W. This is separate
+  from the SolarVault's OnGrid AC output limit.
+- Apply changed connection and polling options by reloading the integration
+  entry.
+- Keep Home Assistant 2025.8.0 as the minimum version while supporting newer
+  device-registry APIs.
 
 ### Fixed
 
-- Use the supported `mdi:battery` icon for the Battery Count sensor.
-- Migrate the pinned Official 2.0.0 Auto Standby select identity in place to
-  the current constructor ID, retaining the existing entity row and all user
-  registry settings. Preserve the Official Work Mode sensor as a read-only
-  compatibility entity only when its exact sensor row belongs to the current
-  entry and exclusively owned main device; fresh NG setups still create only
-  the writable Work Mode select.
-- Migrate the exact Official 2.0.0 Reboot and Average SOC identities in place
-  on the exclusively owned main device. Map the ten observed Official devType=3
-  CT identities to current SmartMeter constructor IDs only when the persisted
-  Official Type 3 device and parent linkage prove the mapping; preflight all
-  entities atomically and retain unknown or conflicting records fail-closed.
-- Recognize pinned Official 2.0 host-prefixed child identities and main-control
-  IDs during safe in-place registry migration. Known Smart Plug and main-control
-  records retain their device and entity rows, user customization and recorder
-  history; unsupported or conflicting Official child fields remain preserved
-  and fail closed.
-- Reload the owning config entry after changed connection data or runtime
-  options, so a fresh coordinator applies token, MQTT topic, SmartMeter HTTP
-  polling and protocol-discovery settings after old resources are released.
-- Align runtime reauthentication with Home Assistant's entry-owned API, allow
-  exactly one flow per active coordinator, and prevent stopped or removed
-  coordinator instances from starting new flows while preserving token update
-  and reload behavior.
-- Enforce Smart Plug MQTT communication-mode policy at the coordinator command
-  boundary as well as the entity layer, so direct callers cannot publish Type-103
-  commands for cloud-connected, unknown or uncached plugs.
-- Accept validated top-level host `softver` metadata when `body.softver` is
-  absent, while preserving the established body-first firmware precedence.
-- Isolate Type-100 child polling failures per device category so one failed
-  publish no longer prevents the remaining categories in the same cycle from
-  being attempted.
-- Prevent the configured host serial from being admitted through child-device
-  arrays into child cache, freshness, discovery or entity state.
-- Preserve a newer explicit live on-grid zero over an older Type-106 alias when
-  calculating Home Power. Per-coordinator receipt evidence now applies the
-  existing inclusive 60-second live preference without changing raw cache
-  fields, grid-source selection or the other Type-106-protected power fields.
-- Ignore malformed numeric values in the legacy subtype-3 CT phase-sum
-  fallback, preserving the entity's last valid value and allowing later MQTT
-  listeners to receive the same update.
-- Keep the singular `plug` and plural `plugs` cache aliases on the same
-  canonical list when generic MQTT payloads replace plug data, preventing fresh
-  child activity from being paired with stale entity values.
-- Reject malformed restored configuration field types before migration or
-  subscriptions, preserving optional legacy fields and missing-host adoption.
-- Use the canonical Type-23 child serial for expansion-battery cache, freshness
-  and discovery state so payloads with only `sn`, or an empty `deviceSn` plus a
-  valid `sn`, retain one stable child identity across reloads.
-- Track created SmartMeter HTTP entity sets by meter serial so a replacement
-  meter receives its own sensors without duplicating a previously seen meter.
-- Ignore malformed, unhashable child `devType` metadata during static plug-switch
-  filtering instead of interrupting platform setup or granting writable controls.
-- Allow repeated Type-106 power snapshots to update instead of freezing the first
-  value, while protecting valid live host measurements for 60 seconds.
-- Fall back from expired or measurement-less CT/SmartMeter and collector sources,
-  update derived grid/home values on the existing timer, and mark grid power
-  unavailable when no usable source remains. Preserve explicit zero CT/PV aliases.
-- Handle null EPS power without interrupting updates to other energy sensors.
-- Accept Type-23 statistics addressed to the configured SolarVault serial and
-  prevent child messages from overwriting host model/firmware metadata.
-- Ignore malformed child arrays, serials and host model values without blocking
-  valid MQTT updates; unsupported device types no longer create plug entities.
-- Keep invalid switch telemetry and SOC bounds from interrupting updates to
-  other entities while retaining the last usable control value or bound.
-- Release each config entry's MQTT subscriptions on unload and failed startup,
-  preventing duplicate listeners and updates to old coordinators after reload.
-  Serialize coordinator start/stop, attempt all cleanup after callback failures,
-  and unwind already-loaded platforms when setup fails.
-- Scope child sensors, plug switches and child devices by both SolarVault host and
-  child serial, allowing identical child serials under different hosts. MQTT and
-  HTTP measurements of the same host/meter continue to share one device.
-- Migrate unambiguous child registry identities in place, preserving entity IDs,
-  device IDs and user settings, including disabled entities. Resume interrupted
-  migrations on setup; retain shared/foreign/conflicting records and pause affected
-  discovery instead of guessing ownership or creating replacements.
-- Disambiguate HTTP entity IDs when a serial contains the historical `_http_sm_`
-  separator; ordinary HTTP IDs remain unchanged. Reject setup if a literal host
-  identity would claim another entry's existing scoped child device.
-- Preserve existing child entity records during migration, including collectors,
-  numeric/lowercase serials and historical prefixes; retain ambiguous records.
-- Protect foreign/shared devices from identity migration, metadata updates and child
-  cleanup. Migration target conflicts retain both records and respect Home Assistant
-  entity domains and integration platforms.
-- Match child listeners by their stored serial so overlapping serials cannot remove
-  unrelated listeners.
-- Initialize the coordinator before platform setup so switches, numbers, selects and
-  buttons load regardless of platform order, including after reload.
-
-- Foreign-host MQTT traffic and invalid message envelopes no longer refresh the
-  configured SolarVault's heartbeat or suppress its silence-based reauthentication hint.
-- Child MQTT entities now expire independently after 60 seconds without reports;
-  cached fan-out cannot revive stale entities. Accepted child statistics and arrays
-  refresh only their reported devices, and valid reports restore availability.
-  Cumulative expansion-battery energy retains its existing no-expiry policy.
-- MQTT health checks no longer change SmartMeter HTTP availability. Invalid HTTP
-  measurements and a lost meter address now count toward the existing three-failure
-  threshold. Stopping during error backoff or switching to a different meter also
-  marks the previous HTTP source unavailable.
-- MQTT updates no longer fail when SmartMeter HTTP sensors are registered alongside
-  MQTT entities. HTTP measurements and health remain controlled by HTTP polling.
-  Listener removal during MQTT dispatch no longer interrupts remaining updates.
+- Preserve existing Home Assistant devices, entities, user settings, and
+  history across the tested upgrade paths from Jackery Official, the Community
+  integration, and earlier NG installations.
+- Keep child devices with the same serial number under different SolarVaults
+  separate, and avoid creating replacement entities when an existing record
+  can be migrated safely.
+- Improve MQTT recovery: stale main-unit and child-device readings become
+  unavailable, and valid reports restore them automatically.
+- Prevent unrelated or malformed MQTT messages from refreshing the configured
+  SolarVault's status or interrupting updates to other entities.
+- Keep SmartMeter HTTP availability independent from MQTT updates. Repeated
+  HTTP failures mark its readings unavailable, and valid measurements restore
+  them.
+- Improve grid and home-consumption calculations when meter readings expire or
+  are absent, while preserving valid zero-valued measurements.
+- Block Smart Plug commands when the plug is not in local/LAN communication
+  mode.
+- Keep re-authentication tied to the active Home Assistant entry so a refreshed
+  token can restart communication cleanly.
 
 ---
 
-## [2.3.0] – unreleased
+## Earlier releases
+
+The entries below summarize user-visible changes from versions before 3.0.0.
+Historical behavior may have changed since those releases; see the current
+user guides for supported devices, controls, and setup instructions.
+The former 2.3.0 section was marked unreleased; applicable changes from it have
+been consolidated into the 3.0.0 changes above.
+
+## [2.2.0] - 2026-07-27
+
+### Added
+
+- Add support for the Jackery D0 Reader (HTO910A), including total grid import
+  and export readings.
+- Use D0 Reader measurements as a grid source when a SmartMeter 3P is not
+  available.
+
+## [2.1.0] - 2026-07-27
+
+### Added
+
+- Add a writable public-grid export limit control, separate from the
+  SolarVault's OnGrid output limit.
+
+## [2.0.3] - 2026-07-26
+
+### Added
+
+- Add the SolarVault's Wi-Fi IP address as a sensor.
+
+## [2.0.2] - 2026-07-25
 
 ### Fixed
 
-- **SOC Charge Limit slider range** corrected to 50–100 % (device enforces minimum 50 %;
-  previously the slider allowed 0–100 %, but values below 50 % were silently ignored).
-  Confirmed identical on SolarVault 3 and SolarVault 3 Pro Max.
-
-- **SOC Discharge Limit slider range** corrected to 5–49 % (device enforces maximum 49 %;
-  previously the slider allowed 0–100 %, but values above 49 % were silently ignored).
-
-- **Smart plug switch creation filter** tightened: switches are now only created for
-  devType=6 (smart plugs). The previous check (`devType != 2`) would incorrectly have
-  created switches for CT devices or collectors if they appeared in the subdevice list.
+- Restore SmartMeter and expansion-battery entities after Home Assistant
+  restarts, and prevent duplicate unavailable entities after migration.
 
 ### Added
 
-- **Dynamic SOC limit bounds**: When the device reports `minSocChg`/`maxSocChg`/`minSocDischg`/
-  `maxSocDischg` fields, the slider min/max values update automatically to reflect device-reported
-  limits (adopted from upstream).
+- Add the 1200 W output option for SolarVault 3 Pro devices.
 
-- **Percentage unit on SOC sliders**: `SOC Charge Limit`, `SOC Discharge Limit` and
-  `SOC Force Charge` now display the `%` unit in the HA slider UI (closes Issue #16).
+## [2.0.1] - 2026-07-24
 
 ### Fixed
 
-- **`maxFeedGrid` slider range** corrected to 0–2500 W (was 0–800 W). The field maps to
-  the app's "Einspeiseleistungsgrenze" and limits export to the **public electricity grid**
-  (not delivery to the house AC bus). Live MQTT capture confirmed the device accepts values
-  up to 2500 W. Effect is only visible when the device is actually exporting to the public
-  grid; in Eigenverbrauch mode with near-zero net export the limit appears inactive.
+- Prevent calculated home-consumption power from showing negative values.
 
-### Refactored
-
-- Plug helper functions (`plug_comm_mode`, `plug_mqtt_control_allowed`, `should_create_plug_switch`,
-  `COMM_MODE_LABELS`, `COMM_MODE_LOCAL`, `COMM_MODE_CLOUD`) moved from `switch.py` to `sensor.py`
-  as shared public exports. `switch.py` now imports from `sensor.py` instead of maintaining
-  private duplicates.
-
-### Upstream-Sync (v2.0.0)
-
-Nachgezogene Änderungen aus `Jackery-Official/jackery` v2.0.0. Die Fork-eigenen Korrekturen
-bleiben dabei erhalten: Branch A/B in `_calculate_energy_flow` werden **nicht** wieder
-eingeführt, der `p_home = max(0.0, p_home)`-Clamp bleibt, HTO910A-Collector-,
-Expansion-Battery- und SmartMeter-als-CT-Support bleiben unverändert, `REQUEST_INTERVAL`
-bleibt bei 10 s.
-
-- **`FUNC_ENABLE_BITS` + `func_enable` Sensor**: Die Bit→Name-Tabelle für `funcEnable`
-  existierte upstream, aber ohne zugehörigen Sensor — sie war toter Code und wurde nie
-  ausgewertet. Der Fork ergänzt den `func_enable` Sensor (`funcEnable`, type-106) und
-  dekodiert die 12 Bits in das Attribut `func_enable_flags` (plus `func_enable_raw`).
-  Übersetzungen in `strings.json`, `en.json`, `de.json`, `fr.json` ergänzt.
-
-- **`CT_SUBTYPE_MAP`**: subType → Hardware-Klartextname (Shelly/Eastron/Jackery Smart Meter).
-  Wird als Attribut `sub_type_label` an CT- und Collector-Sensoren ausgegeben.
-
-- **`_normalize_payload_fields()` generalisiert**: Alias-Normalisierung (`gridBuyPw`→`gridInPw`,
-  `gridSellPw`→`gridOutPw`, `workModel`→`workMode`) ist jetzt eine Standalone-Funktion und wird
-  bei **jedem** Merge in den Cache angewendet (type-2/25, type-23 System, type-106, type-107)
-  statt nur im type-106-Handler. Vorhandene Werte gewinnen immer über ihren Alias.
-
-- **Helper-Funktionen** `_field_present()`, `_safe_float()`, `_pick_best_power_net()`:
-  typsichere Feldauswertung; `0` gilt als gültiger Messwert, `None` als „nicht gemeldet".
-
-- **`_effective_ongrid_net()`**: Die Netzanschluss-Leistung wird jetzt aus mehreren Quellen
-  bestimmt (`gridInPw/gridOutPw`, `inOngridPw/outOngridPw`, `inGridSidePw/outGridSidePw`).
-  Ein vorhandenes, aber auf 0 stehendes type-106-Feld kann damit keinen echten type-2-Messwert
-  mehr verdecken.
-
-- **`_grid_net_from_system()`**: Ersetzt den einfachen `gridBuyPw`/`gridSellPw`-Fallback, wenn
-  weder CT noch Collector Daten liefern. Fork-Abweichung: Aufruf mit `include_ongrid=False`,
-  da `inOngridPw/outOngridPw` bereits `p_ong` bilden — würden sie zusätzlich als „Zähler"
-  gelten, kollabierte `p_home = p_grid - p_ong` auf 0 und der AC-Ausgangs-Fallback
-  (`p_home = outOngridPw`) für Installationen ohne Zähler ginge verloren.
-
-- **`_extract_flat_body()` + `_FLAT_PAYLOAD_KEYS`**: Statusnachrichten ohne `body`-Wrapper
-  (Felder direkt auf Top-Level) werden jetzt erkannt und in den Cache gemergt statt verworfen.
-
-- **Batterieleistung aus Gerätewerten**: Sind `batInPw`/`batOutPw` im Cache (type-2 und
-  type-106), werden sie direkt für `calc_battery_charge_power`/`calc_battery_discharge_power`
-  verwendet. Die Näherung `pv + p_ac + p_ong` (ignoriert Wandlungsverluste und Eigenverbrauch)
-  bleibt nur noch Fallback für Firmware ohne diese Felder.
-
-- **Type-102-Handler**: Sub-Device Point-Updates. Arrays werden über die (aus dem
-  type-101-Handler extrahierte) Methode `_merge_subdevice_arrays()` gemergt, Einzelgerät-Updates
-  über `_merge_subdevice_point_update()` — bekannte SNs werden in-place gepatcht (Null-Werte
-  werden ignoriert), unbekannte über `devType` klassifiziert bzw. aus den Feldern abgeleitet.
-
-- **Type-107-Handler**: Inkrementelle `soc`/`workMode`-Updates werden normalisiert
-  in den Cache gemergt.
-
-- **`REAUTH_HINT_TIMEOUT = 120` + `_ever_received`**: Das Gerät antwortet bei falschem Token
-  gar nicht (statt mit einem Fehler). Kommt innerhalb von 120 s nach dem Setup keine einzige
-  Nachricht an, wird der Re-Auth-Flow ausgelöst. Der explizite type-123/401-Trigger bleibt.
-
-- **`_remove_subdevice_from_ha()`**: Entfernt ein abgemeldetes Sub-Device über die
-  Device-Registry statt über einzelne `entity.async_remove(force_remove=True)`-Aufrufe.
-  Damit verschwindet auch die (vorher zurückbleibende) leere Gerätekarte. Neuer Helper
-  `_entity_keys_for_subdevice()` liefert die zugehörigen Entity-Keys.
-
-- **Zusätzlicher type-2-Poll**: `_send_poll_requests()` sendet zusätzlich zu type-25 einen
-  type-2-Request („read all settings"). Intervall bleibt 10 s, type-105 weiterhin alle
-  3 Zyklen (~30 s).
-
-- **`OFFLINE_TIMEOUT = 60`** als Konstante eingeführt (ersetzt hartkodierte 60-Sekunden-Werte
-  in Offline-Erkennung, Lösch-Timer und Poll-Loop).
-
-- **Doku**: `docs/entity-reference.md` um den Abschnitt „Migration von der Original-Integration"
-  mit den abweichenden Entity-IDs ergänzt.
-
-- **Tests**: `tests/test_upstream_sync.py` mit 50 neuen Tests für Helper, type-102/107,
-  Flat-Body-Extraktion, Alias-Normalisierung, Batterieformel und funcEnable-Dekodierung.
-  Gesamtabdeckung steigt von 49 % auf 57 %.
-
----
-
-## [2.2.0] – 2026-07-27
+## [2.0.0] - 2026-07-23
 
 ### Added
 
-- **Smart Meter D0 Reader support** (Issue #19): The Jackery Smart Meter D0 Reader (model
-  HTO910A, devType=4, subType=7) reads the optical D0 infrared interface of German electricity
-  meters (IEC 62056-21 / SML protocol) and reports total grid import/export power.
-  The device appears in the `collectors` array of type-101 messages — previously this array
-  was silently ignored. Now creates 5 HA sensors per device: Grid Import Power (`inPw`),
-  Grid Export Power (`outPw`), Communication State, Communication Mode, IP Address.
-  Translations for EN / DE / FR included.
-
-- **Energy flow integration for D0 Reader**: `jackery_home_power` now uses D0 Reader
-  `inPw`/`outPw` as grid measurement source when the SmartMeter 3P (HTO907A) is not present.
-
----
-
-## [2.1.0] – 2026-07-27
-
-### Added
-
-- **Max Grid Feed-In Limit** (`maxFeedGrid`): New writable Number entity (0–800 W, step 10 W).
-  Closes Issue #11. The device-reported value from type-106 remains visible as a read-back sensor
-  (`Max Feed Grid Power`). Note: `maxFeedGrid` is distinct from `maxOutPw` — the latter is the
-  user-selectable app limit (controlled via the existing "Max Feed-In Power" select entity).
-
----
-
-## [2.0.3] – 2026-07-26
-
-### Added
-
-- **WLAN IP sensor** (Issue #10): New sensor `WLAN IP` (`wip`) exposes the SolarVault's
-  IP address on the WiFi network. Useful for diagnostics alongside the existing `Ethernet IP`
-  sensor.
-
-- **Entity reference documentation** (Issue #9): New file `docs/entity-reference.md`
-  explains which sensors to use for energy dashboards, why SmartMeter sensors are preferred
-  over SolarVault-internal sensors for grid import/export, and lists all 100+ entities by
-  category with their entity_id patterns.
+- Support multiple SolarVaults in one Home Assistant installation.
+- Add a re-authentication flow for an expired or rejected device token.
+- Show the detected device model, firmware, and human-readable status readings.
 
 ### Changed
 
-- **German translation `low_power`**: Renamed from "Schwachstrom" to "Energiesparmodus"
-  for better readability (suggested in Issue #10).
+- Include the SolarVault serial number in entity identities so multiple units
+  can be configured independently.
+- Block Smart Plug control while the plug uses cloud-relay communication.
 
----
-
-## [2.0.2] – 2026-07-25
-
-### Fixed
-
-- **SmartMeter and expansion battery entities never created after HA restart** (Bug #7):
-  In v2.0.0, the coordinator attribute `config_entry_id` was renamed to
-  `_config_entry_id` (private), but the `hasattr(self, "config_entry_id")` guards in
-  `_check_for_new_plugs()` and `_check_for_new_expansion_batteries()` still checked the
-  old public name — which always returned `False`. As a result, SmartMeter, BP2500, and
-  smart plug entities were never created after HA restart or integration reload.
-  Fixed by restoring the public attribute name throughout the coordinator.
-
-- **Entity migration leaving duplicate "unavailable" sensors** (v2.0.0 migration bugs):
-  Three bugs in `_migrate_unique_ids()` caused entities not to be migrated correctly,
-  leaving orphaned "unavailable" entities alongside newly created duplicates:
-  1. The sub-prefix skip check (`battery_*`, `ct_*`) incorrectly skipped main-device
-     sensors like `jackery_battery_soc` and `jackery_ct_status` (matched prefix but were
-     not sub-device sensors). Fixed by requiring the character after the prefix to be
-     uppercase (sub-device SNs always start with uppercase).
-  2. Switch and number entities migrated to the wrong unique-id format: `jackery_main_{key}`
-     was migrated to `jackery_{sn}_main_{key}`, but the v2.0.0 code generates
-     `jackery_{sn}_switch_{key}` / `jackery_{sn}_number_{key}`. Fixed by using the entity's
-     `entity_id` platform prefix (`switch.` / `number.`) to select the correct target format.
-  3. The migration now uses direct entity registry manipulation instead of the callback-based
-     `async_migrate_entries` approach, so it can detect and resolve conflicts: if a correctly
-     named entity already exists (created fresh by a prior v2.0.x run), the orphaned old
-     entity is deleted rather than causing a unique-id collision. Wrongly-migrated
-     `jackery_{sn}_main_*` entities left by v2.0.1 are also cleaned up.
-
-### Added
-
-- **Max Feed-in Power: 1200 W option for SV3 Pro** (Issue #5):
-  The `Max Feed-in Power` select entity now includes `1200 W (SV3 Pro)` alongside the
-  existing `800 W` and `2500 W (SV3 Pro Max)` options. Previously, SV3 Pro devices with
-  1200 W configured via the app showed "unknown" in the select entity.
-
----
-
-## [2.0.1] – 2026-07-24
+## [1.3.9] - 2026-07-17
 
 ### Fixed
 
-- **`jackery_home_power` could show negative values**: The base formula
-  `p_home = p_grid - p_ong` can temporarily yield a negative result when the SmartMeter
-  (type-101, ~11 s cadence) and the SolarVault (type-2, ~11 s cadence) are read at
-  different points in time — for example when `grid_sell` momentarily exceeds
-  `ongrid_supply` due to asynchronous sensor updates. House loads cannot be negative, so
-  any negative result is a measurement artefact. Added `p_home = max(0.0, p_home)` clamp
-  after all formula branches. Grid charging (`inOngridPw > 0`) is correctly handled by
-  the formula itself and does not produce negative values.
+- Keep expansion-battery energy entities available between their infrequent
+  reports instead of repeatedly removing and recreating them.
 
----
-
-## [2.0.0] – 2026-07-23
-
-### Added
-
-- **Multi-instance support**: Multiple Jackery devices can now be integrated simultaneously.
-  Each config entry is identified by its device serial number. Existing single-device
-  installations are migrated automatically on first startup — entity IDs and HA history
-  are preserved via `_migrate_unique_ids()` (entity registry) and device registry migration.
-
-- **Re-authentication flow**: If the device reports a token mismatch (MQTT type-123 /
-  errorCode 401), Home Assistant now shows a persistent notification prompting the user to
-  re-enter the token. Implemented via `async_step_reauth` / `async_step_reauth_confirm` in
-  the config flow and `_trigger_reauth()` in the coordinator.
-
-- **Device card: model and firmware version**: The HA device card now shows the device model
-  (`DIY3` for SolarVault 3 Pro Max) and the firmware version, extracted from incoming MQTT
-  messages via `_capture_device_meta()` / `_update_device_registry()`.
-
-- **Human-readable ENUM status sensors**: `Device Status`, `OnGrid Status`, `CT Status`, and
-  `Grid Meter Link` now use `SensorDeviceClass.ENUM` with translated labels (EN / DE / FR)
-  instead of raw integers. Mapped via `DEVICE_STATUS_MAP`, `ONGRID_STATUS_MAP`,
-  `CT_STATUS_MAP`, `GRID_METER_LINK_MAP`.
-
-- **New sensor – Max Feed Grid Power** (`maxFeedGrid`, type-106): exposes the device-side
-  feed-in limit for diagnostics. May differ from the writable `maxOutPw` setting.
-
-- **Smart Plug commMode guard**: MQTT switch commands to smart plugs are now blocked when the
-  plug is in cloud-relay mode (`commMode=2`). HA shows a persistent notification explaining
-  the issue; `HomeAssistantError` is raised so automations can handle it. `async_toggle()` is
-  also guarded. `extra_state_attributes` now includes `commMode`, `commMode_label`,
-  `mqtt_controllable`, and `mqtt_control_block_reason`.
-
-- **Initial poll before first sleep**: The coordinator now sends a type-25 poll 2 s after
-  startup, making sensor data available faster after HA start or integration reload.
-
-- **`_subdevice_sn()` helper**: Replaces inline `.get("deviceSn") or .get("sn")` calls
-  throughout the coordinator.
+## [1.3.8] - 2026-07-17
 
 ### Fixed
 
-- **`JackeryAutoStandbySelect` missing optimistic cache update**: Writing a new value via the
-  Auto Standby select reverted to the old value on the next MQTT event (~10 s). Fixed by
-  patching `coordinator._data_cache` after the write, consistent with the v1.3.1 pattern
-  already applied to WorkMode and MaxFeedIn selects.
+- Preserve the last valid expansion-battery energy reading when the device
+  reports a null value.
+
+## [1.3.7] - 2026-07-17
 
 ### Changed
 
-- **Entry title**: Config entries are now titled `"Jackery {device_sn}"` instead of
-  `"Jackery"`, making multiple instances distinguishable in the HA UI.
+- Restrict the SolarVault OnGrid output setting to the values supported by the
+  Jackery app at that time.
 
-- **Unique ID format**: All entity unique IDs now include the device SN
-  (`jackery_{sn}_{entity}` instead of `jackery_{entity}`). Migration runs automatically.
-
-### CI / Development
-
-- **Ruff** linter + formatter added (`pyproject.toml`, rules E/F/I/W/UP, line-length 120).
-  26 existing style issues auto-fixed on adoption.
-- **mypy** type checker added (`ignore_missing_imports = true` for HA's dynamic typing);
-  7 type errors in production code fixed on adoption.
-- **pytest-cov** coverage reporting added (`--cov-fail-under=30`; actual: ~53 %).
-- **Translation completeness check** (`tools/check_translations.py`): compares all
-  `translations/*.json` against `strings.json`; fails CI on any missing key.
-  `translations/zh-Hans.json` removed (upstream original, 143 missing keys, outdated).
-- **Integration tests** (`tests/test_config_flow.py`): 4 tests using the real HA test
-  framework (`pytest-homeassistant-custom-component`).
-- **Dependabot** (`.github/dependabot.yml`): weekly Monday updates for GitHub Actions.
-- **GitHub Actions** workflow (`validate.yml`) extended with a dedicated `lint` job
-  (Ruff + mypy + translation check) alongside the existing `validate` and `tests` jobs.
-
----
-
-## [1.3.9] – 2026-07-17
+## [1.3.6] - 2026-07-17
 
 ### Fixed
 
-- **Expansion battery sensors deleted every ~60 s (root cause fix)**: The sub-device deletion
-  timer (step 1/2 in `_check_for_new_plugs`) checked whether each known SN was present in the
-  current type-101 message. Expansion batteries appear exclusively in type-23 messages (~10 min
-  cadence), never in type-101. So every incoming type-101 started the 60 s deletion countdown
-  for the battery SN. After ~60 s, `entity.async_remove(force_remove=True)` was called — the
-  entity disappeared from HA entirely ("Sensor nicht verfügbar"). The next type-23 recreated it,
-  the next type-101 started the timer again — creating a continuous create/delete cycle.
+- Keep BP2500 expansion-battery sensors available between reports.
 
-  Fix: expansion battery SNs (tracked in `_expansion_battery_sns`) are now explicitly excluded
-  from both the deletion-timer start (step 1) and the deletion execution (step 2).
-
-  Note: v1.3.8 fixed a separate but related issue (null-value cache corruption) and is still
-  included. This release contains both fixes.
-
----
-
-## [1.3.8] – 2026-07-17
+## [1.3.5] - 2026-07-17
 
 ### Fixed
 
-- **Expansion battery sensors showing "null kWh" in HA history charts**: Two-part fix:
-  1. **Null-value filter in type-23 cache**: Devices occasionally send `null` for `inEgy`/`outEgy`
-     fields (e.g. during a restart or transient error). Previously these overwrote real cached
-     values with `None`. `_update_from_coordinator` already guarded against writing `None` to
-     `_attr_native_value`, but the corrupted cache meant the entity showed its value correctly
-     until HA re-evaluated the state. The type-23 handler now only updates cached fields that
-     have non-`null` values, preserving previously received real data.
-  2. **Pre-initialization of entity values on creation**: When an expansion battery entity is
-     created for the first time (on discovery via type-23), it now reads the current cache and
-     pre-sets `_attr_native_value` before being added to HA. Previously, the entity started with
-     `_attr_native_value = None` (HA state: "unknown") and only got its value on the next MQTT
-     update cycle — briefly showing "null kWh" in charts. If no real cached value is available
-     at creation time, the entity starts as "unavailable" (chart gap) rather than "unknown"
-     (null data point).
+- Correctly display the SmartMeter communication mode as LAN or Cloud.
 
----
-
-## [1.3.7] – 2026-07-17
-
-### Changed
-- **Max Feed-in Power converted from number to select**: `maxOutPw` is now a dropdown
-  restricted to the two values the Jackery app allows — **800 W** and **2500 W**. The previous
-  free-range slider (0–10000 W) accepted arbitrary values the device does not support.
-  Translations updated for DE, EN and FR.
-
-### Fixed
-- **Expansion battery sensors flapping unavailable**: After the v1.3.6 fix, sensors still went
-  unavailable ~15 min after each type-23 message (900 s timeout). Since expansion batteries
-  report cumulative energy only every ~10 min, the timeout was too aggressive. Once a battery
-  has reported data for the first time, its sensors now stay available indefinitely (until
-  integration restart), matching the nature of slowly-changing cumulative energy values.
+## [1.3.4] - 2026-07-17
 
 ### Added
-- **French translation** (`fr.json`) contributed by pyrots — merci!
 
----
+- Add English and German names for sensors and controls, plus readable device
+  and connection status values.
 
-## [1.3.6] – 2026-07-17
-
-### Fixed
-- **Expansion battery sensors permanently unavailable after ~60 s**: Energy data for BP2500 units
-  arrives via type-23 messages (~every 10 min), but the offline detection marked sub-devices
-  unavailable after 60 s without a type-101 update. Two-part fix:
-  1. `_subdevice_last_seen[sn]` is now updated in the type-23 handler whenever an expansion
-     battery reports data.
-  2. Offline timeout for expansion battery SNs raised from 60 s to 900 s (15 min), matching
-     the ~10 min type-23 cadence with a safety margin.
-
----
-
-## [1.3.5] – 2026-07-17
-
-### Fixed
-- **`commMode` sensor showed "Cloud (Relay)" even when SmartMeter was in LAN mode**: The MQTT
-  field `commMode` is 1-based (1=LAN, 2=Cloud), but the ENUM options list was 0-indexed, so
-  `commMode=1` mapped to `options[1]` = `"cloud"` instead of `options[0]` = `"lan"`. Fixed by
-  adding `options_offset: 1` to the sensor config; the update handler now subtracts the offset
-  before indexing. `commState` is unaffected (0-based, offset=0).
-
----
-
-## [1.3.4] – 2026-07-17
+## [1.3.3] - 2026-07-17
 
 ### Added
-- **Complete sensor translations** (EN + DE) for all 95 sensor entities via HA translation system:
-  - 70 main device sensors (battery, solar, grid, EPS, energy flow, diagnostics, type-106 fields)
-  - 25 sub-device sensors (SmartMeter 3P phases/energy, CT, plug, expansion battery)
-  - `JackerySensor` and `JackerySubDeviceSensor` now use `_attr_translation_key` instead of hardcoded `_attr_name`
-- **`commMode` / `commState` as ENUM sensors** with human-readable state labels:
-  - `commMode`: `1` → "LAN", `2` → "Cloud (Relay)" (with DE/EN translations)
-  - `commState`: `0` → "Offline", `1` → "Online" (with DE/EN translations)
+
+- Add translations for controls and the configuration flow.
+
+### Changed
+
+- Replace German Work Mode option values with translated values. Automations
+  that used the old option strings needed to be updated.
+
+## [1.3.2] - 2026-07-17
+
+### Changed
+
+- Reduce the delay before app-initiated operating-mode changes appear in Home
+  Assistant.
+
+## [1.3.1] - 2026-07-17
 
 ### Fixed
-- **Integer status sensors showed float values** (e.g. `1.0` instead of `1`): All sensors without
-  unit and without scale factor now store integer values. Affected: Battery Count, Battery State,
-  Device Status, OnGrid Status, CT Status, Grid Meter Link, EPS State, EPS Switch Status,
-  Ethernet Connected, and all other unitless numeric fields.
 
-### Notes
-- After updating via HACS, an **HA restart** is required (not just integration reload) for all
-  new translation files to be loaded. A browser hard-refresh (Ctrl+Shift+R) may additionally
-  be needed if cached translations show in the wrong language.
-- Total translated entities: 107 (70 main sensors + 25 sub-device sensors + 12 control entities)
+- Keep changes made with supported controls from reverting to the previous
+  displayed value while waiting for device updates.
 
----
-
-## [1.3.3] – 2026-07-17
+## [1.3.0] - 2026-07-17
 
 ### Added
-- **Internationalization (i18n)** for all control entities via HA translation system:
-  - `translations/de.json` — German
-  - `translations/en.json` — English
-  - `strings.json` updated to English base (was Chinese from original integration)
-  - Config flow UI now available in English and German
-- Entities translated: Work Mode select, Auto Standby select, all 5 numbers, all 4 switches, reboot button
+
+- Add controls for operating mode, default output power, grid-outage fallback,
+  and meter-following behavior.
 
 ### Changed
-- **Work Mode select option keys** changed from German strings (`"Eigenverbrauch"`, …) to neutral translation keys (`"self_consumption"`, `"custom"`, `"tariff"`, `"ai"`). HA displays them in the user's language via translations. **Breaking:** automations referencing the old German option values need to be updated to the new keys.
 
----
-
-## [1.3.2] – 2026-07-17
-
-### Changed
-- **Type-105 poll interval reduced from 5 min to 30 s** (3 cycles × 10 s). App-initiated mode changes (via Jackery cloud) now appear in HA within ~30 s instead of up to 5 min. Additional traffic: ~75 KB/h — negligible for homelab use.
-
----
-
-## [1.3.1] – 2026-07-17
-
-### Fixed
-- **Optimistic state updates reverting after ~10 s**: After writing a new value via the Work Mode select, Off-Grid Fallback switch, Follow Meter Power switch, or Default Output Power number, the coordinator's `_data_cache` still held the old value. Every incoming type-2 message (~10 s) triggered `_distribute_data`, which pushed the stale cached value back to the entity — reverting the optimistic UI state before the next type-106 poll (~5 min) could confirm the write. Fix: `_data_cache` is now updated alongside the optimistic UI state on every write.
-
----
-
-## [1.3.0] – 2026-07-17
-
-### Added
-- **Work Mode select** (`workModel`): dropdown to switch between Eigenverbrauch (2), Benutzerdefiniert (4), Tarifmodus (7), KI-Modus (8). State populated from type-106 poll. Writes use `workModel` field via type-1/cmd=5. Replaces the former read-only `work_mode` sensor.
-- **Default Output Power number** (`defaultPw`): slider 0–200 W, 10 W steps. Fallback power for Benutzerdefiniert mode when no schedule entry is active. Optimistic updates (state reflects write immediately). App limit: 200 W; schedule slots (cloud-only) can reach 800 W.
-- **Off-Grid Fallback switch** (`offGridDown`): enables off-grid fallback mode. Optimistic updates.
-- **Follow Meter Power switch** (`isFollowMeterPw`, "Zähler folgen"): sub-mode within Benutzerdefiniert (workModel=4). When on, the SolarVault tracks the SmartMeter to achieve net-zero grid exchange. Entity becomes **unavailable** automatically when Work Mode ≠ Benutzerdefiniert.
-
-### Changed
-- `maxOutPw` number renamed from "Max Output Power (OnGrid)" to "Max Feed-in Power (OnGrid)" — confirmed as Einspeiseleistung (grid feed-in power limit), not EPS socket output.
-- `off_grid_time` sensor unit fixed from raw string `"s"` to `UnitOfTime.SECONDS`.
+- Replace the read-only Work Mode sensor with a selectable operating-mode
+  control.
 
 ### Removed
-- Read-only `work_mode` sensor (`workMode`) → replaced by Work Mode select.
-- Read-only `is_follow_meter_power` sensor (`isFollowMeterPw`) → replaced by Follow Meter Power switch.
-- Read-only `off_grid_fallback` sensor (`offGridDown`) → replaced by Off-Grid Fallback switch.
-- `autoStandby` number entity (slider 0–2) → removed; the Auto Standby Mode select (added in v1.2.0) already covers this field. Users with automations referencing `number.jackery_main_autostandby` should migrate to `select.jackery_*_auto_standby_select`.
 
-### Notes
-- `workModel` writability confirmed independently by community member pyrots ([issue #5](https://github.com/Jackery-Official/jackery/issues/5)).
-- `offGridTime` is NOT writable via cmd=5 (no cmd=107 ack received in testing); remains read-only sensor.
-- Time-based schedules (Benutzerdefiniert, Tarifmodus) and KI-Modus strategy selection are cloud-only — not accessible via local MQTT.
+- Remove obsolete read-only sensors that duplicated the new controls.
 
----
-
-## [1.2.1] – 2026-07-15
+## [1.2.1] - 2026-07-15
 
 ### Added
-- **Type-105 poll** every 5 minutes (30 cycles × 10 s); fires immediately on first startup cycle.
-  The SolarVault responds with a **type-106 full system state** message.
-- **Type-106 message handler**: merges the response body into the data cache.
-  `workModel` (type-106 alias) is automatically normalized to `workMode`.
-- **13 new sensors** from type-106 data — all appear automatically once reported:
-  - `Home Load Power (Estimated)` (`otherLoadPw`) — house consumption as seen by the SolarVault
-  - `Grid AC Input Power` (`gridInPw`) / `Grid AC Output Power` (`gridOutPw`) — alternative to `inOngridPw`/`outOngridPw`
-  - `Grid Side Input Power` (`inGridSidePw`) / `Grid Side Output Power` (`outGridSidePw`)
-  - `Energy Plan Power` (`energyPlanPw`) — planned output target
-  - `Standby Power Threshold` (`standbyPw`)
-  - `PV Max Charge Power` (`pvMaxChgPower`)
-  - `Max System Output Power` (`maxSysOutPw`) / `Max System Input Power` (`maxSysInPw`)
-  - `Follow Meter Power` (`isFollowMeterPw`)
-  - `Off-Grid Fallback` (`offGridDown`) / `Off-Grid Switch Time` (`offGridTime`)
 
-### Notes
-- Confirmed via live MQTT capture: our SolarVault does **not** send types 102/106/107 spontaneously.
-  Type 106 is only delivered as a response to a type-105 poll.
-  Types 102 and 107 were not observed at all — likely require newer firmware or different hardware.
+- Add additional grid, inverter, PV-limit, standby, and system power readings
+  reported by the SolarVault.
 
----
-
-## [1.2.0] – 2026-07-15
+## [1.2.0] - 2026-07-15
 
 ### Added
-- **Reboot button** – new `button` entity sends a restart command (type=1, cmd=5, reboot=1) to the
-  SolarVault directly from Home Assistant. Useful to restore SmartMeter LAN mode without touching
-  the device or app.
-- **Auto Standby Mode select** – `autoStandby` is now exposed as a `select` entity with human-readable
-  options (invalid / standby / on) instead of a raw numeric sensor.
-- **5 new device status sensors**: `Device Status` (stat), `Work Mode` (workMode),
-  `OnGrid Status` (ongridStat), `CT Status` (ctStat), `Grid Meter Link` (gridSate).
-  These fields are sent in type-2 / type-106 / type-107 messages; sensors appear automatically
-  once the device reports the field at least once.
-- **Sub-device offline detection** – each CT/plug is now marked `unavailable` in HA if it has not
-  reported data for 60 seconds, instead of holding the last known value indefinitely.
-- **devType=4 (Meter Collector) support** – classified as CT rather than plug; sensor group
-  follows the same `ct` path as devType=2.
 
-### Changed
-- Sub-device cache now uses **SN-based merging** (`_merge_subdevice_list`): partial updates
-  preserve fields not present in the current message, rather than replacing the entire list.
-  Adopted from upstream v2.0-beta.
-- `CT_DEV_TYPES = frozenset({2, 3, 4})` replaces inline `devType` checks throughout the
-  discovery and sensor-creation path.
+- Add a Home Assistant restart button, an Automatic Standby selector, device
+  status readings, and support for meter-reader sub-devices.
 
----
-
-## [1.1.70] – 2026-07-15
+## [1.1.70] - 2026-07-15
 
 ### Fixed
-- `jackery_home_power` was calculated as a negative value during phase-balanced feed-in.
-  When the SmartMeter operates in combined-phase mode, `outOngridPw` (total SolarVault AC
-  output) is much larger than `tnPhasePw` (net to public grid). A special-case branch used
-  `grid_sell − ongrid_supply` (inverted sign) and overrode the correct base formula
-  `p_grid − p_ong`. The branch has been removed; the base formula handles all scenarios correctly.
-  Example: 301 W AC output, 29 W net to grid → home load now correctly shows 272 W instead of −272 W.
 
-### Tests
-- Added regression test `test_home_power_phase_balanced_feed_in` covering the above scenario.
-- Fixed `test_home_power_ct_feed_in_with_ongrid_supply` to use a physically realistic scenario.
+- Correct the home-consumption calculation for balanced grid export.
 
----
-
-## [1.1.69] – 2026-07-15
+## [1.1.69] - 2026-07-15
 
 ### Added
-- **6 new diagnostic sensors** to aid troubleshooting:
-  - SolarVault: `WiFi SSID` (`wname`), `Ethernet IP` (`eip`), `Device Capability` (`ability`)
-  - SmartMeter 3P: `Communication Mode` (`commMode`), `Communication State` (`commState`), `IP Address` (`wip`)
-- `commMode` sensor makes the LAN→Cloud switch immediately visible in HA history.
-- String sensor support in `ct_3phase` update path (previously string values were silently discarded).
 
-### Documentation
-- Added Troubleshooting section to README documenting the SmartMeter `commMode` LAN→Cloud issue:
-  internet outages can cause the SmartMeter to switch to Cloud mode, stopping MQTT measurement data.
-  A SolarVault restart (via app or on the device) restores LAN mode.
+- Add Wi-Fi, Ethernet, device-capability, and SmartMeter communication
+  diagnostic readings.
 
----
-
-## [1.1.68] – 2026-07-15
+## [1.1.67] - 2026-07-14
 
 ### Added
-- Automated test suite (49 tests) covering `_calculate_energy_flow`, MQTT message routing,
-  and sensor value transforms. No real MQTT broker or HA installation required.
-- CI workflow (`.github/workflows/validate.yml`) runs tests on every push.
+
+- Add an experimental numeric forced-charge target. Its meaning was not fully
+  established and the control has since been superseded by the on/off switch
+  described under Unreleased.
+
+## [1.1.66] - 2026-07-14
+
+### Added
+
+- Add cumulative CT import and export energy readings.
+
+## [1.1.65] - 2026-07-10
+
+### Added
+
+- Add cumulative BP2500 charge and discharge energy readings.
 
 ### Fixed
-- `gridSellPw=0` (no export) was treated as falsy by `or`, causing the
-  `gridBuyPw`/`gridSellPw` fallback path to leave `grid_available=False` even when both
-  fields were present. Fixed with explicit `is not None` checks.
 
----
+- Prevent SmartMeter and CT entities from disappearing when the SolarVault
+  reports a different sub-device category.
 
-## [1.1.67] – 2026-07-14
+## [1.1.64] - 2026-07-10
 
 ### Added
-- `SOC Force Charge Target` (`socForceChg`) as a writable `number` entity (range 0–100 %).
-  Confirmed writable via MQTT (cmd=5, device acks with cmd=107). Exact purpose undetermined —
-  documented uncertainty in README and code.
 
----
+- Add cumulative SmartMeter 3P import and export energy readings for each phase.
 
-## [1.1.66] – 2026-07-14
+## [1.1.63] - 2026-07-10
 
 ### Added
-- 3 new sensors confirmed via live MQTT capture after firmware update:
-  - `SOC Force Charge Target` (`socForceChg`) — read-only sensor (writable entity added in 1.1.67)
-  - `CT Import Energy` (`inCtEgy`) — cumulative system-level CT import energy
-  - `CT Export Energy` (`outCtEgy`) — cumulative system-level CT export energy
 
----
-
-## [1.1.65] – 2026-07-10
-
-### Fixed
-- **CT/SmartMeter sub-device flapping (issue #16):** A `devType=6` (plug) poll response
-  overwrote the CT cache with an empty list, causing the SmartMeter to appear as missing every
-  ~11 s. Fixed by only updating the relevant cache section (CT or plug) when the payload
-  contains the corresponding keys (`has_ct_payload` / `has_plug_payload`).
-
-### Added
-- **BP2500 expansion battery energy sensors** — the BP2500 appears in type-23 energy statistics
-  messages (~every 10 min). Two sensors are created automatically when detected:
-  `Charge Energy` (`inEgy`) and `Discharge Energy` (`outEgy`), both in kWh (scale × 0.01).
-
----
-
-## [1.1.64] – 2026-07-10
-
-### Added
-- 8 CT energy sensors for SmartMeter 3P from type-23 messages:
-  `tPhaseEgy`, `tnPhaseEgy`, per-phase import/export energy (L1–L3).
-- Missing `AC to Grid Energy` sensor (`acOtOngridEgy`).
-
-### Fixed
-- Scale factor for `ct_3phase` energy sensors corrected to × 0.01 (→ kWh).
-
----
-
-## [1.1.63] – 2026-07-10
-
-### Added (initial fork release)
-- Fork of [Jackery-Official/jackery](https://github.com/Jackery-Official/jackery) with fixes
-  and new sensors for the **Jackery SolarVault 3 Pro Max**.
-- New sensors from live MQTT data: `stackInPw`, `stackOutPw`, `soc` (BMS SOC), `batState`,
-  `ethPort`, `wsig`, `maxInvStdPw`, `maxGridStdPw`.
-
-### Fixed
-- **SmartMeter 3P (HTO907A, devType=3, subType=5) misclassified as plug (issue #18):**
-  The original integration routed `devType=3` to the plug handler, causing the energy flow
-  calculation to receive no CT data. Fixed by adding a dedicated `ct_3phase` sensor group
-  with 8 sensors (L1/L2/L3 import + export + totals).
+- Start the community fork of the Jackery Official integration, adding
+  SolarVault 3 Pro Max readings and correcting SmartMeter 3P device detection.

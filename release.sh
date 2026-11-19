@@ -12,8 +12,13 @@ fail() {
 }
 
 version_tag=${1:-}
-[[ "$version_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]] || \
-    fail "pass an exact semantic version tag (vX.Y.Z)"
+[[ "$version_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[1-9][0-9]*)?$ ]] || \
+    fail "pass an exact version tag (vX.Y.Z or vX.Y.Z-rc.N, N >= 1)"
+
+github_release_flags=""
+if [[ "$version_tag" == *-rc.* ]]; then
+    github_release_flags=" --prerelease --latest=false"
+fi
 
 [[ -f "$MANIFEST" && -f "hacs.json" && -f "pyproject.toml" ]] || \
     fail "run this script from the repository root"
@@ -95,5 +100,5 @@ the maintainer may create the immutable release objects manually:
 
   git tag -a $version_tag -m "Release $version_tag"
   git push origin $version_tag
-  gh release create $version_tag --repo $EXPECTED_REPOSITORY --title $version_tag --generate-notes
+  gh release create $version_tag --repo $EXPECTED_REPOSITORY --title $version_tag --generate-notes$github_release_flags
 EOF
