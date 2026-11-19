@@ -2,9 +2,11 @@
 
 ## Scope
 
-This report validates persistent Home Assistant identity and history behavior
-when existing `jackery` installations load SolarVault NG code. It does not
-model a fresh installation and does not require a physical SolarVault.
+The fixture-based track in this report validates persistent Home Assistant
+identity and history behavior when existing `jackery` installations load
+SolarVault NG code. That track does not model a fresh installation and does not
+require a physical SolarVault. A separate maintainer-reported pre-production
+hardware test is recorded below.
 
 | Route | Pinned source | Version |
 | --- | --- | --- |
@@ -50,8 +52,9 @@ Evidence labels in this report mean:
   ConfigEntry/registry semantics can be restored from the pre-upgrade fixture.
 - **[REAL HA VERIFIED]**: observed on the separate HA OS installation below.
 - **[REAL HA UPGRADE VERIFIED]**: the final uncommitted branch candidate was
-  installed by manual code replacement over an existing Official 2.0.0
-  ConfigEntry, completed setup and migration, and passed a second restart.
+  installed over an existing Official 2.0.0 ConfigEntry by CLI copying the
+  integration's Python package files, completed setup and migration, and passed
+  a second restart.
 - **[REAL HA BACKUP RESTORE VERIFIED]**: the complete Pre-NG Official backup
   restored successfully on the separate HA OS installation before the final
   upgrade test.
@@ -59,11 +62,36 @@ Evidence labels in this report mean:
   observed to remain orphaned while NG created a separate row.
 - **[REAL HA COMPATIBILITY GAP]**: an Official entity was orphaned across a
   domain or behavior change and needs an explicit compatibility policy.
-- **[OPEN]**: HACS switching, a Community 2.5.0 -> NG real upgrade, a longer
-  MQTT/SolarVault soak, post-NG backup rollback and Production Go-Live remain
-  open.
+- **[MAINTAINER-REPORTED REAL PATH TEST]**: a pre-production Home Assistant
+  installation with real Jackery hardware covered fresh NG installation,
+  Official -> NG, Community -> NG, and Official -> Community -> NG using CLI
+  copying of the integration's Python package files. No HACS UI or Marketplace
+  install/update flow was exercised. Exact HA, integration, hardware and
+  firmware versions and per-path assertions have not yet been recorded here.
+- **[OPEN]**: a longer MQTT/SolarVault soak, post-NG backup rollback, and
+  Production Go-Live qualification remain open. Store-based qualification is
+  planned through the first release candidate before stable 3.0.0.
 
 ## Real Home Assistant upgrade runs
+
+### Maintainer-reported pre-production path testing
+
+On 2026-11-19, the maintainer reported testing these paths on real Jackery
+hardware in a pre-production Home Assistant installation:
+
+| Path | Result |
+| --- | --- |
+| Fresh install of SolarVault NG | Tested |
+| Jackery Official -> SolarVault NG | Tested |
+| Community integration -> SolarVault NG | Tested |
+| Jackery Official -> Community integration -> SolarVault NG | Tested |
+
+These reported pre-production paths used the CLI to copy the integration's
+Python package files. They did not exercise installation or updates through the
+HACS or Home Assistant Marketplace interface. Exact Home Assistant and
+integration versions, hardware/firmware, and per-path assertions were not
+supplied with the report. This also does not claim a long-duration broker soak
+or rollback by restoring a post-NG backup.
 
 Environment: Home Assistant OS 18.3, Home Assistant 2026.10.4, Python 3.14.9
 and HACS 2.0.5. The final run started from Official 2.0.0 at
@@ -123,13 +151,18 @@ support while using config-entry-scoped lookups, singular ownership and
 and the actual HA 2026.10.4 API. The final HA OS 2026.10.4 real run also
 reported no Jackery-owned Device Registry deprecation warnings.
 
-The final Official 2.0.0 -> NG manual code-replacement upgrade and Pre-NG full
+The specific Official 2.0.0 -> NG manual code-replacement run and Pre-NG full
 backup restore are **[REAL HA UPGRADE VERIFIED]** and
 **[REAL HA BACKUP RESTORE VERIFIED]**. The second restart confirmed idempotence.
-This was not a HACS upgrade. Restoring a post-NG backup as rollback was not
-tested. The Battery Count icon correction is UI-only, was made after the real
-upgrade run, and is covered by its focused metadata test; it does not change
-the migration or Device Registry path.
+That specific run used CLI code replacement by copying the integration's
+Python package files, not HACS. The separate pre-production paths used the same
+CLI package-copy method. HACS and Marketplace store-based installation/update
+remain unverified and are planned for qualification with the first release
+candidate before stable 3.0.0.
+Restoring a post-NG backup as rollback was not tested. The Battery Count icon
+correction is UI-only, was made after the documented Official upgrade run, and
+is covered by its focused metadata test; it does not change the migration or
+Device Registry path.
 
 ## Golden states
 
@@ -299,14 +332,16 @@ match the saved snapshot. This is
 
 It is not a Home Assistant backup subsystem test and does not restore an actual
 recorder database image. Separately, the Pre-NG Official full-backup restore is
-**[REAL HA BACKUP RESTORE VERIFIED]**. A HACS code switch and rollback by
-restoring a post-NG backup remain **[OPEN]**.
+**[REAL HA BACKUP RESTORE VERIFIED]**. The reported paths used CLI package
+copying and did not include a HACS or Marketplace update; rollback by restoring
+a post-NG backup remains **[OPEN]**.
 
 ## Remaining real-world evidence
 
-- Actual HACS switch from Official or Community to NG on a backed-up HA
-  installation.
-- A real Community 2.5.0 -> NG upgrade on a backed-up HA installation.
+- Record the exact HA, integration, hardware and firmware versions, backup
+  method and assertions for the reported pre-production paths.
+- Qualify the HACS/Marketplace installation or update path through the first
+  release candidate before publishing stable 3.0.0.
 - A longer MQTT/SolarVault soak and Production Go-Live qualification.
 - Anonymized user registry and recorder exports covering more historical
   releases and customization patterns.
@@ -314,5 +349,7 @@ restoring a post-NG backup remain **[OPEN]**.
   data and integration files.
 - Rollback documentation tested through the user-facing Home Assistant/HACS UI.
 
-Hardware is not required to establish registry identity, but these installation
-operations remain necessary before claiming real-world upgrade safety.
+The reported physical path tests complement the synthetic identity and recorder
+fixtures. Store-based update qualification, broader device/firmware coverage, a
+long-running soak, and a post-NG backup rollback test remain separate evidence
+items.

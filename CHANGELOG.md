@@ -17,7 +17,8 @@ Changes in **Unreleased** are planned for the **3.0.0** release.
   targeted troubleshooting. These features can retain raw device data; review
   their diagnostic output before sharing it.
 - Add dedicated user guides for installation, upgrades, devices and entities,
-  and troubleshooting.
+  and troubleshooting. The device reference includes per-device detection,
+  transports, validation evidence, and entity ranges and options.
 
 ### Changed
 

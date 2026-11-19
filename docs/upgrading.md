@@ -2,8 +2,23 @@
 
 SolarVault NG supports upgrades from **Jackery Official**, the **Community
 integration**, and earlier **SolarVault NG** versions. The migration runs
-automatically when Home Assistant starts with the updated NG integration. These
-migration paths have been tested.
+automatically when Home Assistant starts with the updated NG integration. The
+maintainer has tested these paths with real Jackery hardware in a pre-production
+Home Assistant installation:
+
+- Fresh SolarVault NG installation.
+- Jackery Official to SolarVault NG.
+- Community integration to SolarVault NG.
+- Jackery Official to Community integration to SolarVault NG.
+
+These reported pre-production paths used the CLI to copy the integration's
+Python package files. They did not exercise installation or updates through the
+HACS or Home Assistant Marketplace interface. The first release candidate is
+the planned opportunity to verify that store-based path before stable 3.0.0.
+
+Automated registry and recorder tests provide additional coverage. The exact
+Home Assistant, integration, hardware and firmware versions used in the
+pre-production runs are not recorded in this guide.
 
 In normal cases, your existing configuration, devices, entities and history
 remain in place, and the system continues working as before. You should not

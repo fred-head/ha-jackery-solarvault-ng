@@ -7,8 +7,13 @@ makes repository metadata and release operations consistent; it does not make
 the integration production-proven and does not publish a release. A Pre-NG
 Official full-backup restore and a manual Official 2.0.0 -> NG code-replacement
 upgrade are verified on HA OS 18.3 / HA 2026.10.4, including the migration fixes
-and a second restart. Actual HACS switching, a Community 2.5.0 real upgrade,
-long-running SolarVault/broker soak, and rollback from a post-NG backup remain
+and a second restart. The maintainer also reports pre-production testing on real
+Jackery hardware for a fresh NG install, Official -> NG, Community -> NG, and
+Official -> Community -> NG. Those reported paths used CLI copying of the
+integration's Python package files, not HACS or Marketplace. The first
+release candidate is planned to qualify the store-based installation/update
+path before stable 3.0.0. Exact environment details for the reported paths, a
+long-running SolarVault/broker soak and rollback from a post-NG backup remain
 open. The real evidence is detailed in the
 [upgrade/migration validation](upgrade-migration-validation.md).
 
@@ -131,6 +136,16 @@ credited as project lineage; they are never release destinations for NG.
    `--prerelease --latest=false` so the candidate is explicitly marked as a
    pre-release and does not become the latest stable release.
 
+### Initial 3.0.0 release-candidate qualification
+
+The first public 3.0.0 artifact is planned as `3.0.0-rc.1` (tag
+`v3.0.0-rc.1`) and must be marked as a pre-release. The maintainer-reported
+real-hardware installation and migration paths used CLI package copying; they
+did not qualify HACS or Marketplace's store update flow. Install the release
+candidate through the store on the pre-production Home Assistant installation
+and verify the installed version, successful startup, device/entity state, and
+the applicable upgrade path before publishing stable `3.0.0`.
+
 `release.sh` fails closed when the repository, branch, working tree, remote
 commit, manifest version, tag state, dependency lock, local gates, or GitHub CI
 evidence is wrong. Existing tags are immutable: the supported procedure never
@@ -156,25 +171,30 @@ in-place migration tests. Work Mode remains a separate read-only sensor only
 for an exact existing Official registry row; a fresh NG install gets only the
 writable select. The generic Type 2 CT field without a proven NG entity mapping
 remains retained and blocked rather than guessed. Ambiguous ownership and
-target conflicts continue to fail closed. The Official 2.0.0 code-replacement
-upgrade, including Reboot, Average SOC, CT/Shelly, Auto Standby and Work Mode,
-was verified on real HA after restoring a Pre-NG full backup. The restore and
-the second HA restart were also verified; no HACS upgrade is claimed.
+target conflicts continue to fail closed. The documented Official 2.0.0
+code-replacement upgrade, including Reboot, Average SOC, CT/Shelly, Auto Standby
+and Work Mode, was verified on real HA after restoring a Pre-NG full backup.
+The restore and second HA restart were also verified. The separate
+pre-production path report used CLI package copying. HACS and Marketplace
+store-based install/update remain to be qualified with the first release
+candidate.
 
 Code-only downgrade after NG migration is not registry-safe: older Official or
 Community identity constructors can create parallel child records and split
 history. A complete pre-upgrade backup is therefore the intended rollback
 boundary. Semantic fixture restoration is tested, but the project has not yet
-performed an actual HACS switch or restored a post-NG backup as a rollback on
-an installation. A Pre-NG Official full-backup restore before the verified
-upgrade did succeed. No broader rollback guarantee is claimed.
+restored a post-NG backup as a rollback on an installation. A Pre-NG Official
+full-backup restore before the verified upgrade did succeed. No broader
+rollback guarantee is claimed.
 
 ## Remaining evidence
 
 - Real broker disconnect/reconnect with a SolarVault and long-duration soak.
 - Sanitized hardware/firmware fixtures across the supported device matrix.
-- Actual HACS upgrades and a Community 2.5.0 -> NG real upgrade; the tested
-  Official 2.0.0 code-replacement path is not evidence for either route.
+- The exact HA, integration and hardware/firmware versions for the
+  maintainer-reported pre-production path tests.
+- Qualification of the HACS/Marketplace install or update flow through the
+  first release candidate before stable 3.0.0.
 - Longer MQTT/SolarVault soak and rollback by restoring a post-NG Home
   Assistant backup.
 - Periodic compatibility runs across more Home Assistant releases between the

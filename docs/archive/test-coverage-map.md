@@ -21,7 +21,7 @@ no command test proves device execution. Current residual gaps are:
 | Energy | Hardware-backed on-grid source transitions and the separately deferred `_grid_net_from_system()` alias policy |
 | Lifecycle | Actual broker disconnect/reconnect and multi-day reload/unload soak |
 | Config/auth | Synthetic options reload and reauth journeys are complete; real-device token rejection remains unverified |
-| Upgrade | Pinned Official 2.0.0, Community 2.5.0 and older-NG constructor states now cover real HA registries and recorder continuity; actual HACS switching, user exports and full backup/restore remain open |
+| Upgrade | Pinned Official 2.0.0, Community 2.5.0 and older-NG constructor states cover real HA registries and recorder continuity; maintainer reports pre-production real-hardware tests for fresh NG and all three migration routes using CLI package copying. Exact versions, HACS/Marketplace store-flow qualification, user exports and post-NG backup rollback remain open |
 | Commands | Device acknowledgement, rejection, timeout and optimistic rollback semantics |
 | Child removal | Authoritative Type-101 membership/unbinding evidence |
 | HA compatibility | HA 2025.8.0 API/import plus focused lifecycle evidence and full locked HA 2026.2.3 suite; intermediate releases are not each full-suite targets |
