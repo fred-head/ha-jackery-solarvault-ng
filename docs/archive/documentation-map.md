@@ -83,8 +83,7 @@ dem veröffentlichten Dokumentationsbaum entfernt werden:
   `docs/project-status.md`, `docs/test-coverage-map.md`
 - **Identität und Upstream-Arbeit:** `docs/multi-instance-identity.md`,
   `docs/upstream-best-of-both-worlds-audit.md`,
-  `docs/upstream-feature-matrix.md`, `docs/upstream-port-candidates.md`,
-  `docs/upstream-sync.md`
+  `docs/upstream-feature-matrix.md`, `docs/upstream-port-candidates.md`
 
 Diese Einordnung betrifft die öffentliche Projektdokumentation. `AGENTS.md`
 bleibt eine interne Arbeitsanweisung für Entwicklungsagenten. Quellcode und

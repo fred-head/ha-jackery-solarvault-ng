@@ -34,7 +34,7 @@ to Phase 0/1; this section supersedes its current-status implications.
 | Command confirmation and top-level metadata | NEEDS_LATER_INVESTIGATION | Publish success is not execution; top-level softver and replacement deviceType behavior deferred. |
 
 See [protocol-routing-commands.md](protocol-routing-commands.md) for full behavioral
-matrices and [upstream-sync.md](upstream-sync.md) for exact source provenance.
+matrices and the source references recorded in this feature matrix.
 
 ## Historical Phase 0/1 comparison
 

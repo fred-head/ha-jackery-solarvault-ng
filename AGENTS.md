@@ -966,24 +966,7 @@ Instead:
 3. determine whether equivalent behavior already exists
 4. port the behavior into the local architecture
 5. add or update regression tests
-6. record relevant upstream commit references
-
-Maintain:
-
-`docs/references/upstream-sync.md`
-
-Suggested format:
-
-```text
-Upstream commit:
-Repository:
-Classification:
-Relevant:
-Already implemented:
-Ported as:
-Tests:
-Notes:
-```
+6. record relevant source references with the corresponding feature assessment
 
 ---
 
@@ -997,7 +980,6 @@ docs/references/protocol-routing-commands.md
 docs/devices-and-entities.md
 docs/references/diagnostics-architecture.md
 docs/references/upstream-feature-matrix.md
-docs/references/upstream-sync.md
 ```
 
 Architecture decisions that affect future development should be documented.

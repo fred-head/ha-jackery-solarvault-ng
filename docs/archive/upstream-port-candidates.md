@@ -30,6 +30,6 @@ This is a review queue, **not implementation authorization**. Source references 
 | zh-Hans translation | CONSIDER | Useful language coverage but Official entity schema/names differ; adapt to C translation keys and completeness check, do not copy file blindly. |
 | Per-message INFO logging | DO_NOT_PORT | No missing functionality; increases noise and exposes serial/topic values. Keep protocol detail at DEBUG with redaction. |
 
-No candidate adds provisioning, pairing, virtual meters, RPC emulation or unverified commands. After structural extraction, re-evaluate candidates against the then-current upstream SHA and record selected behavior, local PR, tests and migration consequences in a future `docs/upstream-sync.md`.
+No candidate adds provisioning, pairing, virtual meters, RPC emulation or unverified commands. After structural extraction, re-evaluate candidates against the then-current upstream SHA and record selected behavior, local PR, tests and migration consequences alongside the relevant feature assessment.
 
 The Official first-category2 type101 probe also raises a caught missing-plugs KeyError before discovery. Any investigation of full-list semantics must cover empty-cache message ordering; Official source is a protocol reference, not proof that every implementation path is safe.

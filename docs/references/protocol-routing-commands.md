@@ -192,7 +192,7 @@ Both configured upstreams were fetched for this task. Official main remains
 `183d74b7e042061ccb985ddc023b3cb7a085452e`. These equal the Phase 0/1 pins;
 the merged local foundation additionally contains the dispatch, freshness, identity
 and lifecycle fixes. See the current section in [upstream-feature-matrix.md](upstream-feature-matrix.md)
-and [upstream-sync.md](upstream-sync.md) for decisions and source provenance.
+for decisions and source provenance.
 
 Official's actual-host type23 fix and host-message metadata guard are FIX_NOW:
 small, source-backed and independent of energy-source decisions. Local code now
