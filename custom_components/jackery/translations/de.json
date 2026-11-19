@@ -10,15 +10,23 @@
                     "topic_prefix": "MQTT-Topic-Präfix"
                 }
             },
+            "confirm_sn": {
+                "title": "Geräte-Seriennummer bestätigen",
+                "description": "Jackery-MQTT-Topics verwenden großgeschriebene Seriennummern. Bitte prüfe den vorgeschlagenen Wert für `{original_sn}` und bestätige ihn.",
+                "data": {
+                    "device_sn": "Geräte-SN"
+                }
+            },
             "reauth_confirm": {
                 "title": "Jackery neu authentifizieren",
-                "description": "Die Integration kann die Kommunikation mit dem Gerät nicht mehr authentifizieren. Gib den aktuellen Token ein, um die Verbindung wiederherzustellen.",
+                "description": "Die Integration kann die Kommunikation mit dem Gerät `{device_sn}` nicht mehr authentifizieren. Gib den aktuellen Token ein, um die Verbindung wiederherzustellen.",
                 "data": {
                     "token": "Token"
                 }
             }
         },
         "error": {
+            "invalid_sn": "Gib eine Geräte-Seriennummer ein.",
             "already_configured": "Diese Geräte-SN ist bereits konfiguriert",
             "mqtt_not_configured": "MQTT-Integration nicht konfiguriert oder nicht verfügbar. Bitte zuerst die MQTT-Integration einrichten: Einstellungen → Geräte & Dienste → Integration hinzufügen → MQTT"
         },
@@ -479,6 +487,12 @@
             "http_sm_power_factor_l3":   {"name": "L3-Leistungsfaktor"},
             "http_sm_frequency":         {"name": "Netzfrequenz"},
             "legacy_work_mode": {"name": "Betriebsmodus"}
+        }
+    },
+    "issues": {
+        "no_mqtt_response": {
+            "title": "Keine Antwort vom Jackery-Gerät",
+            "description": "Seit der Einrichtung wurde keine gültige MQTT-Nachricht von diesem Gerät empfangen. Prüfe, ob die Seriennummer großgeschrieben ist, der konfigurierte Token aktuell ist und Gerät sowie MQTT-Broker erreichbar sind. Diese Warnung wird automatisch gelöscht, sobald eine gültige Gerätenachricht eintrifft."
         }
     }
 }

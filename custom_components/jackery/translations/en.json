@@ -10,15 +10,23 @@
                     "topic_prefix": "MQTT Topic Prefix"
                 }
             },
+            "confirm_sn": {
+                "title": "Confirm device serial number",
+                "description": "Jackery MQTT topics use uppercase serial numbers. Check the suggested value for `{original_sn}` and confirm it.",
+                "data": {
+                    "device_sn": "Device SN"
+                }
+            },
             "reauth_confirm": {
                 "title": "Re-authenticate Jackery",
-                "description": "The integration can no longer authenticate communication with the device. Enter the current token to restore the connection.",
+                "description": "The integration can no longer authenticate communication with device `{device_sn}`. Enter the current token to restore the connection.",
                 "data": {
                     "token": "Token"
                 }
             }
         },
         "error": {
+            "invalid_sn": "Enter a device serial number.",
             "already_configured": "This device SN is already configured",
             "mqtt_not_configured": "MQTT integration is not configured or unavailable. Please set up the MQTT integration first: Settings → Devices & Services → Add Integration → MQTT"
         },
@@ -479,6 +487,12 @@
             "http_sm_power_factor_l3":   {"name": "L3 power factor"},
             "http_sm_frequency":         {"name": "Grid frequency"},
             "legacy_work_mode": {"name": "Work Mode"}
+        }
+    },
+    "issues": {
+        "no_mqtt_response": {
+            "title": "No response from Jackery device",
+            "description": "No valid MQTT message has been received from this device since setup. Check that the serial number uses uppercase letters, the configured token is current, and the device and MQTT broker are reachable. This warning clears automatically when a valid device message arrives."
         }
     }
 }

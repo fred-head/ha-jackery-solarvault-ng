@@ -10,6 +10,7 @@ from homeassistant.components.sensor import SensorEntity, SensorStateClass
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
@@ -105,9 +106,9 @@ _LOGGER = logging.getLogger(__name__)
 
 REQUEST_INTERVAL = 10  # seconds; intentionally 10 s (upstream uses 5 s — too much MQTT traffic for homelab)
 OFFLINE_TIMEOUT = 60  # seconds without any message → mark entities unavailable
-# If the device never answers within this window after setup the token is most likely rejected
-# (the device stays silent on a bad token instead of replying with an error).
-REAUTH_HINT_TIMEOUT = 120
+# After this period without a valid host reply, show troubleshooting guidance.
+NO_MQTT_RESPONSE_TIMEOUT = 120
+NO_MQTT_RESPONSE_ISSUE_PREFIX = "no_mqtt_response_"
 HTTP_FAILURE_THRESHOLD = 3
 
 # Device model lookup from deviceType field in MQTT payload
@@ -251,7 +252,7 @@ class JackeryDataCoordinator:
 
         # Re-Auth guard — prevents multiple simultaneous re-auth flows
         self._reauth_started: bool = False
-        # True as soon as one valid message for this device SN was received (re-auth heuristic)
+        self._no_mqtt_response_issue_created = False
         self.config_entry_id: str = ""  # set by async_setup_entry
         self._child_migration: ChildMigrationResult | None = None
 
@@ -390,6 +391,7 @@ class JackeryDataCoordinator:
         self._alert_capture_active = False
         self._bmslog_capture_active = False
         self._protocol_discovery_active = False
+        self._delete_no_mqtt_response_issue()
         errors: list[Exception] = []
         had_subscriptions = self._mqtt_transport.unsubscribe_count > 0
         try:
@@ -497,6 +499,7 @@ class JackeryDataCoordinator:
                 _LOGGER.info(f"Discovered device SN: {self._device_sn}")
             # The topic identifies the host; payload SNs may identify its children.
             # Invalid or foreign traffic must not postpone offline/reauth checks.
+            self._delete_no_mqtt_response_issue()
             received_at = time.time()
             self._runtime_state.record_host_activity(received_at)
 
@@ -902,6 +905,41 @@ class JackeryDataCoordinator:
         _LOGGER.warning("Triggering re-authentication: %s", reason)
         entry.async_start_reauth(self.hass)
 
+    @property
+    def _no_mqtt_response_issue_id(self) -> str:
+        """Return a stable, per-config-entry Home Assistant repair issue ID."""
+        return f"{NO_MQTT_RESPONSE_ISSUE_PREFIX}{self.config_entry_id}"
+
+    @callback
+    def _create_no_mqtt_response_issue(self) -> None:
+        """Report missing MQTT replies without asserting that the token is invalid."""
+        if getattr(self, "_no_mqtt_response_issue_created", False) or not self.config_entry_id:
+            return
+        self._no_mqtt_response_issue_created = True
+        ir.async_create_issue(
+            self.hass,
+            DOMAIN,
+            self._no_mqtt_response_issue_id,
+            is_fixable=False,
+            is_persistent=False,
+            severity=ir.IssueSeverity.WARNING,
+            translation_key="no_mqtt_response",
+        )
+        _LOGGER.warning(
+            "No valid MQTT reply received within %s seconds for config entry %s; "
+            "check the device serial number, token, and device/broker connectivity",
+            NO_MQTT_RESPONSE_TIMEOUT,
+            self.config_entry_id,
+        )
+
+    @callback
+    def _delete_no_mqtt_response_issue(self) -> None:
+        """Remove the repair issue after a valid host reply or coordinator stop."""
+        if not getattr(self, "_no_mqtt_response_issue_created", False):
+            return
+        ir.async_delete_issue(self.hass, DOMAIN, self._no_mqtt_response_issue_id)
+        self._no_mqtt_response_issue_created = False
+
     def _entity_keys_for_subdevice(self, sn: str) -> list[str]:
         """Return all registered entity keys (unique_ids) belonging to a sub-device SN."""
         return [
@@ -1277,18 +1315,14 @@ class JackeryDataCoordinator:
                         if key in changed and isinstance(entity, JackerySensor):
                             entity._update_from_coordinator(self._data_cache)
 
-                # Re-auth heuristic: the device stays completely silent when it rejects
-                # the token (it does not answer with an error). If we have been polling
-                # for REAUTH_HINT_TIMEOUT seconds without a single reply, the token
-                # (or the configured SN) is most likely wrong.
+                # Silence does not prove an authentication failure. The device may
+                # be offline or the configured serial may not match the MQTT topic.
                 if (
                     not self._ever_received
                     and self._device_sn
-                    and time.time() - self._start_time > REAUTH_HINT_TIMEOUT
+                    and time.time() - self._start_time > NO_MQTT_RESPONSE_TIMEOUT
                 ):
-                    self._trigger_reauth(
-                        f"no device response within {REAUTH_HINT_TIMEOUT}s after setup"
-                    )
+                    self._create_no_mqtt_response_issue()
 
                 if not self._device_sn:
                     _LOGGER.debug("Waiting for device SN discovery...")

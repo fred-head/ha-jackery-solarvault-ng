@@ -39,6 +39,9 @@ Changes in **Unreleased** are planned for the **3.0.0** release.
 
 ### Fixed
 
+- Confirm lowercase device serial numbers in uppercase before creating MQTT
+  subscriptions. Missing MQTT replies now create a repair warning instead of
+  assuming the token is invalid and starting reauthentication.
 - Preserve existing Home Assistant devices, entities, user settings, and
   history across the tested upgrade paths from Jackery Official, the Community
   integration, and earlier NG installations.

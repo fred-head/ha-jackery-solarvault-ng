@@ -380,22 +380,29 @@ async def test_device_identity_ambiguity_cannot_become_new_record(hass, registry
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
-async def test_main_serial_cannot_claim_existing_scoped_child(hass, setup_hosts):
+async def test_lowercase_main_serial_confirmation_keeps_existing_child_separate(
+    hass, setup_hosts
+):
     entries = await setup_hosts((HOSTS[0],))
     entry = entries[HOSTS[0]]
     await discover(hass, coordinator_for(hass, entry), "C", "plug", 6, 0, "plugs")
     before = registry_snapshot(hass, entry)
-    # A literal main serial can resemble the new child namespace. Preserve the
-    # existing child instead of allowing HA device_info to claim it for this host.
+    # The lowercase child namespace is not a valid host topic serial. The config
+    # flow canonicalizes it to uppercase, which must remain a separate device.
     from homeassistant import config_entries
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER},
         data={"device_sn": child_device_identifier(HOSTS[0], "C"), "token": "synthetic", "topic_prefix": "hb"},
     )
+    assert result["step_id"] == "confirm_sn"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"device_sn": child_device_identifier(HOSTS[0], "C").upper()},
+    )
     await hass.async_block_till_done()
-    conflicting_entry = result["result"]
-    assert conflicting_entry.state is config_entries.ConfigEntryState.SETUP_ERROR
+    main_entry = result["result"]
+    assert main_entry.state is config_entries.ConfigEntryState.LOADED
     assert registry_snapshot(hass, entry) == before
 
 

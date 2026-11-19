@@ -33,6 +33,11 @@ class JackeryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: igno
 
     VERSION = 1
 
+    def __init__(self) -> None:
+        """Initialize state carried between setup steps."""
+        self._pending_user_input: dict[str, str] = {}
+        self._reauth_device_sn = ""
+
     @staticmethod
     def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> JackeryOptionsFlowHandler:
         """Return the options flow handler."""
@@ -46,23 +51,22 @@ class JackeryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: igno
 
         if user_input is not None:
             device_sn = user_input.get("device_sn", "").strip()
+            self._pending_user_input = {
+                "device_sn": device_sn,
+                "token": user_input.get("token", ""),
+                "topic_prefix": user_input.get("topic_prefix", "hb"),
+            }
 
-            # Multi-instance: abort if this SN is already configured
-            await self.async_set_unique_id(device_sn)
-            self._abort_if_unique_id_configured()
-
-            if not await mqtt.async_wait_for_mqtt_client(self.hass):
-                errors["base"] = "mqtt_not_configured"
+            if not device_sn:
+                errors["device_sn"] = "invalid_sn"
+            elif device_sn != device_sn.upper():
+                # Jackery MQTT topics use the uppercase host serial number.
+                # Confirm it before creating an entry with a topic that will not match.
+                return await self.async_step_confirm_sn()
             else:
-                _LOGGER.info(
-                    "Creating Jackery config entry for device_sn=%s topic_prefix=%s",
-                    device_sn,
-                    user_input.get("topic_prefix", "hb"),
-                )
-                return self.async_create_entry(
-                    title=f"Jackery {device_sn}",
-                    data=user_input,
-                )
+                result = await self._async_finish_setup(device_sn, errors)
+                if result is not None:
+                    return result
 
         return self.async_show_form(
             step_id="user",
@@ -73,10 +77,65 @@ class JackeryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: igno
             },
         )
 
+    async def _async_finish_setup(
+        self, device_sn: str, errors: dict[str, str]
+    ) -> config_entries.ConfigFlowResult | None:
+        """Create the entry once the final serial number has been confirmed."""
+        if not device_sn:
+            errors["device_sn"] = "invalid_sn"
+            return None
+
+        await self.async_set_unique_id(device_sn)
+        self._abort_if_unique_id_configured()
+
+        if not await mqtt.async_wait_for_mqtt_client(self.hass):
+            errors["base"] = "mqtt_not_configured"
+            return None
+
+        topic_prefix = self._pending_user_input.get("topic_prefix", "hb")
+        _LOGGER.info(
+            "Creating Jackery config entry for device_sn=%s topic_prefix=%s",
+            device_sn,
+            topic_prefix,
+        )
+        return self.async_create_entry(
+            title=f"Jackery {device_sn}",
+            data={
+                "device_sn": device_sn,
+                "token": self._pending_user_input.get("token", ""),
+                "topic_prefix": topic_prefix,
+            },
+        )
+
+    async def async_step_confirm_sn(
+        self, user_input: dict[str, Any] | None = None
+    ) -> config_entries.ConfigFlowResult:
+        """Confirm the uppercase serial number suggested for MQTT topic matching."""
+        errors: dict[str, str] = {}
+        original_sn = self._pending_user_input.get("device_sn", "")
+        if user_input is not None:
+            device_sn = user_input.get("device_sn", "").strip().upper()
+            result = await self._async_finish_setup(device_sn, errors)
+            if result is not None:
+                return result
+            suggested_sn = device_sn
+        else:
+            suggested_sn = original_sn.upper()
+
+        return self.async_show_form(
+            step_id="confirm_sn",
+            data_schema=vol.Schema(
+                {vol.Required("device_sn", default=suggested_sn): str}
+            ),
+            errors=errors,
+            description_placeholders={"original_sn": original_sn},
+        )
+
     async def async_step_reauth(
         self, entry_data: dict[str, Any]
     ) -> config_entries.ConfigFlowResult:
         """Handle re-authentication when runtime communication cannot authenticate."""
+        self._reauth_device_sn = entry_data.get("device_sn", "")
         return await self.async_step_reauth_confirm()
 
     async def async_step_reauth_confirm(
@@ -88,13 +147,14 @@ class JackeryConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):  # type: igno
         if user_input is not None:
             return self.async_update_reload_and_abort(
                 self._get_reauth_entry(),
-                data_updates={"token": user_input["token"]},
+                data_updates={"token": user_input["token"].strip()},
             )
 
         return self.async_show_form(
             step_id="reauth_confirm",
             data_schema=REAUTH_SCHEMA,
             errors=errors,
+            description_placeholders={"device_sn": self._reauth_device_sn},
         )
 
 
