@@ -7,6 +7,7 @@ import base64
 import inspect
 import json
 from copy import deepcopy
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock, patch
 
@@ -257,7 +258,12 @@ async def test_config_entry_diagnostics_happy_path_aliases_and_privacy(
     assert builder.call_count == 1
     assert tuple(snapshot) == TOP_LEVEL_SECTIONS
     assert json.loads(_serialized(snapshot)) == snapshot
-    assert snapshot["integration"]["manifest_version"] == "2.4.0"
+    manifest = json.loads(
+        (Path(__file__).parents[1] / "custom_components" / "jackery" / "manifest.json").read_text(
+            encoding="utf-8"
+        )
+    )
+    assert snapshot["integration"]["manifest_version"] == manifest["version"]
     assert snapshot["host"]["alias"] == "host"
     child_alias = snapshot["children"]["items"][0]["alias"]
     assert child_alias == "child_001"
