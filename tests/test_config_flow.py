@@ -68,6 +68,54 @@ async def test_creates_entry_with_valid_input(hass):
     assert result2["data"]["topic_prefix"] == "hb"
 
 
+async def test_lowercase_serial_requires_uppercase_confirmation_and_preserves_other_input(
+    hass,
+):
+    """Lowercase serials are reviewed in uppercase before their entry is created."""
+    result = await _start_flow(hass)
+
+    with patch(_PATCH_MQTT, return_value=True):
+        confirm = await hass.config_entries.flow.async_configure(
+            result["flow_id"],
+            user_input={
+                "device_sn": "  ab12cd  ",
+                "token": "token-value",
+                "topic_prefix": "custom-root",
+            },
+        )
+
+    assert confirm["type"] == FlowResultType.FORM
+    assert confirm["step_id"] == "confirm_sn"
+    assert confirm["data_schema"]({})["device_sn"] == "AB12CD"
+
+    with patch(_PATCH_MQTT, return_value=True):
+        created = await hass.config_entries.flow.async_configure(
+            confirm["flow_id"],
+            user_input={"device_sn": "AB12CD"},
+        )
+
+    assert created["type"] == FlowResultType.CREATE_ENTRY
+    assert created["data"] == {
+        "device_sn": "AB12CD",
+        "token": "token-value",
+        "topic_prefix": "custom-root",
+    }
+
+
+async def test_empty_serial_is_rejected(hass):
+    """An empty serial is shown as a field error without attempting MQTT setup."""
+    result = await _start_flow(hass)
+
+    submitted = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"device_sn": "  ", "token": "token-value", "topic_prefix": "hb"},
+    )
+
+    assert submitted["type"] == FlowResultType.FORM
+    assert submitted["step_id"] == "user"
+    assert submitted["errors"]["device_sn"] == "invalid_sn"
+
+
 # ---------------------------------------------------------------------------
 # Duplicate device_sn is rejected
 # ---------------------------------------------------------------------------

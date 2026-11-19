@@ -250,7 +250,7 @@ async def test_reauth_helper_programming_error_propagates(hass):
         coordinator._trigger_reauth("synthetic auth rejection")
 
 
-async def test_silence_heuristic_and_later_401_share_one_reauth_flow(
+async def test_silence_issue_clears_on_message_and_later_401_starts_reauth(
     hass,
     monkeypatch,
 ):
@@ -273,12 +273,40 @@ async def test_silence_heuristic_and_later_401_share_one_reauth_flow(
     )
     monkeypatch.setattr(coordinator, "_send_poll_requests", AsyncMock())
 
+    issue_registry = sensor_module.ir.async_get(hass)
+    issue_id = f"{sensor_module.NO_MQTT_RESPONSE_ISSUE_PREFIX}{entry.entry_id}"
     with patch.object(type(entry), "async_start_reauth", autospec=True) as start_reauth:
         await coordinator._periodic_data_request()
+        issue = issue_registry.async_get_issue(DOMAIN, issue_id)
+        assert issue is not None
+        assert not coordinator._reauth_started
+
         coordinator._handle_message(auth_rejection("HOST_A"))
 
     start_reauth.assert_called_once_with(entry, hass)
     assert coordinator._reauth_started
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is None
+
+
+async def test_stop_deletes_no_mqtt_response_issue(hass):
+    """The warning is removed when the owning coordinator stops."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"device_sn": "HOST_A", "token": "synthetic", "topic_prefix": "hb"},
+        unique_id="HOST_A",
+    )
+    entry.add_to_hass(hass)
+    coordinator = JackeryDataCoordinator(hass, "hb", "synthetic", "localhost", "HOST_A")
+    coordinator.config_entry_id = entry.entry_id
+    coordinator._create_no_mqtt_response_issue()
+
+    issue_registry = sensor_module.ir.async_get(hass)
+    issue_id = f"{sensor_module.NO_MQTT_RESPONSE_ISSUE_PREFIX}{entry.entry_id}"
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is not None
+
+    await coordinator.async_stop()
+
+    assert issue_registry.async_get_issue(DOMAIN, issue_id) is None
 
 
 @pytest.fixture
@@ -1482,7 +1510,7 @@ async def test_reauth_updates_token_reloads_and_allows_new_coordinator_rejection
     with patch.object(hass.config_entries, "async_reload", wraps=hass.config_entries.async_reload) as reload:
         result = await hass.config_entries.flow.async_configure(
             flows[0]["flow_id"],
-            user_input={"token": "replacement-token"},
+            user_input={"token": "  replacement-token  "},
         )
         assert result["type"] is FlowResultType.ABORT
         assert result["reason"] == "reauth_successful"

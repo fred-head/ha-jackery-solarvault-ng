@@ -39,6 +39,13 @@ Changes in **Unreleased** are planned for the **3.0.0** release.
 
 ### Fixed
 
+- Restore HTTP SmartMeter entities whose unique IDs were stripped by an older
+  Community migration. Keep the original entity and history; remove only a
+  verified, untouched generated `_2` duplicate and leave ambiguous conflicts
+  intact for review.
+- Confirm lowercase device serial numbers in uppercase before creating MQTT
+  subscriptions. Missing MQTT replies now create a repair warning instead of
+  assuming the token is invalid and starting reauthentication.
 - Preserve existing Home Assistant devices, entities, user settings, and
   history across the tested upgrade paths from Jackery Official, the Community
   integration, and earlier NG installations.

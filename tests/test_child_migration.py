@@ -1,5 +1,6 @@
 """PR2B migration against real HA registries, including interrupted writes."""
 
+import asyncio
 from unittest.mock import patch
 
 import attr
@@ -295,6 +296,159 @@ async def test_setup_migration_discovery_reuses_legacy_http_mqtt_records(hass, s
         assert entry.version == 1
 
 
+def _seed_stripped_http_entity(hass, entry, serial="METER001", field="frequency"):
+    """Model an HTTP entity damaged by the Community v2.5.3 migration."""
+    device, records = seed_child(hass, entry, serial, family="smartmeter", http=True)
+    entities = er.async_get(hass)
+    expected_uid = http_unique_id(entry.data["device_sn"], serial, field)
+    source = next(record for record, target in records if target == expected_uid)
+    broken_uid = f"jackery_http_sm_{serial}_{field}"
+    source = entities.async_update_entity(source.entity_id, new_unique_id=broken_uid)
+    return device, source, expected_uid
+
+
+async def test_stripped_http_sm_uid_is_repaired_in_place(hass, registry_entries):
+    """Repair the known stripped ID while retaining its entity row and settings."""
+    entry, _ = registry_entries
+    serial = "METER001"
+    device, source, expected_uid = _seed_stripped_http_entity(hass, entry, serial)
+    area = ar.async_get(hass).async_create("Utility room")
+    label = lr.async_get(hass).async_create("Energy")
+    source = er.async_get(hass).async_update_entity(
+        source.entity_id,
+        name="My SmartMeter frequency",
+        icon="mdi:gauge",
+        area_id=area.id,
+        labels={label.label_id},
+        aliases={"Legacy meter frequency"},
+        disabled_by=er.RegistryEntryDisabler.USER,
+    )
+    before = snapshot(source, "unique_id", "previous_unique_id", "modified_at")
+
+    result = migrate_child_identities(hass, entry)
+
+    current = er.async_get(hass).async_get(source.entity_id)
+    assert result.allows(serial)
+    assert current.id == source.id
+    assert current.unique_id == expected_uid
+    assert snapshot(current, "unique_id", "previous_unique_id", "modified_at") == before
+    assert dr.async_get(hass).async_get(device.id).identifiers == {
+        (DOMAIN, child_device_identifier(entry.data["device_sn"], serial))
+    }
+    assert migrate_child_identities(hass, entry).allows(serial)
+
+
+async def test_stripped_http_sm_uid_replaces_untouched_generated_duplicate(
+    recorder_mock, hass, registry_entries
+):
+    """Keep the older entity ID and remove only its untouched generated ``_2`` row."""
+    from datetime import timedelta
+    from functools import partial
+
+    from homeassistant.components.recorder.history import get_significant_states
+    from homeassistant.util import dt as dt_util
+    from pytest_homeassistant_custom_component.components.recorder.common import async_wait_recording_done
+
+    entry, _ = registry_entries
+    serial = "METER001"
+    device, source, expected_uid = _seed_stripped_http_entity(hass, entry, serial)
+    start = dt_util.utcnow() - timedelta(seconds=1)
+    hass.states.async_set(source.entity_id, "50", {"unit_of_measurement": "Hz"})
+    await async_wait_recording_done(hass)
+    await asyncio.sleep(0.01)
+    entities = er.async_get(hass)
+    duplicate = entities.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        expected_uid,
+        config_entry=entry,
+        device_id=device.id,
+        suggested_object_id=source.entity_id.split(".", 1)[1],
+    )
+    assert duplicate.entity_id == f"{source.entity_id}_2"
+    assert source.created_at < duplicate.created_at
+
+    result = migrate_child_identities(hass, entry)
+
+    current = entities.async_get(source.entity_id)
+    assert result.allows(serial)
+    assert current.id == source.id
+    assert current.unique_id == expected_uid
+    assert entities.async_get(duplicate.entity_id) is None
+    assert dr.async_get(hass).async_get(device.id).identifiers == {
+        (DOMAIN, child_device_identifier(entry.data["device_sn"], serial))
+    }
+    hass.states.async_set(current.entity_id, "50.1", {"unit_of_measurement": "Hz"})
+    await async_wait_recording_done(hass)
+    history = await recorder_mock.async_add_executor_job(
+        partial(
+            get_significant_states,
+            hass,
+            start,
+            entity_ids=[source.entity_id],
+            include_start_time_state=False,
+        )
+    )
+    assert [state.state for state in history[source.entity_id]] == ["50", "50.1"]
+
+
+async def test_stripped_http_sm_uid_preserves_customized_duplicate_and_blocks(
+    hass, registry_entries
+):
+    """A user-edited ``_2`` entity makes duplicate ownership ambiguous."""
+    entry, _ = registry_entries
+    serial = "METER001"
+    device, source, expected_uid = _seed_stripped_http_entity(hass, entry, serial)
+    await asyncio.sleep(0.01)
+    entities = er.async_get(hass)
+    duplicate = entities.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        expected_uid,
+        config_entry=entry,
+        device_id=device.id,
+        suggested_object_id=source.entity_id.split(".", 1)[1],
+    )
+    duplicate = entities.async_update_entity(duplicate.entity_id, name="My selected sensor")
+    before = (snapshot(source), snapshot(duplicate))
+
+    result = migrate_child_identities(hass, entry)
+
+    assert not result.allows(serial)
+    assert snapshot(entities.async_get(source.entity_id)) == before[0]
+    assert snapshot(entities.async_get(duplicate.entity_id)) == before[1]
+
+
+async def test_stripped_http_sm_uid_preserves_foreign_duplicate_and_blocks(
+    hass, registry_entries
+):
+    """A matching unique ID owned by another entry must never be removed."""
+    entry, other = registry_entries
+    serial = "METER001"
+    _, source, expected_uid = _seed_stripped_http_entity(hass, entry, serial)
+    await asyncio.sleep(0.01)
+    devices, entities = dr.async_get(hass), er.async_get(hass)
+    foreign_device = devices.async_get_or_create(
+        config_entry_id=other.entry_id,
+        identifiers={(DOMAIN, child_device_identifier(entry.data["device_sn"], serial))},
+    )
+    duplicate = entities.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        expected_uid,
+        config_entry=other,
+        device_id=foreign_device.id,
+        suggested_object_id=source.entity_id.split(".", 1)[1],
+    )
+    before = (snapshot(source), snapshot(duplicate))
+
+    result = migrate_child_identities(hass, entry)
+
+    assert not result.allows(serial)
+    assert snapshot(entities.async_get(source.entity_id)) == before[0]
+    assert snapshot(entities.async_get(duplicate.entity_id)) == before[1]
+
+
 async def test_recorder_reads_same_entity_history_across_migration(recorder_mock, hass, registry_entries):
     from datetime import timedelta
     from functools import partial
@@ -380,22 +534,29 @@ async def test_device_identity_ambiguity_cannot_become_new_record(hass, registry
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
-async def test_main_serial_cannot_claim_existing_scoped_child(hass, setup_hosts):
+async def test_lowercase_main_serial_confirmation_keeps_existing_child_separate(
+    hass, setup_hosts
+):
     entries = await setup_hosts((HOSTS[0],))
     entry = entries[HOSTS[0]]
     await discover(hass, coordinator_for(hass, entry), "C", "plug", 6, 0, "plugs")
     before = registry_snapshot(hass, entry)
-    # A literal main serial can resemble the new child namespace. Preserve the
-    # existing child instead of allowing HA device_info to claim it for this host.
+    # The lowercase child namespace is not a valid host topic serial. The config
+    # flow canonicalizes it to uppercase, which must remain a separate device.
     from homeassistant import config_entries
 
     result = await hass.config_entries.flow.async_init(
         DOMAIN, context={"source": config_entries.SOURCE_USER},
         data={"device_sn": child_device_identifier(HOSTS[0], "C"), "token": "synthetic", "topic_prefix": "hb"},
     )
+    assert result["step_id"] == "confirm_sn"
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"],
+        user_input={"device_sn": child_device_identifier(HOSTS[0], "C").upper()},
+    )
     await hass.async_block_till_done()
-    conflicting_entry = result["result"]
-    assert conflicting_entry.state is config_entries.ConfigEntryState.SETUP_ERROR
+    main_entry = result["result"]
+    assert main_entry.state is config_entries.ConfigEntryState.LOADED
     assert registry_snapshot(hass, entry) == before
 
 

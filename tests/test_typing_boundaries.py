@@ -3,6 +3,7 @@
 from unittest.mock import AsyncMock, Mock
 
 import pytest
+from homeassistant.helpers import device_registry as dr
 from pytest_homeassistant_custom_component.common import MockConfigEntry
 
 from custom_components.jackery import DOMAIN, async_setup_entry
@@ -57,3 +58,28 @@ async def test_optional_config_preserves_setup_values(hass, monkeypatch, data):
     assert coordinator._topic_root == data.get("topic_prefix", "hb")
     if not coordinator._device_sn:
         assert coordinator._topic_status == "hb/device/+/status"
+
+
+async def test_setup_ignores_foreign_three_part_device_identifier(hass, monkeypatch):
+    """A foreign registry identifier must not abort Jackery setup migration."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"device_sn": "HOST", "token": "synthetic"},
+    )
+    entry.add_to_hass(hass)
+    foreign_entry = MockConfigEntry(domain="homekit")
+    foreign_entry.add_to_hass(hass)
+    dr.async_get(hass).async_get_or_create(
+        config_entry_id=foreign_entry.entry_id,
+        identifiers={("homekit", "bridge", "accessory")},
+    )
+
+    monkeypatch.setattr(
+        "homeassistant.components.mqtt.async_wait_for_mqtt_client",
+        AsyncMock(return_value=True),
+    )
+    monkeypatch.setattr(hass.config_entries, "async_forward_entry_setups", AsyncMock())
+    monkeypatch.setattr(JackeryDataCoordinator, "async_start", AsyncMock())
+
+    assert await async_setup_entry(hass, entry)
+    assert hass.data[DOMAIN][entry.entry_id]["coordinator"]._device_sn == "HOST"

@@ -48,6 +48,7 @@ async def _migrate_unique_ids(
         find_devices_by_identifier,
         find_owned_main_entity,
         get_device_by_id,
+        iter_device_identifiers,
     )
 
     device_sn = entry.data.get("device_sn", "").strip()
@@ -81,7 +82,10 @@ async def _migrate_unique_ids(
                 _LOGGER.warning("Skipping identity migration for entity %s: device ownership is ambiguous", entity_entry.entity_id)
                 continue
             # The device identifier stores the whole serial; never split serials at underscores.
-            if any(domain == DOMAIN and identifier.startswith(("sub_", "child:")) for domain, identifier in device.identifiers):
+            if any(
+                domain == DOMAIN and identifier.startswith(("sub_", "child:"))
+                for domain, identifier in iter_device_identifiers(device)
+            ):
                 continue
 
         # Exact Official 2.0.0 main-device identities. Keep each existing

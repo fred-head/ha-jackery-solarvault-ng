@@ -49,6 +49,22 @@ def device_references_entry(device: object | None, entry_id: str) -> bool:
     return isinstance(owners, (set, frozenset)) and entry_id in owners
 
 
+def iter_device_identifiers(device: dr.DeviceEntry) -> Iterable[tuple[str, str]]:
+    """Yield standard two-part identifiers, skipping foreign extensions safely.
+
+    Home Assistant types identifiers as ``(domain, value)`` pairs, but another
+    integration can persist an identifier with additional tuple parts. Registry
+    scans must check the length before unpacking so unrelated devices cannot
+    abort this integration's setup or migration.
+    """
+    for identifier in device.identifiers:
+        if not isinstance(identifier, tuple) or len(identifier) != 2:
+            continue
+        domain, value = identifier
+        if isinstance(domain, str) and isinstance(value, str):
+            yield domain, value
+
+
 def iter_all_devices(registry: dr.DeviceRegistry) -> tuple[dr.DeviceEntry, ...]:
     """Iterate devices without using the old mapping on modern registries."""
     modern_lookup = getattr(registry, "async_get_device_by_identifier", None)
@@ -248,7 +264,7 @@ def find_owned_main_entity(
         and device_owned_by_entry(device, config_entry_id)
         and not any(
             domain == platform and identifier.startswith(("sub_", "child:"))
-            for domain, identifier in device.identifiers
+            for domain, identifier in iter_device_identifiers(device)
         )
     ]
     return entity if len(main_devices) == 1 else None

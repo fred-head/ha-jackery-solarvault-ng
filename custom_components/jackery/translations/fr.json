@@ -10,15 +10,23 @@
                     "topic_prefix": "Préfixe des topics MQTT"
                 }
             },
+            "confirm_sn": {
+                "title": "Confirmer le numéro de série de l’appareil",
+                "description": "Les topics MQTT Jackery utilisent des numéros de série en majuscules. Vérifiez la valeur proposée pour `{original_sn}` et confirmez-la.",
+                "data": {
+                    "device_sn": "Numéro de série de l’appareil"
+                }
+            },
             "reauth_confirm": {
                 "title": "Ré-authentifier Jackery",
-                "description": "L’intégration ne parvient plus à authentifier la communication avec l’appareil. Saisissez le jeton actuel pour rétablir la connexion.",
+                "description": "L’intégration ne parvient plus à authentifier la communication avec l’appareil `{device_sn}`. Saisissez le jeton actuel pour rétablir la connexion.",
                 "data": {
                     "token": "Jeton"
                 }
             }
         },
         "error": {
+            "invalid_sn": "Saisissez un numéro de série d’appareil.",
             "already_configured": "Ce numéro de série d’appareil est déjà configuré",
             "mqtt_not_configured": "L’intégration MQTT n’est pas configurée ou n’est pas disponible. Configurez-la d’abord via Paramètres → Appareils et services → Ajouter une intégration → MQTT."
         },
@@ -479,6 +487,12 @@
             "http_sm_power_factor_l3":   {"name": "Facteur de puissance L3"},
             "http_sm_frequency":         {"name": "Fréquence du réseau"},
             "legacy_work_mode": {"name": "Mode de fonctionnement"}
+        }
+    },
+    "issues": {
+        "no_mqtt_response": {
+            "title": "Aucune réponse de l’appareil Jackery",
+            "description": "Aucun message MQTT valide n’a été reçu de cet appareil depuis sa configuration. Vérifiez que le numéro de série est en majuscules, que le jeton configuré est à jour et que l’appareil ainsi que le broker MQTT sont accessibles. Cet avertissement sera automatiquement supprimé dès qu’un message valide de l’appareil sera reçu."
         }
     }
 }
