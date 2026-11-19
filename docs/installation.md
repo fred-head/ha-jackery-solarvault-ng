@@ -73,6 +73,14 @@ The installation method depends on your Home Assistant version.
 Home Assistant 2026.11 and newer includes the Marketplace. SolarVault NG is
 installed as a custom repository:
 
+If you already have Jackery Official or the Community integration, Marketplace
+may refuse the install with an error such as `The jackery directory belongs to
+Jackery-Official/jackery`. This is a Marketplace repository-ownership conflict.
+Keep the existing Jackery config entry and follow the
+[Marketplace ownership workaround](upgrading.md#home-assistant-202611-marketplace-ownership-workaround)
+before trying again. Do not choose **Delete and uninstall** for the existing
+Jackery integration.
+
 1. Open **Settings → Marketplace** and select **Add from link**.
 2. Enter the repository URL:
    `https://github.com/fred-head/ha-jackery-solarvault-ng`

@@ -12,9 +12,16 @@ Home Assistant installation:
 - Jackery Official to Community integration to SolarVault NG.
 
 These reported pre-production paths used the CLI to copy the integration's
-Python package files. They did not exercise installation or updates through the
-HACS or Home Assistant Marketplace interface. The first release candidate is
-the planned opportunity to verify that store-based path before stable 3.0.0.
+Python package files; they did not exercise installation or updates through
+HACS or Marketplace.
+
+The **3.0.0-rc.1 Marketplace installation test passed** on the pre-production
+Home Assistant installation: Marketplace installed NG over an existing
+Jackery installation after the ownership workaround below, and the subsequent
+Home Assistant restart completed successfully. This verifies the Marketplace
+install and restart for the tested Official-owned installation. It does not
+claim that every hardware migration path listed above was repeated through
+Marketplace.
 
 Automated registry and recorder tests provide additional coverage. The exact
 Home Assistant, integration, hardware and firmware versions used in the
@@ -62,6 +69,46 @@ On startup, NG migrates the existing integration data. Once Home Assistant has
 restarted and the SolarVault is online, its devices and supported entities
 should resume updating. Existing dashboards and automations should continue to
 work with their existing entity IDs.
+
+## Home Assistant 2026.11 Marketplace ownership workaround
+
+Marketplace tracks which repository owns an installed integration directory.
+When replacing an existing Jackery installation, it may stop with an error
+such as:
+
+> The `jackery` directory belongs to `Jackery-Official/jackery`.
+
+This is a Marketplace ownership conflict. Do not rename the `jackery` directory,
+delete the existing integration entry, or choose **Delete and uninstall** to
+work around it. Those actions can break the existing Home Assistant
+configuration and entity identities.
+
+The following workaround was tested in pre-production when the recorded owner
+was `Jackery-Official/jackery`:
+
+1. Make a full Home Assistant backup.
+2. Temporarily disable the **Marketplace** integration itself. Do not disable
+   or remove Jackery. You can open Marketplace from **Settings → Devices &
+   services → Devices**, search for a Marketplace device, open it, then select
+   its Marketplace integration and choose **⋮ → Disable**.
+3. Make a separate backup of
+   `/config/.storage/marketplace.repositories`.
+4. Open that file in a text editor and search for
+   `Jackery-Official/jackery`. In that repository's entry, remove only the
+   `"installed": true` property, including its comma. Keep the repository
+   entry and all Jackery files and config entries. Preserve valid JSON.
+5. Enable Marketplace again. If it is not visible, show disabled devices in
+   **Settings → Devices & services → Devices** and open the Marketplace
+   integration there.
+6. Install SolarVault NG from Marketplace and restart Home Assistant when
+   prompted.
+
+This edits Marketplace's internal repository record; it is a workaround for
+the Marketplace ownership check, not an integration setting. The procedure
+has only been verified for the `Jackery-Official/jackery` owner shown above. If
+the error names a different repository, do not assume the same procedure has
+been validated for that owner. Home Assistant tracks the broader Marketplace
+issue in [Core issue #190454](https://github.com/home-assistant/core/issues/190454).
 
 ## After the upgrade
 

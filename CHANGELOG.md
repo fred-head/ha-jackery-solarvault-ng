@@ -7,6 +7,12 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+### Added
+
+- Document the successful 3.0.0-rc.1 Marketplace install and restart test, plus
+  the tested Marketplace ownership workaround for an existing Jackery Official
+  installation.
+
 ## [3.0.0-rc.1] - 2026-11-19
 
 ### Added
