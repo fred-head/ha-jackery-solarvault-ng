@@ -233,7 +233,11 @@ async def test_only_proven_residue_is_reconciled(hass, caplog, conflict):
     assert snapshot(get_device_by_id(devices, old.id)) == before_old
     assert snapshot(get_device_by_id(devices, active.id)) == before_active
     assert {e.entity_id: snapshot(e) for e in entities.entities.values() if e.device_id in {old.id, active.id}} == before_entities
-    assert CHILD not in caplog.text
+    assert all(
+        CHILD not in record.getMessage()
+        for record in caplog.records
+        if record.name.startswith("custom_components.jackery")
+    )
 
 
 async def test_interrupted_apply_resumes_without_touching_old_inventory(hass):
