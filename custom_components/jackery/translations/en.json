@@ -490,6 +490,10 @@
         }
     },
     "issues": {
+        "official_child_residue": {
+            "title": "Jackery: old device – review",
+            "description": "An earlier update of the official Jackery integration left two device records for the same meter. SolarVault NG has completed takeover of the [active device]({active_device_url}). The [old device]({old_device_url}) and its sensor entries have been retained; these old sensors will not receive new readings. Check automations, dashboards and external monitoring for references to the old sensors and update them if needed. You may keep the old device or delete it after checking. Deleting it also removes its associated entity entries; continued access to their history is not guaranteed. The separate Shelly integration is unaffected."
+        },
         "no_mqtt_response": {
             "title": "No response from Jackery device",
             "description": "No valid MQTT message has been received from this device since setup. Check that the serial number uses uppercase letters, the configured token is current, and the device and MQTT broker are reachable. This warning clears automatically when a valid device message arrives."

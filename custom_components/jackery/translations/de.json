@@ -490,6 +490,10 @@
         }
     },
     "issues": {
+        "official_child_residue": {
+            "title": "Jackery: Altbestand – prüfen",
+            "description": "Ein früheres Update der offiziellen Jackery-Integration hat zwei Geräteeinträge für denselben Zähler hinterlassen. SolarVault NG hat die Übernahme des [aktiven Geräts]({active_device_url}) abgeschlossen. Das [alte Gerät]({old_device_url}) und seine Sensor-Einträge bleiben erhalten; diese alten Sensoren erhalten keine neuen Messwerte. Prüfe Automationen, Dashboards und externes Monitoring auf Verweise auf die alten Sensoren und stelle sie bei Bedarf um. Du kannst das alte Gerät behalten oder nach der Prüfung selbst löschen. Beim Löschen werden auch seine zugehörigen Entity-Einträge entfernt; ein weiterer Zugriff auf deren Historie ist nicht garantiert. Die separate Shelly-Integration bleibt unverändert."
+        },
         "no_mqtt_response": {
             "title": "Keine Antwort vom Jackery-Gerät",
             "description": "Seit der Einrichtung wurde keine gültige MQTT-Nachricht von diesem Gerät empfangen. Prüfe, ob die Seriennummer großgeschrieben ist, der konfigurierte Token aktuell ist und Gerät sowie MQTT-Broker erreichbar sind. Diese Warnung wird automatisch gelöscht, sobald eine gültige Gerätenachricht eintrifft."

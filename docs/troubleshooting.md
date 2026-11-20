@@ -75,6 +75,23 @@ serial number, and topic prefix as well as the token.
 
 ## Missing or unavailable readings
 
+### Duplicate Jackery meter cards or `duplicate-device-target` after an upgrade
+
+NG can automatically recognize the specific old/new CT split left by an earlier
+Official 1.0-to-2.0 update. Update to an NG version containing the Issue #58 fix
+and restart Home Assistant, including if you already installed RC1. No backup
+restore or manual registry edit is needed for the recognized case.
+
+The active card resumes normal discovery. The old card stays available as
+historical inventory, marked **Jackery: old device – review** (localized).
+Read the notification and the [upgrade instructions](upgrading.md#retained-old-jackery-meter-device)
+before choosing whether to remove it. The old sensors do not resume reporting.
+This is about two Jackery-owned cards, not the separate Shelly integration.
+
+If the warning persists, NG could not establish this known safe case. Keep the
+records, retain your backup and contact the maintainer with the warning category
+and sanitized diagnostics. Do not delete devices to force migration.
+
 ### Main SolarVault entities become unavailable
 
 The integration marks main entities unavailable after it stops receiving

@@ -1,0 +1,32 @@
+{
+  "schema_version": 1,
+  "base_fixture": "official_2_0_0",
+  "active_device_key": "ct3",
+  "historical_device": {
+    "identifiers": [["jackery", "sub_SHELLY0001"]],
+    "manufacturer": "Jackery",
+    "model": "Sub-device Type 2",
+    "name": "Jackery CT SHELLY0001",
+    "name_by_user": "My original meter",
+    "via_device": ["jackery", "SVHOST0001"]
+  },
+  "historical_entities": [
+    {
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_power",
+      "entity_id": "sensor.original_ct_power",
+      "name": "Original CT power"
+    },
+    {
+      "unique_id": "jackery_SVHOST0001_ct_SHELLY0001_energy",
+      "entity_id": "sensor.original_ct_energy",
+      "name": "Original CT energy"
+    }
+  ],
+  "provenance": {
+    "kind": "sanitized reconstruction of the registry shape reported in issue 58",
+    "issue": "https://github.com/fred-head/ha-jackery-solarvault-ng/issues/58",
+    "official_1_0_0_commit": "4b5b315a1c8cc389c3db968853efc4cb319e2eb9",
+    "official_2_0_0_commit": "d45f568a0c3b665257ddcf6c608faf2f7c34a085",
+    "note": "The two already host-prefixed entities retain their old device link. The referenced base fixture supplies the ten newer CT entities. Identities are synthetic; personal upgrade chronology is reconstructed, not independently proven."
+  }
+}
