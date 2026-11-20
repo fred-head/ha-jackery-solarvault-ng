@@ -7,6 +7,8 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+## [3.0.0-rc.2] - 2026-11-20
+
 ### Added
 
 - Document the successful 3.0.0-rc.1 Marketplace install and restart test, plus
