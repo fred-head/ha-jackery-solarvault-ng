@@ -123,6 +123,38 @@ Home Assistant does not load the integration or the device does not resume
 reporting, keep the pre-upgrade backup and contact the project maintainer before
 removing entries or entities.
 
+### Retained old Jackery meter device
+
+An earlier Official 1.0-to-2.0 update could leave two Jackery device cards for
+the same meter: an older card with two CT sensors and a newer card with ten
+directional sensors. NG automatically handles this specific verified pattern.
+It migrates the active card and keeps the historical card and its sensor
+entries. The separate Shelly integration's device is unaffected.
+
+This also recovers the known `duplicate-device-target` block after an update
+to NG RC1. Install an NG version containing the fix through your usual store
+and restart Home Assistant. Keep the existing integration entry; restoring
+the pre-RC1 backup or reinstalling the integration is not required for this
+case.
+
+The retained card receives the label **Jackery: old device – review** (or its
+translation, such as **Jackery: Altbestand – prüfen**). A notification links
+to both cards and explains the result. Existing custom names and labels remain
+intact. Dismissing the notification is remembered across restarts.
+
+The old card's two sensors no longer receive measurements. Check automations,
+dashboards and external monitoring for references to them, and switch to the
+appropriate sensors on the active card if necessary. These old measurements
+are not automatically equated with new total measurements. You may keep the
+historical card for reference or delete that card through its Home Assistant
+device page after checking. Deleting it also removes its associated entity
+entries; continued access to their history is not guaranteed. NG does not
+recreate the old card after deletion.
+
+Other conflicts still pause the affected child's discovery. A device name or
+label alone does not make a card safe to remove. If the conflict warning
+remains, retain the records and follow the [troubleshooting guide](troubleshooting.md).
+
 ## Home Assistant 2026.11: HACS moves to Marketplace
 
 When Home Assistant updates to 2026.11 or newer, the built-in Marketplace

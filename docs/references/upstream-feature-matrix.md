@@ -97,6 +97,19 @@ Comparison is of actual source at [C and O](../archive/baseline.md), not reposit
 
 ### Official is not uniformly correct
 
+Issue [#58](https://github.com/fred-head/ha-jackery-solarvault-ng/issues/58)
+documents an additional **DIFFERENT** migration behavior: Official 1.0.0
+(`4b5b315a1c8cc389c3db968853efc4cb319e2eb9`) used `sub_<child>` device identifiers;
+Official 2.0.0 (`d45f568a0c3b665257ddcf6c608faf2f7c34a085`) migrated entity unique
+IDs to the host-prefixed format but did not migrate those device identifiers.
+This can leave an old two-entity CT card alongside a newer ten-entity CT card.
+NG now recognizes this exact same-owner/same-parent split, migrates the active
+card and retains marked historical inventory for user-controlled cleanup. It
+does not merge measurement histories or infer why the reported Type 2/Type 3
+classification changed. The sequential-upgrade fixture is a sanitized
+reconstruction of the registry evidence, not a hardware-test claim. See
+[the reconciliation plan](../plans/issue-58-official-child-reconciliation.md).
+
 A source probe against the isolated O snapshot confirmed a startup edge case: the first type101 message with `body.devType=2` and a cts array sets only `cache['cts']`, then reads `cache['plugs']` unconditionally. It logs `Error handling message: 'plugs'`, skips calculation/discovery/distribution for that message and leaves `_known_plugs` empty. A subsequent plug response can initialize the missing list. This is a reason to test message ordering before adopting O's full-list replacement logic, not to discard its independently useful guards. See the [reproducible probe](../archive/baseline-test-results.md#official-startup-probe).
 
 Commit IDs above were located using `git log <ref> -S '<distinctive source text>' -- <path>` and checked against the final source. They identify introduction/change in that upstream history, not necessarily the first vendor firmware release. Relevant community changes also include `d1a6da9` obsolete select migration, `47c51fd` maxOutPw slider, `b069e24` binary force-charge switch, and `d99b8ca` all-type3 Shelly path. No historical commit was merged or cherry-picked.

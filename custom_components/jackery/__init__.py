@@ -318,13 +318,17 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     _LOGGER.info("MQTT integration is available and ready")
 
     from .child_migration import migrate_child_identities
+    from .historical_devices import async_load_historical_state, async_mark_historical_devices, retained_device_ids
 
     # Child preflight precedes all platform creation; conflicts must not cause
     # discovery to replace the retained legacy records with fresh entities.
-    child_migration = migrate_child_identities(hass, entry)
+    historical_state = await async_load_historical_state(hass, entry)
+    child_migration = migrate_child_identities(hass, entry, retained_historical_ids=retained_device_ids(historical_state))
 
     # Keep the existing main-device migration, excluding old/new child records.
     await _migrate_unique_ids(hass, entry, protected_entities=child_migration.protected_entities)
+
+    await async_mark_historical_devices(hass, entry, child_migration.historical_devices, saved=historical_state)
 
     # All platforms need the same runtime object, regardless of forwarding order.
     from .sensor import JackeryDataCoordinator
@@ -387,6 +391,15 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     return True
 
 
+async def async_remove_config_entry_device(hass: HomeAssistant, entry: ConfigEntry, device_entry: dr.DeviceEntry) -> bool:
+    """Allow user removal only of the verified historical Official CT card."""
+    from .historical_devices import async_load_historical_state, retained_device_ids
+    from .official_residue import historical_device_is_removable
+
+    saved = await async_load_historical_state(hass, entry)
+    return historical_device_is_removable(hass, entry, device_entry, retained_ids=retained_device_ids(saved))
+
+
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     """Unload a config entry."""
     _LOGGER.info("Unloading Jackery integration")
@@ -438,11 +451,13 @@ async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
 
 
 async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
-    """Remove all opt-in raw capture records when a config entry is deleted."""
+    """Remove persisted captures and migration notices when an entry is deleted."""
     from .alert_capture import async_delete_alert_capture
     from .bmslog_capture import async_delete_bmslog_capture
+    from .historical_devices import async_remove_historical_state
     from .protocol_capture import async_delete_protocol_capture
 
     await async_delete_alert_capture(hass, entry.entry_id)
     await async_delete_bmslog_capture(hass, entry.entry_id)
     await async_delete_protocol_capture(hass, entry.entry_id)
+    await async_remove_historical_state(hass, entry)

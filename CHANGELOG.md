@@ -13,6 +13,15 @@ Changes in **Unreleased** are planned for a future release.
   the tested Marketplace ownership workaround for an existing Jackery Official
   installation.
 
+### Fixed
+
+- Recover the known duplicate Jackery CT records inherited from an Official
+  1.0-to-2.0 upgrade, including installations already blocked after installing
+  NG RC1. Migrate the active meter in place and retain the old device and sensor
+  entries with a review label and a dismissible explanation. Users can remove
+  the verified old device through Home Assistant after checking references;
+  ambiguous or foreign records remain protected.
+
 ## [3.0.0-rc.1] - 2026-11-19
 
 ### Added

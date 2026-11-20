@@ -32,6 +32,28 @@ freshness and source evidence live in `coordinator_state.py`. Identity
 construction and registry migration live in `identity.py` and
 `child_migration.py`.
 
+`official_residue.py` recognizes only the verified Official 1.0-to-2.0 CT device
+split using exclusive ownership, exact host parent links and known linked
+entity identities. Preflight excludes the historical half from the active
+child's write plan while retaining its IDs and entity records. Unrecognized
+duplicates still fail closed. The same read-only evidence authorizes explicit
+user removal of the old card through HA's device-removal callback.
+
+`historical_devices.py` adds a localized label and notification without
+overwriting custom names or existing labels. A versioned per-entry HA Store
+retains only device registry IDs, label ID and notification acknowledgements.
+Its historical-ID hints are independently revalidated against registry evidence;
+names, labels and stored IDs alone do not authorize writes or deletion. The
+classification prevents a retained old card from reactivating if the active
+meter is later unbound. Unload flushes pending acknowledgements and removes
+listeners; explicit entry removal deletes this store. No raw serials or
+credentials are stored in this bookkeeping.
+
+Setup checks current registry state every time, so the fixed migration also
+recovers installations previously blocked by RC1. It does not depend on a
+first Official-to-NG setup or a config-entry version bump. The original plan
+and validation checklist are in [Issue #58](../plans/issue-58-official-child-reconciliation.md).
+
 ## Setup and entity boundary
 
 Integration setup creates and stores the coordinator before forwarding all five

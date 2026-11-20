@@ -19,6 +19,8 @@ from .identity import (
     parse_child_device_identifier,
     parse_child_unique_id,
 )
+from .official_residue import OFFICIAL_TYPE3_CT_KEYS as _OFFICIAL_TYPE3_CT_KEYS
+from .official_residue import OfficialResidue, historical_device_serial, match_official_residue
 from .registry_identity import (
     device_owned_by_entry,
     device_parent_id,
@@ -36,18 +38,6 @@ _FAMILIES = {
     "collector": "collector", "plug": "plug",
 }
 _PREFIXES = {**{family: family for family in _FAMILIES}, "SmartMeter": "smartmeter", "Battery": "battery"}
-_OFFICIAL_TYPE3_CT_KEYS = {
-    "powertotalforward": "import_total",
-    "poweraforward": "import_l1",
-    "powerbforward": "import_l2",
-    "powercforward": "import_l3",
-    "powertotalreverse": "export_total",
-    "powerareverse": "export_l1",
-    "powerbreverse": "export_l2",
-    "powercreverse": "export_l3",
-    "energyforward": "import_energy_total",
-    "energyreverse": "export_energy_total",
-}
 
 
 @dataclass
@@ -57,6 +47,7 @@ class ChildMigrationResult:
     blocked_children: set[str] = field(default_factory=set)
     block_all: bool = False
     protected_entities: set[str] = field(default_factory=set)
+    historical_devices: dict[str, str] = field(default_factory=dict)
     _reported_conflicts: set[tuple[str | None, str]] = field(default_factory=set, repr=False)
 
     def allows(self, serial: str) -> bool:
@@ -70,6 +61,7 @@ class _ChildPlan:
     identifiers: frozenset[tuple[str, str]]
     entities: tuple[tuple[str, str], ...]
     remove_entities: tuple[str, ...]
+    official_residue: OfficialResidue | None = None
 
 
 def _conflict(result: ChildMigrationResult, entry_id: str, serial: str | None, category: str) -> None:
@@ -137,9 +129,11 @@ def _official_device_serial(
     child = raw_serial[len(start):]
     if any(
         entity.platform == DOMAIN
-        and entity.unique_id.startswith(f"jackery_{host}_{prefix}_{child}_")
+        and (
+            any(entity.unique_id.startswith(f"jackery_{host}_{prefix}_{child}_") for prefix in _PREFIXES)
+            or (parsed := parse_child_unique_id(entity.unique_id)) is not None and parsed[:2] == (host, child)
+        )
         for entity in linked_entities
-        for prefix in _PREFIXES
     ):
         return child
     return raw_serial
@@ -262,7 +256,9 @@ def _is_unmodified_http_duplicate(
     )
 
 
-def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMigrationResult:
+def migrate_child_identities(
+    hass: HomeAssistant, entry: ConfigEntry, *, retained_historical_ids: frozenset[str] = frozenset(),
+) -> ChildMigrationResult:
     """Inspect the complete entry before applying any validated child plan.
 
     Run on every setup. Persistent registry state is the resume marker; a config
@@ -331,6 +327,17 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
         linked_entities = list(
             er.async_entries_for_device(entities, device.id, include_disabled_entities=True)
         )
+        if device.id in retained_historical_ids and (old_serial := historical_device_serial(hass, entry, device)):
+            active_identifiers = {
+                (DOMAIN, f"sub_{host}_{old_serial}"),
+                (DOMAIN, child_device_identifier(host, old_serial)),
+            }
+            if not any(candidate.identifiers.intersection(active_identifiers) for candidate in iter_all_devices(devices)):
+                # If the meter was unbound later, an archived Type 2 card must
+                # never be mistaken for a fresh legacy device and reactivated.
+                by_device[device.id] = old_serial
+                result.protected_entities.update(entity.entity_id for entity in linked_entities)
+                continue
         # Main serials themselves may start with "child:" or "sub_". An exact
         # main identifier is not a child-prefix match.
         if device.identifiers.intersection(main_identifiers) and len(identifiers) == 1:
@@ -354,6 +361,8 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
                 _conflict(result, entry.entry_id, serial, "multiple-child-identifiers")
             continue
         serial = next(iter(serials))
+        if device.id in retained_historical_ids and historical_device_serial(hass, entry, device) is None:
+            _conflict(result, entry.entry_id, serial, "unknown-or-mismatched-entity-id")
         if any(not identifier.startswith(("sub_", "child:")) for identifier in identifiers):
             _conflict(result, entry.entry_id, serial, "unrecognized-device-alias")
         by_device[device.id] = serial
@@ -425,19 +434,27 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
     plans = []
     for serial in child_entities.keys() | child_devices.keys():
         associated = child_devices.get(serial, [])
+        residue = match_official_residue(hass, entry, serial, associated) if len(associated) > 1 else None
         if len(associated) > 1:
-            _conflict(result, entry.entry_id, serial, "duplicate-device-target")
-            continue
+            if residue is None:
+                _conflict(result, entry.entry_id, serial, "duplicate-device-target")
+                continue
+            # Retain the old card and its exact entities, but exclude them from
+            # the active child's identity writes. They remain protected above.
+            associated = [device for device in associated if device.id == residue.active_device_id]
         planned_device = associated[0] if associated else None
+        linked_entities = [
+            entity for entity in child_entities.get(serial, {}).values()
+            if residue is None or entity.device_id != residue.historical_device_id
+        ]
         official_type3_ct = _is_official_type3_ct_device(
             planned_device, devices, host, serial,
-            list(child_entities.get(serial, {}).values()),
-        )
+            linked_entities,
+        ) or residue is not None
         target_identifier = (DOMAIN, child_device_identifier(host, serial))
         target_devices = find_devices_by_identifier(devices, target_identifier)
         if any(planned_device is None or target.id != planned_device.id for target in target_devices):
             _conflict(result, entry.entry_id, serial, "device-target-conflict")
-        linked_entities = list(child_entities.get(serial, {}).values())
         http_repairs: dict[str, str] = {}
         duplicate_http_entities: set[str] = set()
         for entity in linked_entities:
@@ -533,6 +550,7 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
                 new_identifiers,
                 tuple(updates),
                 tuple(sorted(duplicate_http_entities)),
+                residue,
             )
         )
 
@@ -553,4 +571,6 @@ def migrate_child_identities(hass: HomeAssistant, entry: ConfigEntry) -> ChildMi
                 update_device_identifiers(devices, current, set(plan.identifiers))
         for entity_id, target in plan.entities:
             entities.async_update_entity(entity_id, new_unique_id=target)
+        if plan.official_residue is not None:
+            result.historical_devices[plan.official_residue.historical_device_id] = plan.official_residue.active_device_id
     return result

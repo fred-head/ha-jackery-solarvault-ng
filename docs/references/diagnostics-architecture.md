@@ -86,6 +86,13 @@ physical state.
 | HA entity registry/state machine | Entry-owned entity records, disabled status and current HA states | Authoritative HA registration/state view | Aggregate counts by fixed platform and availability bucket | IDs, unique IDs, names, areas, state attributes and values are not exported |
 | HA device registry | Entry-owned main/child device records and relationships | Authoritative HA device registration view | Aggregate device counts/roles only | Never export device IDs, identifiers, names, areas or `via_device` identifiers |
 
+The Issue #58 reconciliation can deliberately retain historical device/entity
+entries without runtime sensors. Existing registry inventory and state counts
+include those entries, so unknown states or a registry/listener count mismatch
+can reflect retained inventory rather than a new transport failure. The
+`historical_devices` migration map and its per-entry storage are not exported:
+device registry IDs, label IDs and notification acknowledgements remain local.
+
 ### 3.2 Corrected assumptions from the Phase 0/1 plan
 
 The earlier plan predates several accepted fixes and extractions. Phase 3 uses

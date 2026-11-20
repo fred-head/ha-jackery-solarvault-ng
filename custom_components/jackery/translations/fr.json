@@ -490,6 +490,10 @@
         }
     },
     "issues": {
+        "official_child_residue": {
+            "title": "Jackery : ancien appareil à vérifier",
+            "description": "Une ancienne mise à jour de l’intégration officielle Jackery a laissé deux entrées pour le même compteur. SolarVault NG a terminé la reprise de l’[appareil actif]({active_device_url}). L’[ancien appareil]({old_device_url}) et ses entrées de capteurs sont conservés ; ces anciens capteurs ne recevront plus de mesures. Vérifiez les automatisations, les tableaux de bord et la supervision externe qui utilisent les anciens capteurs et modifiez leurs références si nécessaire. Vous pouvez conserver l’ancien appareil ou le supprimer après vérification. Sa suppression retire également ses entrées d’entités ; l’accès ultérieur à leur historique n’est pas garanti. L’intégration Shelly distincte reste inchangée."
+        },
         "no_mqtt_response": {
             "title": "Aucune réponse de l’appareil Jackery",
             "description": "Aucun message MQTT valide n’a été reçu de cet appareil depuis sa configuration. Vérifiez que le numéro de série est en majuscules, que le jeton configuré est à jour et que l’appareil ainsi que le broker MQTT sont accessibles. Cet avertissement sera automatiquement supprimé dès qu’un message valide de l’appareil sera reçu."

@@ -16,3 +16,6 @@ dashboards, and troubleshooting.
 Keep these references aligned with the implementation. Historical plans,
 baselines, audits, and source documents that have been superseded are in the
 [archive](../archive/README.md).
+
+Implementation plan and validation checklist:
+[Issue #58 Official child reconciliation](../plans/issue-58-official-child-reconciliation.md).
