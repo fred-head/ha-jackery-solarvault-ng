@@ -203,10 +203,18 @@
                 "name": "Énergie d’entrée du circuit de secours"
             },
             "eps_state": {
-                "name": "État de l’alimentation de secours"
+                "name": "État de l’alimentation de secours",
+                "state": {
+                    "off": "Arrêt",
+                    "on": "Marche"
+                }
             },
             "eps_switch": {
-                "name": "Interrupteur de l’alimentation de secours"
+                "name": "Interrupteur de l’alimentation de secours",
+                "state": {
+                    "off": "Arrêt",
+                    "on": "Marche"
+                }
             },
             "soc_charge_limit": {
                 "name": "Charge maximale de la batterie"
@@ -266,13 +274,33 @@
                 "name": "Niveau de charge total"
             },
             "battery_state": {
-                "name": "État de la batterie"
+                "name": "État de la batterie",
+                "state": {
+                    "charging": "En charge",
+                    "discharging": "En décharge",
+                    "unknown": "Inconnu"
+                }
             },
             "ethernet_connected": {
-                "name": "Ethernet connecté"
+                "name": "Ethernet connecté",
+                "state": {
+                    "no": "Non",
+                    "yes": "Oui"
+                }
             },
             "wifi_signal": {
                 "name": "Intensité du signal Wi-Fi"
+            },
+            "wifi_signal_quality": {
+                "name": "Qualité du signal Wi-Fi",
+                "state": {
+                    "very_good": "Très bon",
+                    "good": "Bon",
+                    "medium": "Moyen",
+                    "weak": "Faible",
+                    "very_weak": "Très faible",
+                    "not_connected": "Non connecté"
+                }
             },
             "max_inverter_standby_power": {
                 "name": "Limite de veille de l’onduleur"

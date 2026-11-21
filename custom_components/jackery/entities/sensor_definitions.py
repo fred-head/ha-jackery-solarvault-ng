@@ -20,12 +20,16 @@ from homeassistant.const import (
 __all__ = [
     "CT_STATUS_MAP",
     "DEVICE_STATUS_MAP",
+    "ETHERNET_CONNECTED_MAP",
+    "EPS_SWITCH_STATE_MAP",
+    "BATTERY_STATE_MAP",
     "FUNC_ENABLE_BITS",
     "GRID_METER_LINK_MAP",
     "ONGRID_STATUS_MAP",
     "SENSORS",
     "SMARTMETER_HTTP_SENSOR_CONFIGS",
     "SUBDEVICE_SENSORS",
+    "WIFI_SIGNAL_QUALITY_OPTIONS",
 ]
 
 # ENUM value → option-key maps for status sensors (Ü5/Ü6 from upstream v2.0.0)
@@ -36,6 +40,17 @@ DEVICE_STATUS_MAP: dict[int, str] = {
 ONGRID_STATUS_MAP: dict[int, str] = {0: "disconnected", 1: "connected"}
 CT_STATUS_MAP: dict[int, str] = {0: "disconnected", 1: "connected"}
 GRID_METER_LINK_MAP: dict[int, str] = {0: "not_linked", 1: "linked"}
+ETHERNET_CONNECTED_MAP: dict[int, str] = {0: "no", 1: "yes"}
+EPS_SWITCH_STATE_MAP: dict[int, str] = {0: "off", 1: "on"}
+BATTERY_STATE_MAP: dict[int, str] = {0: "unknown", 1: "charging", 2: "discharging"}
+WIFI_SIGNAL_QUALITY_OPTIONS: list[str] = [
+    "very_good",
+    "good",
+    "medium",
+    "weak",
+    "very_weak",
+    "not_connected",
+]
 
 class MainSensorConfig(TypedDict):
     """Repository-owned main sensor metadata, checked at its declaration."""
@@ -311,21 +326,27 @@ SENSORS: dict[str, MainSensorConfig] = {
         "state_class": SensorStateClass.TOTAL_INCREASING,
         "scale": 0.01,
     },
+    # Both fields were observed to track the EPS output's 0=off / 1=on state.
+    # Keep their separate entity identities while displaying the same clear labels.
     "eps_state": {
-         "json_key": "swEpsState",
-         "name": "EPS State",
-         "unit": None,
-         "icon": "mdi:power-settings",
-         "device_class": None,
-         "state_class": None, # 1-Normal, 0-Abnormal
+        "json_key": "swEpsState",
+        "name": "EPS State",
+        "unit": None,
+        "icon": "mdi:power-settings",
+        "device_class": SensorDeviceClass.ENUM,
+        "state_class": None,
+        "options": list(EPS_SWITCH_STATE_MAP.values()),
+        "value_map": EPS_SWITCH_STATE_MAP,
     },
     "eps_switch": {
-         "json_key": "swEps",
-         "name": "EPS Switch Status",
-         "unit": None,
-         "icon": "mdi:toggle-switch",
-         "device_class": None,
-         "state_class": None, # 1-On, 0-Off
+        "json_key": "swEps",
+        "name": "EPS Switch Status",
+        "unit": None,
+        "icon": "mdi:toggle-switch",
+        "device_class": SensorDeviceClass.ENUM,
+        "state_class": None,
+        "options": list(EPS_SWITCH_STATE_MAP.values()),
+        "value_map": EPS_SWITCH_STATE_MAP,
     },
 
     # Limits & Settings & Status
@@ -522,8 +543,10 @@ SENSORS: dict[str, MainSensorConfig] = {
         "name": "Battery State",
         "unit": None,
         "icon": "mdi:battery-heart-variant",
-        "device_class": None,
+        "device_class": SensorDeviceClass.ENUM,
         "state_class": None,
+        "options": ["charging", "discharging", "unknown"],
+        "value_map": BATTERY_STATE_MAP,
     },
 
     # Netzwerk-Status
@@ -532,8 +555,10 @@ SENSORS: dict[str, MainSensorConfig] = {
         "name": "Ethernet Connected",
         "unit": None,
         "icon": "mdi:ethernet",
-        "device_class": None,
+        "device_class": SensorDeviceClass.ENUM,
         "state_class": None,
+        "options": list(ETHERNET_CONNECTED_MAP.values()),
+        "value_map": ETHERNET_CONNECTED_MAP,
     },
     "wifi_signal": {
         "json_key": "wsig",
@@ -542,6 +567,15 @@ SENSORS: dict[str, MainSensorConfig] = {
         "icon": "mdi:wifi",
         "device_class": SensorDeviceClass.SIGNAL_STRENGTH,
         "state_class": SensorStateClass.MEASUREMENT,
+    },
+    "wifi_signal_quality": {
+        "json_key": "wsig",
+        "name": "WiFi Signal Quality",
+        "unit": None,
+        "icon": "mdi:wifi-strength-2",
+        "device_class": SensorDeviceClass.ENUM,
+        "state_class": None,
+        "options": WIFI_SIGNAL_QUALITY_OPTIONS,
     },
 
     # Leistungsgrenzen (nur lesbar)

@@ -2,6 +2,7 @@
 import asyncio
 import json
 import logging
+import math
 import random
 import time
 from typing import TYPE_CHECKING, Any
@@ -41,8 +42,17 @@ from .diagnostics_observation import (
     ProtocolRouteBucket,
 )
 from .discovery import ChildDiscoveryState, child_entity_spec
+from .entities.sensor_definitions import (
+    BATTERY_STATE_MAP as BATTERY_STATE_MAP,
+)
 from .entities.sensor_definitions import CT_STATUS_MAP as CT_STATUS_MAP
 from .entities.sensor_definitions import DEVICE_STATUS_MAP as DEVICE_STATUS_MAP
+from .entities.sensor_definitions import (
+    EPS_SWITCH_STATE_MAP as EPS_SWITCH_STATE_MAP,
+)
+from .entities.sensor_definitions import (
+    ETHERNET_CONNECTED_MAP as ETHERNET_CONNECTED_MAP,
+)
 from .entities.sensor_definitions import (
     FUNC_ENABLE_BITS,
     SENSORS,
@@ -52,6 +62,9 @@ from .entities.sensor_definitions import (
 )
 from .entities.sensor_definitions import GRID_METER_LINK_MAP as GRID_METER_LINK_MAP
 from .entities.sensor_definitions import ONGRID_STATUS_MAP as ONGRID_STATUS_MAP
+from .entities.sensor_definitions import (
+    WIFI_SIGNAL_QUALITY_OPTIONS as WIFI_SIGNAL_QUALITY_OPTIONS,
+)
 from .entities.transforms import COMM_MODE_CLOUD as COMM_MODE_CLOUD
 from .entities.transforms import COMM_MODE_LABELS as COMM_MODE_LABELS
 from .entities.transforms import COMM_MODE_LOCAL as COMM_MODE_LOCAL
@@ -110,6 +123,93 @@ OFFLINE_TIMEOUT = 60  # seconds without any message → mark entities unavailabl
 NO_MQTT_RESPONSE_TIMEOUT = 120
 NO_MQTT_RESPONSE_ISSUE_PREFIX = "no_mqtt_response_"
 HTTP_FAILURE_THRESHOLD = 3
+
+_NETWORK_STATE_LABELS: dict[str, dict[str, str]] = {
+    "de": {
+        "not_connected": "Nicht verbunden",
+        "no_ip": "Keine IP-Adresse",
+        "no_name": "Kein WLAN-Name gemeldet",
+        "connected_no_ip": "Verbunden, keine IP-Adresse",
+    },
+    "en": {
+        "not_connected": "Not connected",
+        "no_ip": "No IP address",
+        "no_name": "No Wi-Fi name reported",
+        "connected_no_ip": "Connected, no IP address",
+    },
+    "fr": {
+        "not_connected": "Non connecté",
+        "no_ip": "Aucune adresse IP",
+        "no_name": "Aucun nom Wi-Fi communiqué",
+        "connected_no_ip": "Connecté, aucune adresse IP",
+    },
+}
+
+
+def _ip_address_is_missing(value: Any) -> bool:
+    """Return whether an explicitly reported IP field has no assigned address."""
+    return isinstance(value, str) and value.strip() in {"", "0.0.0.0"}
+
+
+def _wifi_is_disconnected(data: dict[str, Any]) -> bool:
+    """Require explicit empty SSID and no-IP sentinels before inferring disconnection."""
+    ssid = data.get("wname")
+    return (
+        "wname" in data
+        and "wip" in data
+        and isinstance(ssid, str)
+        and not ssid.strip()
+        and _ip_address_is_missing(data["wip"])
+    )
+
+
+def _ethernet_port_state(value: Any) -> bool | None:
+    """Parse ethPort only when it explicitly reports 0 (down) or 1 (up)."""
+    if isinstance(value, bool):
+        return value
+    try:
+        port_state = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if port_state == 0:
+        return False
+    if port_state == 1:
+        return True
+    return None
+
+
+def _wifi_signal_dbm(value: Any) -> float | None:
+    """Parse a usable negative Wi-Fi RSSI value; zero is Jackery's no-signal sentinel."""
+    if isinstance(value, bool):
+        return None
+    try:
+        signal_dbm = float(value)
+    except (TypeError, ValueError, OverflowError):
+        return None
+    if not math.isfinite(signal_dbm) or signal_dbm >= 0:
+        return None
+    return signal_dbm
+
+
+def _wifi_signal_quality(signal_dbm: float) -> str:
+    """Map RSSI dBm to a concise user-facing quality band."""
+    if signal_dbm >= -50:
+        return "very_good"
+    if signal_dbm >= -60:
+        return "good"
+    if signal_dbm >= -70:
+        return "medium"
+    if signal_dbm >= -80:
+        return "weak"
+    return "very_weak"
+
+
+def _network_state_label(entity: Any, state: str) -> str:
+    """Localize free-text network states using HA's configured language."""
+    hass = getattr(entity, "hass", None)
+    language = getattr(getattr(hass, "config", None), "language", "en")
+    language_code = str(language).split("-")[0].lower()
+    return _NETWORK_STATE_LABELS.get(language_code, _NETWORK_STATE_LABELS["en"])[state]
 
 # Device model lookup from deviceType field in MQTT payload
 DEVICE_TYPE_MODEL_MAP: dict[int, str] = {
@@ -1685,6 +1785,45 @@ class JackerySensor(SensorEntity):
 
     def _update_from_coordinator(self, data: dict) -> None:
         """Receive data from coordinator."""
+        if self._sensor_id == "wifi_signal_quality":
+            if _wifi_is_disconnected(data):
+                self._attr_native_value = "not_connected"
+            else:
+                if "wsig" not in data:
+                    return
+                signal_dbm = _wifi_signal_dbm(data["wsig"])
+                self._attr_native_value = (
+                    _wifi_signal_quality(signal_dbm)
+                    if signal_dbm is not None
+                    else None
+                )
+            self._attr_available = True
+            self.async_write_ha_state()
+            return
+
+        if self._sensor_id == "wifi_signal" and _wifi_is_disconnected(data):
+            self._attr_native_value = None
+            self._attr_available = True
+            self.async_write_ha_state()
+            return
+
+        if self._sensor_id == "ethernet_ip":
+            ethernet_state = _ethernet_port_state(data.get("ethPort"))
+            if ethernet_state is False:
+                self._attr_native_value = _network_state_label(self, "not_connected")
+                self._attr_available = True
+                self.async_write_ha_state()
+                return
+            if "eip" not in data:
+                if "ethPort" in data:
+                    # An explicit port state with no cached IP value cannot reuse
+                    # an old display state, but missing incremental fields do not
+                    # prove that the device has no assigned address.
+                    self._attr_native_value = None
+                    self._attr_available = True
+                    self.async_write_ha_state()
+                return
+
         # Special handling for EPS Output Power (Bidirectional)
         if self._sensor_id == "eps_output_power":
             out_p = _power_sample(data.get("swEpsOutPw", 0))
@@ -1714,6 +1853,46 @@ class JackerySensor(SensorEntity):
                 self._attr_native_value = float(value) * 0.1
             except (TypeError, ValueError):
                 pass
+        elif self._sensor_id == "wifi_signal":
+            self._attr_native_value = _wifi_signal_dbm(value)
+        elif self._sensor_id == "ethernet_connected":
+            self._enum_raw_value = value
+            self._has_enum_raw_value = True
+            ethernet_state = _ethernet_port_state(value)
+            if ethernet_state is True:
+                self._attr_native_value = "yes"
+            elif ethernet_state is False:
+                self._attr_native_value = "no"
+            else:
+                self._attr_native_value = None
+        elif self._sensor_id == "wifi_ssid":
+            if _wifi_is_disconnected(data):
+                self._attr_native_value = _network_state_label(self, "not_connected")
+            elif value is None:
+                self._attr_native_value = None
+            elif isinstance(value, str) and not value.strip():
+                self._attr_native_value = _network_state_label(self, "no_name")
+            else:
+                # SSIDs are text even when their contents happen to look numeric.
+                self._attr_native_value = str(value)
+        elif self._sensor_id == "wlan_ip":
+            if _wifi_is_disconnected(data):
+                self._attr_native_value = _network_state_label(self, "not_connected")
+            elif value is None:
+                self._attr_native_value = None
+            elif _ip_address_is_missing(value):
+                self._attr_native_value = _network_state_label(self, "no_ip")
+            else:
+                self._attr_native_value = str(value)
+        elif self._sensor_id == "ethernet_ip":
+            if value is None:
+                self._attr_native_value = None
+            elif _ip_address_is_missing(value):
+                ethernet_state = _ethernet_port_state(data.get("ethPort"))
+                state_key = "connected_no_ip" if ethernet_state is True else "no_ip"
+                self._attr_native_value = _network_state_label(self, state_key)
+            else:
+                self._attr_native_value = str(value)
         elif self._sensor_id == "battery_soc":
              self._attr_native_value = value
         elif self._sensor_id.startswith("solar_power_pv") and isinstance(value, dict):
@@ -1726,6 +1905,20 @@ class JackerySensor(SensorEntity):
                 self._attr_native_value = value["power"]
             else:
                 self._attr_native_value = str(value)
+        elif self._sensor_id == "battery_state":
+            # Jackery's app and observed HA readings agree on 1 = charging and
+            # 2 = discharging. No meaning is established for 0 or new values.
+            self._enum_raw_value = value
+            self._has_enum_raw_value = True
+            try:
+                numeric_value = float(value)
+                if not math.isfinite(numeric_value) or not numeric_value.is_integer():
+                    raise ValueError("battery state must be an integer")
+                self._attr_native_value = BATTERY_STATE_MAP.get(
+                    int(numeric_value), "unknown"
+                )
+            except (TypeError, ValueError, OverflowError):
+                self._attr_native_value = "unknown"
         else:
             value_map = self._config.get("value_map")
             if value_map is not None:

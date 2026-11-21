@@ -7,6 +7,21 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+### Added
+
+- Add a translated Wi-Fi signal quality sensor while retaining the numeric dBm
+  sensor, and present explicit Wi-Fi name/IP absence sentinels as readable
+  network states.
+- Display Ethernet connection as a translated Yes/No state and distinguish a
+  disconnected port from a connected port without a reported IP address.
+
+### Changed
+
+- Display battery status as Charging, Discharging, or Unknown while retaining
+  the raw protocol value for diagnostics.
+- Display both EPS switch fields as translated Off/On states, preserving their
+  existing sensor entities and identities.
+
 ### Fixed
 
 - Remove four obsolete Jackery sensor registry entries during setup migration,
