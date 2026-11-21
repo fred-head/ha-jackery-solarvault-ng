@@ -62,6 +62,59 @@ async def test_main_sensor_gets_sn_prefix(hass):
         "Old uid must be removed"
 
 
+async def test_obsolete_sensors_removed_by_exact_uid(hass):
+    """Remove only the four retired sensor IDs in both historical formats."""
+    entry = MockConfigEntry(domain=DOMAIN, data={"device_sn": _DEVICE_SN}, unique_id=_DEVICE_SN)
+    entry.add_to_hass(hass)
+    ent_reg = er.async_get(hass)
+
+    obsolete_keys = (
+        "is_auto_standby",
+        "auto_standby_status",
+        "calc_battery_charge_power",
+        "calc_battery_discharge_power",
+    )
+    obsolete_uids = {f"jackery_{key}" for key in obsolete_keys} | {
+        f"jackery_{_DEVICE_SN}_{key}" for key in obsolete_keys
+    }
+    for uid in obsolete_uids:
+        ent_reg.async_get_or_create("sensor", DOMAIN, uid, config_entry=entry)
+
+    retained_sensor_uids = {
+        f"jackery_{_DEVICE_SN}_{key}"
+        for key in (
+            "battery_charge_power",
+            "battery_discharge_power",
+            "total_battery_charge_power",
+            "total_battery_discharge_power",
+            "calc_battery_charge_power_extra",
+        )
+    }
+    for uid in retained_sensor_uids:
+        ent_reg.async_get_or_create("sensor", DOMAIN, uid, config_entry=entry)
+
+    switch_uid = f"jackery_{_DEVICE_SN}_switch_isAutoStandby"
+    select_uid = f"jackery_{_DEVICE_SN}_auto_standby_select"
+    control_uids = {switch_uid, select_uid}
+    ent_reg.async_get_or_create("switch", DOMAIN, switch_uid, config_entry=entry)
+    ent_reg.async_get_or_create("select", DOMAIN, select_uid, config_entry=entry)
+
+    await _migrate_unique_ids(hass, entry)
+
+    remaining = er.async_entries_for_config_entry(ent_reg, entry.entry_id)
+    remaining_uids = {entity.unique_id for entity in remaining}
+    assert not (remaining_uids & obsolete_uids)
+    assert retained_sensor_uids <= remaining_uids
+    assert control_uids <= remaining_uids
+
+    # Cleanup remains safe on every subsequent setup/reload.
+    await _migrate_unique_ids(hass, entry)
+    remaining_uids = {entity.unique_id for entity in er.async_entries_for_config_entry(ent_reg, entry.entry_id)}
+    assert not (remaining_uids & obsolete_uids)
+    assert retained_sensor_uids <= remaining_uids
+    assert control_uids <= remaining_uids
+
+
 async def test_device_status_identity_needs_no_registry_migration(hass):
     """The current status identity and entity ID survive the existing migration."""
     entry = MockConfigEntry(
