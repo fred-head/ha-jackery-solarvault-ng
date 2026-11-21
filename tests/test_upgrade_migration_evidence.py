@@ -15,6 +15,7 @@ from unittest.mock import AsyncMock, Mock, patch
 
 import pytest
 from homeassistant.components.recorder.history import get_significant_states
+from homeassistant.config_entries import ConfigEntryDisabler
 from homeassistant.helpers import area_registry as ar
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
@@ -766,7 +767,12 @@ async def test_work_mode_sensor_does_not_claim_unowned_registry_rows(hass, inval
     original = state.entities["main_work_mode"]
     other = None
     if invalid_case in {"foreign_entry", "foreign_device", "shared_main"}:
-        other = MockConfigEntry(domain=DOMAIN, data={"device_sn": "OTHER"}, unique_id="OTHER")
+        other = MockConfigEntry(
+            domain=DOMAIN,
+            data={"device_sn": "OTHER"},
+            unique_id="OTHER",
+            disabled_by=ConfigEntryDisabler.USER,
+        )
         other.add_to_hass(hass)
     if invalid_case == "foreign_entry":
         registry.async_remove(original.entity_id)
