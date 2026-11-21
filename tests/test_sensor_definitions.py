@@ -16,7 +16,7 @@ def test_sensor_definition_exports_remain_compatible() -> None:
 
 def test_sensor_definition_group_shape_is_unchanged() -> None:
     """Protect the complete declarative entity counts and group boundaries."""
-    assert len(sensor_definitions.SENSORS) == 75
+    assert len(sensor_definitions.SENSORS) == 76
     assert {
         group: len(configs)
         for group, configs in sensor_definitions.SUBDEVICE_SENSORS.items()
@@ -44,7 +44,7 @@ def test_device_status_identity_and_entity_shape_are_unchanged(coordinator) -> N
     assert entity._attr_has_entity_name is True
     assert entity._config["name"] == "Device Status"
     assert list(sensor_definitions.SENSORS).count("device_status") == 1
-    assert len(sensor_definitions.SENSORS) == 75
+    assert len(sensor_definitions.SENSORS) == 76
     assert set(sensor_definitions.DEVICE_STATUS_MAP) == {0, 1, 2, 3, 4, 5, 8}
 
 

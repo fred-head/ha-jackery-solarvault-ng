@@ -58,7 +58,7 @@ Child-device entities are created when the SolarVault reports the device. Availa
 | Maximum battery charge | Sensor | <code>socChgLimit</code> | — | — | Current battery charge limit setting, shown as a percentage. A separate number entity can change this setting. |
 | Minimum battery charge | Sensor | <code>socDischgLimit</code> | — | — | Current battery discharge limit setting, shown as a percentage. A separate number entity can change this setting. |
 | Total state of charge | Sensor | <code>soc</code> | — | — | Battery-system state of charge reported by the BMS; the value can represent the combined system when multiple batteries are connected. |
-| Battery status | Sensor | <code>batState</code> | — | — | Battery operating status reported by the device. |
+| Battery status | Sensor | <code>batState</code> | — | Charging; Discharging; Unknown | `1` is Charging and `2` is Discharging, matching the Jackery app and observed Home Assistant readings. `0` and unrecognized values display as Unknown; the original protocol value is retained in the `raw_value` attribute. |
 | Net battery power (charging + / discharging −) | Sensor | Calculated | — | — | Whole-system battery power balance. Positive values mean charging; negative values mean discharging. |
 
 ### Solar (PV)
@@ -110,8 +110,8 @@ Reader.
 | Backup output energy | Sensor | <code>outEpsEgy</code> | — | — | Cumulative energy at the backup/EPS output. |
 | Backup input power | Sensor | <code>swEpsInPw</code> | — | — | Current input power for the backup/EPS path. |
 | Backup input energy | Sensor | <code>inEpsEgy</code> | — | — | Cumulative input energy for the backup/EPS path. |
-| Backup power status | Sensor | <code>swEpsState</code> | — | — | Operating status of the backup/EPS path as reported by the device. |
-| Backup power switch | Sensor | <code>swEps</code> | — | — | Reported on/off state of the backup switch. A separate switch entity controls it. |
+| Backup power status | Sensor | <code>swEpsState</code> | Codes 0, 1 | Off; On | Device-reported state of the backup/EPS output; observed to follow the EPS switch state. |
+| Backup power switch | Sensor | <code>swEps</code> | Codes 0, 1 | Off; On | Device-reported EPS switch state. A separate switch entity controls it. |
 
 ### Cumulative energy flows
 
@@ -135,11 +135,12 @@ These readings show cumulative energy assigned to each path by the SolarVault.
 | --- | --- | --- | --- | --- | --- |
 | Inverter input power | Sensor | <code>stackInPw</code> | — | — | Power at the input of the inverter stack. |
 | Inverter output power | Sensor | <code>stackOutPw</code> | — | — | Power at the output of the inverter stack. |
-| Ethernet connected | Sensor | <code>ethPort</code> | — | — | Whether the Ethernet port is reported as connected. |
-| Wi-Fi signal strength | Sensor | <code>wsig</code> | — | — | Wi-Fi signal strength in dBm. |
-| Wi-Fi name | Sensor | <code>wname</code> | — | — | Name of the connected Wi-Fi network. |
-| Ethernet IP address | Sensor | <code>eip</code> | — | — | IP address of the Ethernet interface. |
-| Wi-Fi IP address | Sensor | <code>wip</code> | — | — | IP address of the Wi-Fi interface. |
+| Ethernet connected | Sensor | <code>ethPort</code> | Codes 0, 1 | No; Yes | Whether the device reports the Ethernet port as disconnected (0) or connected (1). This does not confirm that an IP address was assigned. |
+| Wi-Fi signal strength | Sensor | <code>wsig</code> | — | — | Wi-Fi signal strength in dBm. A zero reading is treated as no usable signal measurement. |
+| Wi-Fi signal quality | Sensor | <code>wsig</code> | — | Very good; Good; Medium; Weak; Very weak; Not connected | User-friendly signal band: Very good ≥ −50 dBm; Good ≥ −60 and < −50; Medium ≥ −70 and < −60; Weak ≥ −80 and < −70; Very weak < −80. “Not connected” requires an explicitly empty SSID and an empty or `0.0.0.0` IP together. |
+| Wi-Fi name | Sensor | <code>wname</code> | — | — | Name of the Wi-Fi network. An explicit empty name shows “Not connected” only alongside an explicit no-IP sentinel; otherwise it shows that no name was reported. |
+| Ethernet IP address | Sensor | <code>eip</code> | — | — | Shows the reported IP. `ethPort=0` shows “Not connected”; `ethPort=1` with an explicit empty or `0.0.0.0` IP shows “Connected, no IP address”. If the IP field has not been reported, it remains unknown. |
+| Wi-Fi IP address | Sensor | <code>wip</code> | — | — | IP address of the Wi-Fi interface. An explicit empty string or `0.0.0.0` shows “No IP address” unless an explicitly empty SSID is also reported, in which case it shows “Not connected”. A missing or null field remains unknown. |
 | Device capabilities | Sensor | <code>ability</code> | — | — | Capabilities reported by the device as a bitmask. |
 | Function flags | Sensor | <code>funcEnable</code> | — | — | Function bitmask; decoded flags are also available as state attributes. |
 | Device status | Sensor | <code>stat</code> | Codes 0, 1, 2, 3, 4, 5, 8 | Normal; Waiting; Alarm; Fault; Standby; Low power; Fast charging | General device status. The integration displays recognized statuses in English, such as Normal, Waiting, Alarm, Fault, Standby, Low Power, or Fast charging. |

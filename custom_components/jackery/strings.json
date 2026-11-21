@@ -124,8 +124,14 @@
             "eps_output_energy": {"name": "Backup output energy"},
             "eps_input_power": {"name": "Backup input power"},
             "eps_input_energy": {"name": "Backup input energy"},
-            "eps_state": {"name": "Backup power status"},
-            "eps_switch": {"name": "Backup power switch"},
+            "eps_state": {
+                "name": "Backup power status",
+                "state": {"off": "Off", "on": "On"}
+            },
+            "eps_switch": {
+                "name": "Backup power switch",
+                "state": {"off": "Off", "on": "On"}
+            },
             "soc_charge_limit": {"name": "Maximum battery charge"},
             "soc_discharge_limit": {"name": "Minimum battery charge"},
             "home_power": {"name": "Home consumption (calculated)"},
@@ -145,9 +151,30 @@
             "stack_in_power": {"name": "Inverter input power"},
             "stack_out_power": {"name": "Inverter output power"},
             "bms_soc": {"name": "Total state of charge"},
-            "battery_state": {"name": "Battery status"},
-            "ethernet_connected": {"name": "Ethernet connected"},
+            "battery_state": {
+                "name": "Battery status",
+                "state": {
+                    "charging": "Charging",
+                    "discharging": "Discharging",
+                    "unknown": "Unknown"
+                }
+            },
+            "ethernet_connected": {
+                "name": "Ethernet connected",
+                "state": {"no": "No", "yes": "Yes"}
+            },
             "wifi_signal": {"name": "Wi-Fi signal strength"},
+            "wifi_signal_quality": {
+                "name": "Wi-Fi signal quality",
+                "state": {
+                    "very_good": "Very good",
+                    "good": "Good",
+                    "medium": "Medium",
+                    "weak": "Weak",
+                    "very_weak": "Very weak",
+                    "not_connected": "Not connected"
+                }
+            },
             "max_inverter_standby_power": {"name": "Inverter standby limit"},
             "max_grid_standby_power": {"name": "Grid-side standby limit"},
             "wifi_ssid": {"name": "Wi-Fi name"},
