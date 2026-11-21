@@ -115,6 +115,78 @@ async def test_obsolete_sensors_removed_by_exact_uid(hass):
     assert control_uids <= remaining_uids
 
 
+async def test_obsolete_auto_standby_number_removed_but_select_preserved(hass):
+    """Remove the retired NumberEntity without affecting its current SelectEntity replacement."""
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        data={"device_sn": _DEVICE_SN},
+        unique_id=_DEVICE_SN,
+    )
+    entry.add_to_hass(hass)
+    device = dr.async_get(hass).async_get_or_create(
+        config_entry_id=entry.entry_id,
+        identifiers={(DOMAIN, _DEVICE_SN)},
+    )
+    ent_reg = er.async_get(hass)
+
+    obsolete_number_uids = {
+        f"jackery_{_DEVICE_SN}_main_autoStandby",
+        "jackery_main_autoStandby",
+    }
+    obsolete_entity_ids = {}
+    for uid in obsolete_number_uids:
+        entity = ent_reg.async_get_or_create(
+            "number",
+            DOMAIN,
+            uid,
+            config_entry=entry,
+            device_id=device.id,
+            suggested_object_id=(
+                "jackery_solar_vault_pro_max_ac_auto_standby_mode"
+                if uid == f"jackery_{_DEVICE_SN}_main_autoStandby"
+                else None
+            ),
+        )
+        obsolete_entity_ids[uid] = entity.entity_id
+
+    replacement_select_uid = f"jackery_{_DEVICE_SN}_auto_standby_select"
+    supported_number_uid = f"jackery_{_DEVICE_SN}_number_socChgLimit"
+    near_match_number_uid = f"jackery_{_DEVICE_SN}_main_autoStandby_extra"
+    ent_reg.async_get_or_create(
+        "select", DOMAIN, replacement_select_uid, config_entry=entry, device_id=device.id,
+    )
+    ent_reg.async_get_or_create(
+        "number", DOMAIN, supported_number_uid, config_entry=entry, device_id=device.id,
+    )
+    ent_reg.async_get_or_create(
+        "number", DOMAIN, near_match_number_uid, config_entry=entry, device_id=device.id,
+    )
+
+    await _migrate_unique_ids(hass, entry)
+
+    remaining_uids = {
+        entity.unique_id
+        for entity in er.async_entries_for_config_entry(ent_reg, entry.entry_id)
+    }
+    assert not (remaining_uids & obsolete_number_uids)
+    assert all(ent_reg.async_get(entity_id) is None for entity_id in obsolete_entity_ids.values())
+    assert replacement_select_uid in remaining_uids
+    assert supported_number_uid in remaining_uids
+    assert near_match_number_uid in remaining_uids
+
+    # Setup can run repeatedly without changing the surviving controls.
+    await _migrate_unique_ids(hass, entry)
+    remaining_uids = {
+        entity.unique_id
+        for entity in er.async_entries_for_config_entry(ent_reg, entry.entry_id)
+    }
+    assert not (remaining_uids & obsolete_number_uids)
+    assert all(ent_reg.async_get(entity_id) is None for entity_id in obsolete_entity_ids.values())
+    assert replacement_select_uid in remaining_uids
+    assert supported_number_uid in remaining_uids
+    assert near_match_number_uid in remaining_uids
+
+
 async def test_device_status_identity_needs_no_registry_migration(hass):
     """The current status identity and entity ID survive the existing migration."""
     entry = MockConfigEntry(

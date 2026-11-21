@@ -7,6 +7,11 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Remove the retired Auto Standby number entity from the registry during setup,
+  while preserving the current Auto Standby selector.
+
 ## [3.0.0-rc.4] - 2026-11-21
 
 ### Changed

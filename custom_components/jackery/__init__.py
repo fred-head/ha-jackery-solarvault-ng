@@ -71,6 +71,10 @@ async def _migrate_unique_ids(
         **{f"jackery_{key}": key for key in _OBSOLETE_SENSOR_KEYS},
         **{f"{new_prefix}{key}": key for key in _OBSOLETE_SENSOR_KEYS},
     }
+    obsolete_auto_standby_number_uids = {
+        "jackery_main_autoStandby",
+        f"{new_prefix}main_autoStandby",
+    }
 
     ent_reg = er.async_get(hass)
     all_entries = list(er.async_entries_for_config_entry(ent_reg, entry_id))
@@ -106,6 +110,14 @@ async def _migrate_unique_ids(
         obsolete_key = obsolete_sensor_uids.get(uid) if entity_entry.domain == "sensor" else None
         if obsolete_key is not None:
             _LOGGER.info("Removing obsolete Jackery sensor registry entry: %s", obsolete_key)
+            ent_reg.async_remove(entity_entry.entity_id)
+            continue
+
+        # Auto Standby is now a SelectEntity. Remove only the exact legacy
+        # NumberEntity identities; the Select with the same historical UID is
+        # migrated separately below and must retain its registry record.
+        if entity_entry.domain == "number" and uid in obsolete_auto_standby_number_uids:
+            _LOGGER.info("Removing obsolete Jackery Auto Standby number registry entry")
             ent_reg.async_remove(entity_entry.entity_id)
             continue
 
