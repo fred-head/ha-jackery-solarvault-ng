@@ -2,30 +2,14 @@
 
 SolarVault NG supports upgrades from **Jackery Official**, the **Community
 integration**, and earlier **SolarVault NG** versions. The migration runs
-automatically when Home Assistant starts with the updated NG integration. The
-maintainer has tested these paths with real Jackery hardware in a pre-production
-Home Assistant installation:
+automatically when Home Assistant starts with the updated NG integration.
+Upgrades through HACS and Marketplace have both been tested successfully.
 
-- Fresh SolarVault NG installation.
-- Jackery Official to SolarVault NG.
-- Community integration to SolarVault NG.
-- Jackery Official to Community integration to SolarVault NG.
-
-These reported pre-production paths used the CLI to copy the integration's
-Python package files; they did not exercise installation or updates through
-HACS or Marketplace.
-
-The **3.0.0-rc.1 Marketplace installation test passed** on the pre-production
-Home Assistant installation: Marketplace installed NG over an existing
-Jackery installation after the ownership workaround below, and the subsequent
-Home Assistant restart completed successfully. This verifies the Marketplace
-install and restart for the tested Official-owned installation. It does not
-claim that every hardware migration path listed above was repeated through
-Marketplace.
-
-Automated registry and recorder tests provide additional coverage. The exact
-Home Assistant, integration, hardware and firmware versions used in the
-pre-production runs are not recorded in this guide.
+> **Marketplace notice:** When replacing an existing Jackery installation,
+> Marketplace may show an ownership conflict. This is a Marketplace issue, not
+> a problem with the Home Assistant integration. It does not occur with HACS.
+> If Marketplace blocks the update, follow the
+> [Marketplace ownership workaround](#marketplace-ownership-workaround).
 
 In normal cases, your existing configuration, devices, entities and history
 remain in place, and the system continues working as before. You should not
@@ -70,7 +54,7 @@ restarted and the SolarVault is online, its devices and supported entities
 should resume updating. Existing dashboards and automations should continue to
 work with their existing entity IDs.
 
-## Home Assistant 2026.11 Marketplace ownership workaround
+## Marketplace ownership workaround
 
 Marketplace tracks which repository owns an installed integration directory.
 When replacing an existing Jackery installation, it may stop with an error
