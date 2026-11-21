@@ -7,6 +7,8 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+## [3.0.0-rc.4] - 2026-11-21
+
 ### Changed
 
 - Display `batState=0` as Neutral, since the Jackery app hides the status label
@@ -15,7 +17,6 @@ Changes in **Unreleased** are planned for a future release.
   new installations as well as upgrades. Codes `2`, `4`, `7`, and `8` display
   translated labels; unknown codes display as Unknown, with the original
   `workMode` value retained in `raw_value`.
-
 
 ## [3.0.0-rc.3] - 2026-11-21
 
