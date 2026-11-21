@@ -36,9 +36,9 @@ from custom_components.jackery.identity import (
 from custom_components.jackery.registry_identity import find_owned_main_entity
 from custom_components.jackery.sensor import (
     JackeryDataCoordinator,
-    JackeryLegacyWorkModeSensor,
     JackerySensor,
     JackerySubDeviceSensor,
+    JackeryWorkModeSensor,
 )
 
 from .test_multi_instance_identity import coordinator_for, discover
@@ -678,12 +678,12 @@ async def test_official_auto_standby_and_work_mode_bind_existing_registry_rows(h
     assert _entity_registry_snapshot(work_mode) == work_mode_before
     assert _entity_registry_snapshot(auto)[:2] == auto_before[:2]
     assert work_mode.unique_id == official_work_mode_sensor_unique_id("SVHOST0001")
-    assert isinstance(coordinator._sensors.get("main_legacy_work_mode"), JackeryLegacyWorkModeSensor)
+    assert isinstance(coordinator._sensors.get("main_work_mode"), JackeryWorkModeSensor)
 
     coordinator._distribute_data({"autoStandby": 2, "workMode": 4})
     await hass.async_block_till_done()
     assert hass.states.get("select.my_auto_standby_mode").state == "on"
-    assert hass.states.get("sensor.my_work_mode").state == "4.0"
+    assert hass.states.get("sensor.my_work_mode").state == "custom"
     own = er.async_entries_for_config_entry(registry, state.entry.entry_id)
     assert [row for row in own if row.domain == "select" and row.unique_id == auto.unique_id] == [auto]
     assert sum(
@@ -695,45 +695,47 @@ async def test_official_auto_standby_and_work_mode_bind_existing_registry_rows(h
     )
     assert work_select_id is not None
     assert hass.states.get(work_select_id).state == "custom"
-    work_mode = coordinator._sensors["main_legacy_work_mode"]
+    work_mode = coordinator._sensors["main_work_mode"]
     assert work_mode.available
     coordinator._mark_all_offline()
     await hass.async_block_till_done()
     assert hass.states.get("sensor.my_work_mode").state == "unavailable"
     coordinator._distribute_data({"workMode": 2})
     await hass.async_block_till_done()
-    assert hass.states.get("sensor.my_work_mode").state == "2.0"
+    assert hass.states.get("sensor.my_work_mode").state == "self_consumption"
     assert hass.states.get(work_select_id).state == "self_consumption"
     assert not any(row.unique_id == "jackery_SVHOST0001_main_autoStandby" for row in own)
     assert not any(row.entity_id.endswith(("_2", "_3")) for row in own)
 
     assert await hass.config_entries.async_unload(state.entry.entry_id)
     await hass.async_block_till_done()
-    assert "main_legacy_work_mode" not in coordinator._sensors
+    assert "main_work_mode" not in coordinator._sensors
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
-async def test_fresh_ng_setup_has_work_mode_select_without_legacy_sensor(hass):
-    """A new NG installation does not acquire Official-only compatibility state."""
+async def test_fresh_ng_setup_has_work_mode_sensor_and_select(hass):
+    """A new NG installation exposes both read-only status and writable control."""
     state = seed_fixture(hass, "community_2_5_0")
     coordinator = await setup_current_ng_entry(hass, state.entry)
     registry = er.async_get(hass)
-    legacy_uid = official_work_mode_sensor_unique_id("SVHOST0001")
-    assert not any(
-        row.domain == "sensor" and row.platform == DOMAIN and row.unique_id == legacy_uid
-        for row in er.async_entries_for_config_entry(registry, state.entry.entry_id)
-    )
-    assert "main_legacy_work_mode" not in coordinator._sensors
+    sensor_uid = official_work_mode_sensor_unique_id("SVHOST0001")
+    work_mode_sensor_id = registry.async_get_entity_id("sensor", DOMAIN, sensor_uid)
+    assert work_mode_sensor_id is not None
+    assert isinstance(coordinator._sensors.get("main_work_mode"), JackeryWorkModeSensor)
     work_select = registry.async_get_entity_id("select", DOMAIN, "jackery_SVHOST0001_work_mode_select")
     assert work_select is not None
     assert hass.states.get(work_select) is not None
+    coordinator._distribute_data({"workMode": 4})
+    await hass.async_block_till_done()
+    assert hass.states.get(work_mode_sensor_id).state == "custom"
+    assert hass.states.get(work_select).state == "custom"
     assert await hass.config_entries.async_unload(state.entry.entry_id)
     await hass.async_block_till_done()
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
 async def test_disabled_official_work_mode_stays_disabled_without_listener(hass):
-    """A disabled legacy row stays user-disabled and is never replaced."""
+    """A disabled existing Work Mode sensor stays disabled and is not replaced."""
     state = seed_fixture(hass, "official_2_0_0")
     registry = er.async_get(hass)
     original = state.entities["main_work_mode"]
@@ -745,7 +747,7 @@ async def test_disabled_official_work_mode_stays_disabled_without_listener(hass)
     current = registry.async_get(original.entity_id)
     assert current is not None and _entity_registry_snapshot(current) == before
     assert current.disabled_by is er.RegistryEntryDisabler.USER
-    assert "main_legacy_work_mode" not in coordinator._sensors
+    assert "main_work_mode" not in coordinator._sensors
     assert hass.states.get(original.entity_id) is None
     work_select_id = registry.async_get_entity_id(
         "select", DOMAIN, "jackery_SVHOST0001_work_mode_select",
@@ -757,8 +759,8 @@ async def test_disabled_official_work_mode_stays_disabled_without_listener(hass)
 
 @pytest.mark.parametrize("invalid_case", ["foreign_entry", "foreign_device", "shared_main", "wrong_domain", "wrong_platform"])
 @pytest.mark.usefixtures("enable_custom_integrations")
-async def test_work_mode_legacy_bridge_rejects_unproven_registry_ownership(hass, invalid_case):
-    """Only the exact sensor row on the exclusively owned host device is adopted."""
+async def test_work_mode_sensor_does_not_claim_unowned_registry_rows(hass, invalid_case):
+    """Reuse only the exact owned row; create a fresh row when no conflict exists."""
     state = seed_fixture(hass, "official_2_0_0")
     registry = er.async_get(hass)
     original = state.entities["main_work_mode"]
@@ -810,15 +812,21 @@ async def test_work_mode_legacy_bridge_rejects_unproven_registry_ownership(hass,
         unique_id=official_work_mode_sensor_unique_id("SVHOST0001"),
     ) is None
     coordinator = await setup_current_ng_entry(hass, state.entry)
-    assert "main_legacy_work_mode" not in coordinator._sensors
+    should_create_sensor = invalid_case in {"wrong_domain", "wrong_platform"}
+    assert ("main_work_mode" in coordinator._sensors) is should_create_sensor
     assert registry.async_get(invalid.entity_id) is not None
+    if should_create_sensor:
+        sensor_entity_id = registry.async_get_entity_id(
+            "sensor", DOMAIN, official_work_mode_sensor_unique_id("SVHOST0001"),
+        )
+        assert sensor_entity_id is not None and sensor_entity_id != invalid.entity_id
     assert await hass.config_entries.async_unload(state.entry.entry_id)
     await hass.async_block_till_done()
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
-async def test_work_mode_legacy_listener_is_removed_and_reload_does_not_accumulate(hass):
-    """The bridge owns one fan-out listener and adds no MQTT subscription per entity."""
+async def test_work_mode_sensor_listener_is_removed_and_reload_does_not_accumulate(hass):
+    """The sensor owns one fan-out listener and adds no MQTT subscription per entity."""
     state = seed_fixture(hass, "official_2_0_0")
 
     async def idle_poll(_coordinator):
@@ -836,8 +844,8 @@ async def test_work_mode_legacy_listener_is_removed_and_reload_does_not_accumula
             assert await hass.config_entries.async_setup(state.entry.entry_id)
             await hass.async_block_till_done()
             coordinator = hass.data[DOMAIN][state.entry.entry_id]["coordinator"]
-            assert isinstance(coordinator._sensors.get("main_legacy_work_mode"), JackeryLegacyWorkModeSensor)
-            assert sum(key == "main_legacy_work_mode" for key in coordinator._sensors) == 1
+            assert isinstance(coordinator._sensors.get("main_work_mode"), JackeryWorkModeSensor)
+            assert sum(key == "main_work_mode" for key in coordinator._sensors) == 1
             auto_current = registry.async_get(auto_standby.entity_id)
             assert auto_current is not None
             assert auto_current.id == auto_standby.id
@@ -852,12 +860,12 @@ async def test_work_mode_legacy_listener_is_removed_and_reload_does_not_accumula
             assert subscribe.await_count == cycle * 2
             assert await hass.config_entries.async_unload(state.entry.entry_id)
             await hass.async_block_till_done()
-            assert "main_legacy_work_mode" not in coordinator._sensors
+            assert "main_work_mode" not in coordinator._sensors
 
 
 @pytest.mark.usefixtures("enable_custom_integrations")
 async def test_official_work_mode_recorder_history_continues_under_existing_entity_id(recorder_mock, hass):
-    """The legacy bridge appends the new workMode state to the existing recorder row."""
+    """The sensor appends new workMode state to the existing recorder row."""
     state = seed_fixture(hass, "official_2_0_0")
     source = state.entities["main_work_mode"]
     start = dt_util.utcnow() - timedelta(seconds=1)
@@ -872,7 +880,7 @@ async def test_official_work_mode_recorder_history_continues_under_existing_enti
     coordinator = await setup_current_ng_entry(hass, state.entry)
     coordinator._distribute_data({"workMode": 4})
     await hass.async_block_till_done()
-    assert hass.states.get(source.entity_id).state == "4.0"
+    assert hass.states.get(source.entity_id).state == "custom"
     await async_wait_recording_done(hass)
 
     current = er.async_get(hass).async_get(source.entity_id)
@@ -888,7 +896,7 @@ async def test_official_work_mode_recorder_history_continues_under_existing_enti
         significant_changes_only=False,
     ))
     values = [item.state for item in history[source.entity_id]]
-    assert "2.0" in values and "4.0" in values
+    assert "2.0" in values and "custom" in values
     select_id = er.async_get(hass).async_get_entity_id(
         "select", DOMAIN, "jackery_SVHOST0001_work_mode_select",
     )

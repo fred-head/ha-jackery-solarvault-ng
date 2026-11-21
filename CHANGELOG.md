@@ -7,6 +7,15 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+### Changed
+
+- Display `batState=0` as Neutral, since the Jackery app hides the status label
+  when the battery is neither charging nor discharging.
+- Expose the read-only Operating Mode sensor alongside the writable selector on
+  new installations as well as upgrades. Codes `2`, `4`, `7`, and `8` display
+  translated labels; unknown codes display as Unknown, with the original
+  `workMode` value retained in `raw_value`.
+
 
 ## [3.0.0-rc.3] - 2026-11-21
 

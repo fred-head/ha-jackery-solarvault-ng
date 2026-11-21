@@ -58,7 +58,7 @@ Child-device entities are created when the SolarVault reports the device. Availa
 | Maximum battery charge | Sensor | <code>socChgLimit</code> | — | — | Current battery charge limit setting, shown as a percentage. A separate number entity can change this setting. |
 | Minimum battery charge | Sensor | <code>socDischgLimit</code> | — | — | Current battery discharge limit setting, shown as a percentage. A separate number entity can change this setting. |
 | Total state of charge | Sensor | <code>soc</code> | — | — | Battery-system state of charge reported by the BMS; the value can represent the combined system when multiple batteries are connected. |
-| Battery status | Sensor | <code>batState</code> | — | Charging; Discharging; Unknown | `1` is Charging and `2` is Discharging, matching the Jackery app and observed Home Assistant readings. `0` and unrecognized values display as Unknown; the original protocol value is retained in the `raw_value` attribute. |
+| Battery status | Sensor | <code>batState</code> | — | Neutral; Charging; Discharging; Unknown | `0` displays as Neutral: the Jackery app hides its status label at that value, and a user-reported installation showed raw `batState=0` while the storage was neither charging nor discharging. The model and firmware were not recorded, so this is evidence from one installation, not model-wide hardware validation. `1` is Charging and `2` is Discharging, matching the app and observed Home Assistant readings. Unrecognized values display as Unknown; the original protocol value is retained in the `raw_value` attribute. |
 | Net battery power (charging + / discharging −) | Sensor | Calculated | — | — | Whole-system battery power balance. Positive values mean charging; negative values mean discharging. |
 
 ### Solar (PV)
@@ -144,6 +144,7 @@ These readings show cumulative energy assigned to each path by the SolarVault.
 | Device capabilities | Sensor | <code>ability</code> | — | — | Capabilities reported by the device as a bitmask. |
 | Function flags | Sensor | <code>funcEnable</code> | — | — | Function bitmask; decoded flags are also available as state attributes. |
 | Device status | Sensor | <code>stat</code> | Codes 0, 1, 2, 3, 4, 5, 8 | Normal; Waiting; Alarm; Fault; Standby; Low power; Fast charging | General device status. The integration displays recognized statuses in English, such as Normal, Waiting, Alarm, Fault, Standby, Low Power, or Fast charging. |
+| Operating mode | Sensor | <code>workMode</code> | 2 → Self-consumption; 4 → Custom; 7 → Tariff Mode; 8 → AI Mode; other values → Unknown | Translated mode label | Read-only telemetry shown alongside the writable Operating mode select. The sensor and select have distinct roles: the sensor reports the device value, while the select sends mode changes. Unsupported codes display as Unknown and the original value remains in the `raw_value` attribute. |
 | Home-grid connection status | Sensor | <code>ongridStat</code> | Codes 0, 1 | Disconnected; Connected | Connection status of the OnGrid path. |
 | CT connection status | Sensor | <code>ctStat</code> | Codes 0, 1 | Disconnected; Connected | Connection status of the CT/meter. |
 | Grid meter connection | Sensor | <code>gridSate</code> | Codes 0, 1 | Not linked; Linked | Grid-meter link status reported by the device. |

@@ -276,6 +276,7 @@
             "battery_state": {
                 "name": "Battery status",
                 "state": {
+                    "neutral": "Neutral",
                     "charging": "Charging",
                     "discharging": "Discharging",
                     "unknown": "Unknown"
@@ -514,7 +515,16 @@
             "http_sm_power_factor_l2":   {"name": "L2 power factor"},
             "http_sm_power_factor_l3":   {"name": "L3 power factor"},
             "http_sm_frequency":         {"name": "Grid frequency"},
-            "legacy_work_mode": {"name": "Work Mode"}
+            "work_mode": {
+                "name": "Work Mode",
+                "state": {
+                    "self_consumption": "Self-Consumption",
+                    "custom": "Custom",
+                    "tariff": "Tariff Mode",
+                    "ai": "AI Mode",
+                    "unknown": "Unknown"
+                }
+            }
         }
     },
     "issues": {

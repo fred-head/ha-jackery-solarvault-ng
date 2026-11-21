@@ -276,6 +276,7 @@
             "battery_state": {
                 "name": "État de la batterie",
                 "state": {
+                    "neutral": "Neutre",
                     "charging": "En charge",
                     "discharging": "En décharge",
                     "unknown": "Inconnu"
@@ -514,7 +515,16 @@
             "http_sm_power_factor_l2":   {"name": "Facteur de puissance L2"},
             "http_sm_power_factor_l3":   {"name": "Facteur de puissance L3"},
             "http_sm_frequency":         {"name": "Fréquence du réseau"},
-            "legacy_work_mode": {"name": "Mode de fonctionnement"}
+            "work_mode": {
+                "name": "Mode de fonctionnement",
+                "state": {
+                    "self_consumption": "Autoconsommation",
+                    "custom": "Personnalisé",
+                    "tariff": "Mode tarifaire",
+                    "ai": "Mode IA",
+                    "unknown": "Inconnu"
+                }
+            }
         }
     },
     "issues": {

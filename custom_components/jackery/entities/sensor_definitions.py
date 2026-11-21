@@ -30,6 +30,7 @@ __all__ = [
     "SMARTMETER_HTTP_SENSOR_CONFIGS",
     "SUBDEVICE_SENSORS",
     "WIFI_SIGNAL_QUALITY_OPTIONS",
+    "WORK_MODE_MAP",
 ]
 
 # ENUM value → option-key maps for status sensors (Ü5/Ü6 from upstream v2.0.0)
@@ -42,7 +43,13 @@ CT_STATUS_MAP: dict[int, str] = {0: "disconnected", 1: "connected"}
 GRID_METER_LINK_MAP: dict[int, str] = {0: "not_linked", 1: "linked"}
 ETHERNET_CONNECTED_MAP: dict[int, str] = {0: "no", 1: "yes"}
 EPS_SWITCH_STATE_MAP: dict[int, str] = {0: "off", 1: "on"}
-BATTERY_STATE_MAP: dict[int, str] = {0: "unknown", 1: "charging", 2: "discharging"}
+BATTERY_STATE_MAP: dict[int, str] = {0: "neutral", 1: "charging", 2: "discharging"}
+WORK_MODE_MAP: dict[int, str] = {
+    2: "self_consumption",
+    4: "custom",
+    7: "tariff",
+    8: "ai",
+}
 WIFI_SIGNAL_QUALITY_OPTIONS: list[str] = [
     "very_good",
     "good",
@@ -545,7 +552,7 @@ SENSORS: dict[str, MainSensorConfig] = {
         "icon": "mdi:battery-heart-variant",
         "device_class": SensorDeviceClass.ENUM,
         "state_class": None,
-        "options": ["charging", "discharging", "unknown"],
+        "options": ["neutral", "charging", "discharging", "unknown"],
         "value_map": BATTERY_STATE_MAP,
     },
 

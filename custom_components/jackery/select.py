@@ -10,6 +10,7 @@ from homeassistant.core import HomeAssistant
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
 
 from . import DOMAIN
+from .entities.sensor_definitions import WORK_MODE_MAP as _WORK_MODE_OPTIONS
 from .identity import auto_standby_select_unique_id
 
 if TYPE_CHECKING:
@@ -25,13 +26,6 @@ _AUTO_STANDBY_OPTIONS: dict[str, int] = {
 }
 _AUTO_STANDBY_VALUE_TO_OPTION: dict[int, str] = {v: k for k, v in _AUTO_STANDBY_OPTIONS.items()}
 
-# workModel: operating mode (keys are translation keys, values are device integers)
-_WORK_MODE_OPTIONS: dict[int, str] = {
-    2: "self_consumption",
-    4: "custom",
-    7: "tariff",
-    8: "ai",
-}
 _WORK_MODE_OPTION_TO_VALUE: dict[str, int] = {v: k for k, v in _WORK_MODE_OPTIONS.items()}
 
 

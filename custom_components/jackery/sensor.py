@@ -7,10 +7,11 @@ import random
 import time
 from typing import TYPE_CHECKING, Any
 
-from homeassistant.components.sensor import SensorEntity, SensorStateClass
+from homeassistant.components.sensor import SensorDeviceClass, SensorEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import CALLBACK_TYPE, HomeAssistant, callback
 from homeassistant.exceptions import HomeAssistantError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import issue_registry as ir
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
@@ -65,6 +66,7 @@ from .entities.sensor_definitions import ONGRID_STATUS_MAP as ONGRID_STATUS_MAP
 from .entities.sensor_definitions import (
     WIFI_SIGNAL_QUALITY_OPTIONS as WIFI_SIGNAL_QUALITY_OPTIONS,
 )
+from .entities.sensor_definitions import WORK_MODE_MAP as WORK_MODE_MAP
 from .entities.transforms import COMM_MODE_CLOUD as COMM_MODE_CLOUD
 from .entities.transforms import COMM_MODE_LABELS as COMM_MODE_LABELS
 from .entities.transforms import COMM_MODE_LOCAL as COMM_MODE_LOCAL
@@ -74,7 +76,7 @@ from .identity import (
     child_device_identifier,
     child_unique_id,
     http_unique_id,
-    official_work_mode_sensor_unique_id,
+    work_mode_sensor_unique_id,
 )
 from .protocol.commands import (
     action_topic,
@@ -1656,38 +1658,46 @@ async def async_setup_entry(
         )
         entities.append(entity)
 
-    host = coordinator._device_sn
-    if host:
-        legacy_work_mode = find_owned_main_entity(
-            hass,
-            domain="sensor",
-            host=host,
-            platform=DOMAIN,
-            config_entry_id=config_entry.entry_id,
-            unique_id=official_work_mode_sensor_unique_id(host),
-        )
-        if legacy_work_mode is not None:
-            entities.append(JackeryLegacyWorkModeSensor(coordinator, config_entry.entry_id))
+    host = coordinator._device_sn or config_entry.entry_id
+    work_mode_uid = work_mode_sensor_unique_id(host)
+    registry = er.async_get(hass)
+    registered_entity_id = registry.async_get_entity_id("sensor", DOMAIN, work_mode_uid)
+    owned_existing_row = find_owned_main_entity(
+        hass,
+        domain="sensor",
+        host=host,
+        platform=DOMAIN,
+        config_entry_id=config_entry.entry_id,
+        unique_id=work_mode_uid,
+    )
+    # New installs get the read-only status sensor too. On upgrade, bind the
+    # exact owned Official row to preserve its entity ID and history. Do not
+    # claim a conflicting row when its ownership cannot be proven.
+    if registered_entity_id is None or owned_existing_row is not None:
+        entities.append(JackeryWorkModeSensor(coordinator, config_entry.entry_id))
 
     async_add_entities(entities)
 
 
-class JackeryLegacyWorkModeSensor(SensorEntity):
-    """Read-only Work Mode sensor retained for an existing Official registry row."""
+class JackeryWorkModeSensor(SensorEntity):
+    """Read-only Work Mode telemetry, paired with the writable mode selector."""
 
-    _attr_native_value: float | str | None
+    _attr_native_value: str | None
 
     def __init__(self, coordinator: JackeryDataCoordinator, config_entry_id: str) -> None:
-        """Initialize using the pinned Official identity and sensor semantics."""
+        """Initialize with the stable Work Mode sensor identity."""
         self._coordinator = coordinator
         host = coordinator._device_sn or config_entry_id
-        self._attr_translation_key = "legacy_work_mode"
+        self._attr_translation_key = "work_mode"
         self._attr_icon = "mdi:cog-outline"
         self._attr_native_unit_of_measurement = None
-        self._attr_device_class = None
-        self._attr_state_class = SensorStateClass.MEASUREMENT
+        self._attr_device_class = SensorDeviceClass.ENUM
+        self._attr_state_class = None
+        self._attr_options = [*WORK_MODE_MAP.values(), "unknown"]
+        self._raw_work_mode: Any = None
+        self._has_raw_work_mode = False
         self._attr_has_entity_name = True
-        self._attr_unique_id = official_work_mode_sensor_unique_id(host)
+        self._attr_unique_id = work_mode_sensor_unique_id(host)
         self._attr_device_info = {
             "identifiers": {(DOMAIN, host)},
             "name": "Jackery",
@@ -1697,38 +1707,46 @@ class JackeryLegacyWorkModeSensor(SensorEntity):
 
     @property
     def should_poll(self) -> bool:
-        """Coordinator data is the only source for this compatibility sensor."""
+        """Coordinator data is the only source for this read-only sensor."""
         return False
 
     async def async_added_to_hass(self) -> None:
         """Subscribe to the existing coordinator fan-out only."""
         await super().async_added_to_hass()
-        self._coordinator.register_sensor("main_legacy_work_mode", self)
+        self._coordinator.register_sensor("main_work_mode", self)
 
     async def async_will_remove_from_hass(self) -> None:
         """Release the coordinator callback when the entity is unloaded."""
-        self._coordinator.unregister_sensor("main_legacy_work_mode")
+        self._coordinator.unregister_sensor("main_work_mode")
         await super().async_will_remove_from_hass()
 
     def _update_from_coordinator(self, data: dict) -> None:
-        """Expose normalized ``workMode`` with Official's raw numeric semantics."""
+        """Expose recognized work modes as translated labels and retain the raw code."""
         value = data.get("workMode")
         if value is None:
             return
+        self._raw_work_mode = value
+        self._has_raw_work_mode = True
         try:
-            self._attr_native_value = float(value)
-        except (TypeError, ValueError):
-            self._attr_native_value = value if isinstance(value, str) else str(value)
+            numeric_value = float(value)
+            if not math.isfinite(numeric_value) or not numeric_value.is_integer():
+                raise ValueError("work mode must be an integer")
+            self._attr_native_value = WORK_MODE_MAP.get(int(numeric_value), "unknown")
+        except (TypeError, ValueError, OverflowError):
+            self._attr_native_value = "unknown"
         self._attr_available = True
         self.async_write_ha_state()
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """Keep the two small attributes exposed by Official's sensor."""
-        return {
+        """Keep the Official sensor attributes and expose its raw mode code."""
+        attributes: dict[str, Any] = {
             "device_sn": self._coordinator._device_sn,
             "raw_key": "workMode",
         }
+        if self._has_raw_work_mode:
+            attributes["raw_value"] = self._raw_work_mode
+        return attributes
 
 
 class JackerySensor(SensorEntity):
@@ -1906,8 +1924,8 @@ class JackerySensor(SensorEntity):
             else:
                 self._attr_native_value = str(value)
         elif self._sensor_id == "battery_state":
-            # Jackery's app and observed HA readings agree on 1 = charging and
-            # 2 = discharging. No meaning is established for 0 or new values.
+            # The app hides the label at 0; show that idle state as Neutral.
+            # The app and observed HA readings agree on 1 = charging, 2 = discharging.
             self._enum_raw_value = value
             self._has_enum_raw_value = True
             try:
