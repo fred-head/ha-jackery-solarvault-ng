@@ -8,9 +8,14 @@ def auto_standby_select_unique_id(host: str) -> str:
     return f"jackery_{host}_auto_standby_select"
 
 
-def official_work_mode_sensor_unique_id(host: str) -> str:
-    """Return the pinned Official 2.0.0 read-only Work Mode sensor identity."""
+def work_mode_sensor_unique_id(host: str) -> str:
+    """Return the persistent identity for the read-only Work Mode sensor."""
     return f"jackery_{host}_work_mode"
+
+
+def official_work_mode_sensor_unique_id(host: str) -> str:
+    """Return the Official 2.0.0 Work Mode sensor identity for migration checks."""
+    return work_mode_sensor_unique_id(host)
 
 
 def child_device_identifier(host: str, child: str) -> str:

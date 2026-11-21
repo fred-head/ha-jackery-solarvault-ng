@@ -151,6 +151,7 @@ async def test_two_hosts_all_platforms_and_reload_isolation(hass, setup_hosts, o
         expected |= {f"jackery_{host}_number_{key}" for key in NUMBERS}
         expected |= {f"jackery_{host}_switch_{key}" for key in ["isAutoStandby", "swEps", "offGridDown", "socForceChg", "isFollowMeterPw"]}
         expected |= {f"jackery_{host}_{key}" for key in ["auto_standby_select", "work_mode_select", "reboot"]}
+        expected.add(f"jackery_{host}_work_mode")
         assert {e.unique_id for e in entities} == expected
     for host in order:
         other = entries[next(h for h in HOSTS if h != host)]

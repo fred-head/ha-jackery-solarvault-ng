@@ -276,6 +276,7 @@
             "battery_state": {
                 "name": "Akkustatus",
                 "state": {
+                    "neutral": "Neutral",
                     "charging": "Lädt",
                     "discharging": "Entlädt",
                     "unknown": "Unbekannt"
@@ -514,7 +515,16 @@
             "http_sm_power_factor_l2":   {"name": "L2-Leistungsfaktor"},
             "http_sm_power_factor_l3":   {"name": "L3-Leistungsfaktor"},
             "http_sm_frequency":         {"name": "Netzfrequenz"},
-            "legacy_work_mode": {"name": "Betriebsmodus"}
+            "work_mode": {
+                "name": "Betriebsmodus",
+                "state": {
+                    "self_consumption": "Eigenverbrauch",
+                    "custom": "Benutzerdefiniert",
+                    "tariff": "Tarifmodus",
+                    "ai": "KI-Modus",
+                    "unknown": "Unbekannt"
+                }
+            }
         }
     },
     "issues": {
