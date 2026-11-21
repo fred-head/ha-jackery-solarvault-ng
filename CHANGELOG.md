@@ -7,6 +7,9 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+
+## [3.0.0-rc.3] - 2026-11-21
+
 ### Added
 
 - Add a translated Wi-Fi signal quality sensor while retaining the numeric dBm
