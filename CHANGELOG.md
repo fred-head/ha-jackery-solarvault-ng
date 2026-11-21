@@ -7,6 +7,11 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Remove four obsolete Jackery sensor registry entries during setup migration,
+  while retaining current replacement sensors and controls.
+
 ## [3.0.0-rc.2] - 2026-11-20
 
 ### Added

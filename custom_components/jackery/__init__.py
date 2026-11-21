@@ -20,6 +20,14 @@ _MAIN_CONTROL_KEYS = {
     "switch": {"isAutoStandby", "swEps", "offGridDown", "socForceChg", "isFollowMeterPw"},
     "number": {"socChgLimit", "socDischgLimit", "defaultPw", "maxOutPw", "maxFeedGrid"},
 }
+_OBSOLETE_SENSOR_KEYS = frozenset(
+    {
+        "is_auto_standby",
+        "auto_standby_status",
+        "calc_battery_charge_power",
+        "calc_battery_discharge_power",
+    }
+)
 
 
 async def _migrate_unique_ids(
@@ -59,6 +67,10 @@ async def _migrate_unique_ids(
 
     entry_id = entry.entry_id
     new_prefix = f"jackery_{device_sn}_"
+    obsolete_sensor_uids = {
+        **{f"jackery_{key}": key for key in _OBSOLETE_SENSOR_KEYS},
+        **{f"{new_prefix}{key}": key for key in _OBSOLETE_SENSOR_KEYS},
+    }
 
     ent_reg = er.async_get(hass)
     all_entries = list(er.async_entries_for_config_entry(ent_reg, entry_id))
@@ -87,6 +99,15 @@ async def _migrate_unique_ids(
                 for domain, identifier in iter_device_identifiers(device)
             ):
                 continue
+
+        # These legacy sensor identities have been replaced by the current
+        # controls and total-battery sensors. Match only the exact Jackery
+        # sensor IDs, in either historical namespace.
+        obsolete_key = obsolete_sensor_uids.get(uid) if entity_entry.domain == "sensor" else None
+        if obsolete_key is not None:
+            _LOGGER.info("Removing obsolete Jackery sensor registry entry: %s", obsolete_key)
+            ent_reg.async_remove(entity_entry.entity_id)
+            continue
 
         # Exact Official 2.0.0 main-device identities. Keep each existing
         # registry row (and its entity_id/history) while adopting the current
