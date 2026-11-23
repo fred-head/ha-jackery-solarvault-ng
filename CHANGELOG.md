@@ -7,12 +7,30 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-11-23
+
+### Added
+
+- Promote the 3.0.0 release-candidate functionality to stable, including
+  Home Assistant diagnostics, optional protocol and BMS capture, expanded
+  device status sensors, and installation, upgrade, and troubleshooting guides.
+
+### Changed
+
+- Complete the incremental protocol, transport, device-classification,
+  calculation, coordinator, and entity refactors while preserving established
+  behavior and Home Assistant entity identities.
+- Improve translated operating, battery, network, and EPS status displays;
+  retain raw protocol values for diagnostics.
+
 ### Fixed
 
-- Recognize integer `cmd` fields during optional protocol discovery and record
-  non-integer values as payload type mismatches.
-- Remove the retired Auto Standby number entity from the registry during setup,
-  while preserving the current Auto Standby selector.
+- Remove the retired Auto Standby number entity during setup while preserving
+  the current selector.
+- Recognize integer `cmd` values during optional protocol discovery and safely
+  record non-integer values as payload type mismatches.
+- Preserve existing devices, entities, settings, and history across the tested
+  upgrade paths, with automatic recovery from stale MQTT and HTTP readings.
 
 ## [3.0.0-rc.4] - 2026-11-21
 
