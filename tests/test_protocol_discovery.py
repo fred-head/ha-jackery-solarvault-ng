@@ -233,6 +233,70 @@ def test_unknown_names_and_scalar_values_collapse_to_same_structural_signature()
     assert not any(canary in serialized for canary in CANARIES)
 
 
+@pytest.mark.parametrize(
+    ("message_type", "cmd"),
+    ((2, 106), (2, 107), (101, 110), (106, 120), (23, 0)),
+)
+def test_integer_body_cmd_alone_is_not_an_unknown_structure(
+    message_type: int,
+    cmd: int,
+) -> None:
+    state = ProtocolDiscoveryState()
+
+    _observe(state, message_type, {"cmd": cmd})
+
+    assert state.snapshot().structures == ()
+
+
+@pytest.mark.parametrize(
+    ("cmd", "expected_type"),
+    (("106", "string"), (True, "bool"), (106.0, "number"), (None, "null")),
+)
+def test_non_integer_cmd_is_reported_as_a_type_mismatch_and_restores(
+    cmd: object,
+    expected_type: str,
+) -> None:
+    state = ProtocolDiscoveryState()
+    body = {"cmd": cmd}
+
+    signals = state.observe(
+        {"type": 2, "body": body},
+        body,
+        message_type=2,
+        now=NOW,
+    )
+
+    structures = state.snapshot().structures
+    assert len(structures) == 1
+    assert structures[0].key.path == "payload"
+    assert structures[0].key.unknown_field_count == 0
+    assert structures[0].key.type_mismatches == (("cmd", expected_type),)
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+
+    restored = ProtocolDiscoveryState.from_storage(state.to_storage())
+    assert restored is not None
+    assert restored.snapshot().structures == structures
+
+
+def test_unknown_payload_field_remains_reported_alongside_integer_cmd() -> None:
+    state = ProtocolDiscoveryState()
+    body = {"cmd": 106, "newly_observed_field": "shape only"}
+
+    signals = state.observe(
+        {"type": 2, "body": body},
+        body,
+        message_type=2,
+        now=NOW,
+    )
+
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+    structures = state.snapshot().structures
+    assert len(structures) == 1
+    assert structures[0].key.unknown_field_count == 1
+    assert structures[0].key.unknown_value_types == (("string", 1),)
+    assert structures[0].key.type_mismatches == ()
+
+
 def test_nested_traversal_and_all_bucket_collections_are_bounded() -> None:
     state = ProtocolDiscoveryState()
     for message_type in range(1_000, 1_000 + MAX_MESSAGE_TYPE_BUCKETS + 5):

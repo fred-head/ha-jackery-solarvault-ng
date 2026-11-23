@@ -52,7 +52,7 @@ _KNOWN_ENVELOPE_FIELDS: Final = frozenset(
 )
 _KNOWN_PAYLOAD_FIELDS: Final = frozenset(
     {
-        "type", "deviceSn", "sn", "deviceType", "devType", "subType",
+        "type", "cmd", "deviceSn", "sn", "deviceType", "devType", "subType",
         "softver", "errorCode", "plugs", "plug", "socket", "sockets",
         "cts", "ct", "collectors", "batSoc", "soc", "pvPw", "pv1",
         "pv2", "pv3", "pv4", "batInPw", "batOutPw", "gridInPw",
@@ -83,6 +83,7 @@ _KNOWN_CHILD_FIELDS: Final = frozenset(
     }
 )
 _EXPECTED_ENVELOPE_TYPES: Final = {"type": "integer", "body": "object"}
+_EXPECTED_PAYLOAD_TYPES: Final = {"cmd": "integer"}
 _EXPECTED_CHILD_TYPES: Final = {
     "deviceSn": "string",
     "sn": "string",
@@ -442,7 +443,7 @@ class ProtocolDiscoveryState:
             "payload",
             body,
             known_fields=_KNOWN_PAYLOAD_FIELDS,
-            expected_types={},
+            expected_types=_EXPECTED_PAYLOAD_TYPES,
             now=now,
         )
         if structure is not None:
@@ -642,7 +643,8 @@ class ProtocolDiscoveryState:
                 or not isinstance(raw_shapes, list)
                 or len(raw_shapes) > MAX_NESTED_SHAPES
                 or not isinstance(raw_mismatches, list)
-                or len(raw_mismatches) > len(_KNOWN_ENVELOPE_FIELDS | _KNOWN_CHILD_FIELDS)
+                or len(raw_mismatches)
+                > len(_KNOWN_ENVELOPE_FIELDS | _KNOWN_CHILD_FIELDS) + 1
             ):
                 return None
             unknown_types: list[tuple[str, int]] = []
@@ -670,7 +672,8 @@ class ProtocolDiscoveryState:
                     not isinstance(pair, list)
                     or len(pair) != 2
                     or not isinstance(pair[0], str)
-                    or pair[0] not in (_KNOWN_ENVELOPE_FIELDS | _KNOWN_CHILD_FIELDS)
+                    or pair[0]
+                    not in (_KNOWN_ENVELOPE_FIELDS | _KNOWN_CHILD_FIELDS | {"cmd"})
                     or not isinstance(pair[1], str)
                     or pair[1] not in _JSON_TYPES
                 ):

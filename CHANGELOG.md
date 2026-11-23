@@ -9,6 +9,8 @@ Changes in **Unreleased** are planned for a future release.
 
 ### Fixed
 
+- Recognize integer `cmd` fields during optional protocol discovery and record
+  non-integer values as payload type mismatches.
 - Remove the retired Auto Standby number entity from the registry during setup,
   while preserving the current Auto Standby selector.
 
