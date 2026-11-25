@@ -7,6 +7,11 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+### Added
+
+- Package the integration as `jackery.zip` for each published GitHub release so
+  HACS and the Home Assistant Marketplace can count release asset downloads.
+
 ## [3.0.0] - 2026-11-23
 
 ### Added

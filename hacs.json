@@ -2,5 +2,7 @@
     "name": "Jackery SolarVault NG (fred-head Fork)",
     "content_in_root": false,
     "render_readme": true,
-    "homeassistant": "2025.8.0"
+    "homeassistant": "2025.8.0",
+    "zip_release": true,
+    "filename": "jackery.zip"
 }
