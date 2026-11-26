@@ -7,6 +7,8 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+## [3.0.1] - 2026-11-26
+
 ### Added
 
 - Package the integration as `jackery.zip` for each published GitHub release so
