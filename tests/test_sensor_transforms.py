@@ -191,3 +191,111 @@ def test_state_written_after_update(coordinator):
     sensor = make_sensor("battery_soc", coordinator)
     sensor._update_from_coordinator({"batSoc": 80})
     sensor.async_write_ha_state.assert_called_once()
+
+# ---------------------------------------------------------------------------
+# Network states: independent interfaces and no fabricated RSSI/IP values
+# ---------------------------------------------------------------------------
+
+
+def test_ethernet_only_status_handles_missing_wlan_ip(coordinator):
+    from custom_components.jackery.protocol.network import wifi_is_disconnected
+
+    payload = {"ethPort": 1, "wname": "     ", "wsig": 0}
+    assert wifi_is_disconnected(payload)
+
+    signal = make_sensor("wifi_signal", coordinator)
+    signal._update_from_coordinator(payload)
+    assert signal._attr_native_value is None
+    assert signal._attr_available is True
+
+    quality = make_sensor("wifi_signal_quality", coordinator)
+    quality._update_from_coordinator(payload)
+    assert quality._attr_native_value == "not_connected"
+
+    wlan_ip = make_sensor("wlan_ip", coordinator)
+    wlan_ip._update_from_coordinator(payload)
+    assert wlan_ip._attr_native_value == "Not connected"
+
+
+def test_wifi_only_and_dual_interface_states_are_independent(coordinator):
+    from custom_components.jackery.protocol.network import (
+        ethernet_port_state,
+        wifi_connection_state,
+    )
+
+    wlan_payload = {
+        "ethPort": 0,
+        "eip": None,
+        "wname": "Home",
+        "wip": "192.0.2.11",
+        "wsig": -61,
+    }
+    assert ethernet_port_state(wlan_payload["ethPort"]) is False
+    assert wifi_connection_state(wlan_payload) is True
+
+    ethernet_ip = make_sensor("ethernet_ip", coordinator)
+    ethernet_ip._update_from_coordinator(wlan_payload)
+    assert ethernet_ip._attr_native_value == "Not connected"
+
+    wlan_ip = make_sensor("wlan_ip", coordinator)
+    wlan_ip._update_from_coordinator(wlan_payload)
+    assert wlan_ip._attr_native_value == "192.0.2.11"
+
+    dual_payload = {
+        "ethPort": 1,
+        "eip": "192.0.2.10",
+        "wname": "Home",
+        "wip": "192.0.2.11",
+        "wsig": -52,
+    }
+    assert ethernet_port_state(dual_payload["ethPort"]) is True
+    assert wifi_connection_state(dual_payload) is True
+    ethernet_ip._update_from_coordinator(dual_payload)
+    wlan_ip._update_from_coordinator(dual_payload)
+    assert ethernet_ip._attr_native_value == "192.0.2.10"
+    assert wlan_ip._attr_native_value == "192.0.2.11"
+
+
+def test_unknown_or_missing_wifi_evidence_does_not_invent_disconnection(coordinator):
+    from custom_components.jackery.protocol.network import (
+        wifi_connection_state,
+        wifi_is_disconnected,
+    )
+
+    assert wifi_connection_state({"ethPort": 1}) is None
+    assert not wifi_is_disconnected({"wname": " ", "ethPort": 1})
+
+    wlan_ip = make_sensor("wlan_ip", coordinator)
+    wlan_ip._attr_native_value = "old value"
+    wlan_ip._attr_available = True
+    wlan_ip._update_from_coordinator({})
+    assert wlan_ip._attr_native_value == "old value"
+    wlan_ip.async_write_ha_state.assert_not_called()
+
+
+def test_connected_wifi_without_reported_ip_is_not_shown_as_disconnected(coordinator):
+    wlan_ip = make_sensor("wlan_ip", coordinator)
+    wlan_ip._update_from_coordinator({"wname": "Home", "wsig": -60})
+
+    assert wlan_ip._attr_native_value == "Connected, no IP address"
+    assert wlan_ip._attr_available is True
+
+
+def test_coordinator_cache_invalidates_network_ips_after_proven_transitions(coordinator):
+    coordinator._merge_normalized_cache(
+        {
+            "ethPort": 1,
+            "eip": "192.0.2.10",
+            "wname": "Home",
+            "wip": "192.0.2.11",
+            "wsig": -55,
+        }
+    )
+    coordinator._merge_normalized_cache({"ethPort": 0, "wname": " ", "wsig": 0})
+
+    assert coordinator._data_cache["eip"] is None
+    assert coordinator._data_cache["wip"] is None
+
+    coordinator._merge_normalized_cache({"ethPort": 1, "wname": "Guest", "wsig": -64})
+    assert coordinator._data_cache["eip"] is None
+    assert coordinator._data_cache["wip"] is None

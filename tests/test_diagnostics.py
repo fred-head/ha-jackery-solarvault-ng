@@ -278,6 +278,7 @@ async def test_config_entry_diagnostics_happy_path_aliases_and_privacy(
     }
     assert snapshot["entities"] == {
         "registry_total": 2,
+        "enabled_registry_entities": 1,
         "by_platform": {
             "button": None,
             "number": None,
@@ -291,9 +292,44 @@ async def test_config_entry_diagnostics_happy_path_aliases_and_privacy(
             "unavailable": None,
             "unknown": 1,
         },
+        "classification_counts": {
+            "available": 1,
+            "disabled": 1,
+            "expected_no_data": 0,
+            "expected_inactive": 0,
+            "integration_inactive": 0,
+            "pending_initialization": 0,
+            "unexpected_unknown": 0,
+            "unexpected_unavailable": 0,
+        },
+        "classification_details": [],
+        "classification_detail_total": 0,
+        "classification_details_omitted": 0,
         "device_counts": {"child": 1, "host": 1},
         "runtime_listener_counts": {"http": 1, "mqtt": 1},
-        "mismatch_count": 1,
+        "runtime_entity_count": 2,
+        "expected_non_listener_entities": 0,
+        "missing_runtime_entities": 1,
+        "unregistered_runtime_entities": 0,
+        "unresolved_identity_mappings": 2,
+        "missing_coordinator_listeners": 0,
+        "consistency_details": [
+            {
+                "issue": "missing_runtime_entity",
+                "platform": "sensor",
+                "key": "unknown",
+                "count": 1,
+            },
+            {
+                "issue": "unresolved_identity",
+                "platform": "unknown",
+                "key": "unknown",
+                "count": 2,
+            },
+        ],
+        "consistency_detail_total": 3,
+        "consistency_details_omitted": 0,
+        "mismatch_count": 3,
     }
     serialized = _serialized(snapshot)
     assert "HOST_SERIAL_SECRET" not in serialized

@@ -137,10 +137,12 @@ entities
 health
 ```
 
-Every field is explicitly declared by the snapshot schema. Missing information
-uses `null`, an empty collection or the fixed enum `unknown`; it is never guessed
-as healthy. Booleans and numbers keep their types. Non-finite numbers are
-rejected. Absolute wall-clock times are converted to rounded, non-negative ages.
+Every field is explicitly declared by the snapshot schema. The cause-oriented
+entity classification is schema version 3; version 2 consumers must account for
+the added entity health and registry/runtime fields. Missing information uses
+`null`, an empty collection or the fixed enum `unknown`; it is never guessed as
+healthy. Booleans and numbers keep their types. Non-finite numbers are rejected.
+Absolute wall-clock times are converted to rounded, non-negative ages.
 
 Implementation class names, private attribute names, callback objects and task
 representations are not contract fields. A future internal rename should require
@@ -157,10 +159,58 @@ only an input-adapter change, not a diagnostics schema change.
 | `freshness` | Runtime clocks plus discovery timers | host age/stale/ever-received; per-child alias, activity age, availability, missing age and retention policy | fixed availability and missing-state reason codes using existing timeout policy | Absolute timestamps, per-field age claims, serial-keyed mappings |
 | `children` | Discovery membership joined to allowlisted cache classification | child alias; fixed family/model enums; numeric `devType`/`subType` when type-safe; fixed cache-container tokens; known/expansion flags; communication mode/state when type-safe | deterministic family and safe measurement-presence flags | Serial, name/scanName, IP, complete child dictionary, arbitrary metadata, writable capability inferred from unknown types |
 | `smartmeter` | Child classifications, HTTP options/task and passive HTTP observation | MQTT SmartMeter aliases/count; HTTP enabled/task; target alias; created-set aliases/count; interval/timeout/threshold; last attempt/success ages; failure count; fixed last-outcome enum | `target_discovered`, source replacement state and bounded HTTP health status | IP, URL, serial, raw response, HTTP entity values, exception text; claim that an HTTP task or created entity means reachable |
-| `entities` | HA entity/device registries and state machine, scoped to the config entry | aggregate counts by fixed platform; disabled count; `available`/`unavailable`/`unknown` state counts; device counts by host/child role; runtime-listener counts by fixed callback capability | mismatch counts between registry and runtime registrations | Entity/device/registry IDs, unique IDs, names, areas, state values, attributes, `raw_data` |
+| `entities` | HA entity/device registries, runtime entity platforms and state machine, scoped to the config entry | registry and enabled counts; raw HA state buckets; one primary cause classification per registry entity; bounded safe details for non-available classifications; device counts; runtime entity, MQTT listener, and HTTP listener counts; registry/runtime consistency categories | mutually exclusive `available`, `disabled`, `expected_no_data`, `expected_inactive`, `pending_initialization`, `unexpected_unknown`, and `unexpected_unavailable` counts; corrected mismatch count | Entity/device/registry IDs, unique IDs, names, areas, state values, attributes, `raw_data` |
 | `health` | Pure summary derived from the other sections | overall fixed enum; sorted fixed reason-code list; reauth guard; migration block-all flag, blocked-child count and conflict-category counts | `ok`, `degraded`, `unavailable` or `unknown` from documented reason precedence | Free-form reason text, exception strings, credentials, identities, claims of command confirmation or broker connectivity |
 
-### 4.3 Semantic protocol fields
+### 4.3 Entity health and registry/runtime consistency
+
+`entities.classification_counts` is the primary, mutually exclusive view. Every
+entry-owned registry entity contributes exactly once, so known counts sum to
+`registry_total` when the adapter can read the registry. Classification uses
+`disabled_by`, the HA state object, the known entity definition, copied current
+protocol cache values, and setup lifecycle facts:
+
+- `available`: the enabled entity has a state other than `unknown` or
+  `unavailable`;
+- `disabled`: the registry entry is disabled, regardless of a retained state;
+- `expected_no_data`: current protocol evidence proves the interface supplying
+  the Wi-Fi RSSI sample is absent because the interface is proven disconnected;
+- `expected_inactive`: a valid canonical `workMode` other than 4 explains the
+  unavailable Follow Meter switch;
+- `integration_inactive`: the config entry is explicitly not loaded or is
+  unloading, so its registered entities are not expected to have live states;
+- `pending_initialization`: the config entry or its platform is still setting
+  up, and the state is not yet usable;
+- `unexpected_unknown` / `unexpected_unavailable`: no known cause explains the
+  enabled entity's state.
+
+The older `state_counts` field remains as a raw HA state-object view for
+compatibility. A missing state object is counted there as raw `unknown`; it is
+not thereby considered an unexplained fault. `classification_details` includes
+only non-available causes and uses code-owned entity keys, fixed platform and
+classification tokens. Details group repeated entries by fixed classification, platform and safe
+entity key, and are capped at 32 groups. Each group carries a count; total and
+omitted entity counts remain explicit. No entity IDs, unique IDs, user names,
+device identifiers or state values enter the export.
+
+`runtime_entity_count` comes from entry-owned Home Assistant entity platform
+objects plus coordinator listener objects, joined by exact runtime `entity_id`
+only inside the adapter. `expected_non_listener_entities` counts registered
+button entities that correctly have no coordinator update listener. A missing
+runtime object, extra runtime object, unresolved identity, or missing required
+sensor/control listener is reported separately. MQTT and HTTP listener counts
+remain capability counts and are not used as a substitute for platform entity
+counts. `mismatch_count` is the sum of those four actionable consistency
+categories; expected non-listener entities and disabled registry rows do not
+increase it. Pending platform initialization is excluded from missing-runtime
+counts until setup completes. All details are bounded and omit entity identity.
+
+`workMode` is the classification input. The established protocol normalizer
+may populate it from `workModel` for the known Type-106 selector alias; the
+classifier itself does not fall back to `workModel` or equate arbitrary fields.
+Missing or invalid mode evidence leaves the Follow Meter switch unexplained.
+
+### 4.4 Semantic protocol fields
 
 The default export may include a deliberately small numeric measurement set to
 make source and formula failures diagnosable. The contract uses semantic names,
@@ -184,7 +234,7 @@ The current energy-source record permits only:
 Arbitrary mappings added to `energy_sources` in the future do not automatically
 become diagnostics fields.
 
-### 4.4 Observation availability
+### 4.5 Observation availability
 
 P3.2 supplies bounded passive observations to the P3.3 adapter. Fields without
 an authoritative owner remain `unknown`/`null`; the endpoint does not synthesize
@@ -491,13 +541,14 @@ complete child dictionaries, topics, network addresses, HTTP data, exception
 text and entity attributes are never inputs.
 
 Entity and device registry reads use the current entry-scoped Home Assistant
-helpers. Output contains only total and fixed-platform entity counts, disabled
-count, normalized `available`/`unavailable`/`unknown` counts, host/child device
-counts, fixed runtime-listener capability counts and the sensor registration
-mismatch count. Entity IDs are used transiently only to retrieve a state; the
-adapter reads only its normalized state string and never reads attributes,
-including `raw_data`. Registry IDs, identities, names, labels and areas are not
-passed to P3.1.
+helpers. Output contains fixed-platform counts, raw HA state buckets, one
+cause-oriented primary classification per registry entity, bounded safe details,
+host/child device counts, runtime entity and listener counts, and separate
+registry/runtime consistency categories. Entity IDs are used transiently to
+match runtime objects and retrieve a state; the adapter reads only normalized
+state strings and never reads attributes, including `raw_data`. Registry IDs,
+identities, names, labels and areas are not passed to P3.1. Schema version 3
+records these added fields and the corrected `mismatch_count` semantics.
 
 Coordinator application state is normalized from the config-entry state and
 the existing `_subscribed` application flag. MQTT and HTTP tasks become only
@@ -839,6 +890,11 @@ references, listener maps and registry contents equal to pre-snapshot copies.
   partially initialized entries;
 - use multiple config entries and prove registry/runtime aggregation is scoped;
 - include disabled entities and devices without current state;
+- prove each registry entity has exactly one primary health classification,
+  including expected no-data/inactive causes and unexpected unknown/unavailable;
+- compare sensor and non-sensor registry entries with runtime entities by exact
+  stable identity, excluding disabled rows and expected non-listener buttons;
+- exercise delayed platform setup and bounded, identifier-free anomaly details;
 - prove device-page fallback needs no separate device contract;
 - validate the installed HA diagnostics function signature and final redaction
   defense;

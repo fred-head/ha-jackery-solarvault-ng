@@ -87,6 +87,21 @@ from .protocol.commands import (
     build_subdevice_request,
     build_subdevice_switch,
 )
+from .protocol.network import (
+    ethernet_port_state as _ethernet_port_state,
+)
+from .protocol.network import (
+    ip_address_is_missing as _ip_address_is_missing,
+)
+from .protocol.network import (
+    merge_network_fields,
+)
+from .protocol.network import (
+    wifi_connection_state as _wifi_connection_state,
+)
+from .protocol.network import (
+    wifi_is_disconnected as _wifi_is_disconnected,
+)
 from .protocol.normalization import normalize_payload_fields
 from .protocol.routing import (
     MessageRoute,
@@ -146,38 +161,6 @@ _NETWORK_STATE_LABELS: dict[str, dict[str, str]] = {
         "connected_no_ip": "Connecté, aucune adresse IP",
     },
 }
-
-
-def _ip_address_is_missing(value: Any) -> bool:
-    """Return whether an explicitly reported IP field has no assigned address."""
-    return isinstance(value, str) and value.strip() in {"", "0.0.0.0"}
-
-
-def _wifi_is_disconnected(data: dict[str, Any]) -> bool:
-    """Require explicit empty SSID and no-IP sentinels before inferring disconnection."""
-    ssid = data.get("wname")
-    return (
-        "wname" in data
-        and "wip" in data
-        and isinstance(ssid, str)
-        and not ssid.strip()
-        and _ip_address_is_missing(data["wip"])
-    )
-
-
-def _ethernet_port_state(value: Any) -> bool | None:
-    """Parse ethPort only when it explicitly reports 0 (down) or 1 (up)."""
-    if isinstance(value, bool):
-        return value
-    try:
-        port_state = float(value)
-    except (TypeError, ValueError, OverflowError):
-        return None
-    if port_state == 0:
-        return False
-    if port_state == 1:
-        return True
-    return None
 
 
 def _wifi_signal_dbm(value: Any) -> float | None:
@@ -771,7 +754,9 @@ class JackeryDataCoordinator:
 
     def _handle_type106(self, body: dict[str, Any]) -> None:
         """Apply a full-system snapshot with coordinator-owned live preference."""
-        normalized = normalize_payload_fields(body)
+        normalized = merge_network_fields(
+            self._data_cache, normalize_payload_fields(body)
+        )
         ongrid_observation = _directional_power_observation(
             normalized,
             "gridInPw",
@@ -802,7 +787,9 @@ class JackeryDataCoordinator:
 
     def _merge_normalized_cache(self, payload: dict, msg_code: Any = None) -> None:
         """Normalize field aliases and merge a main-device payload into the cache."""
-        normalized = normalize_payload_fields(payload)
+        normalized = merge_network_fields(
+            self._data_cache, normalize_payload_fields(payload)
+        )
         live_type = msg_code if msg_code in (2, 23, 25, 107) else None
         if live_type is not None:
             ongrid_observation = _directional_power_observation(
@@ -1825,6 +1812,24 @@ class JackerySensor(SensorEntity):
             self.async_write_ha_state()
             return
 
+        if self._sensor_id == "wlan_ip":
+            wifi_state = _wifi_connection_state(data)
+            if wifi_state is False:
+                self._attr_native_value = _network_state_label(self, "not_connected")
+                self._attr_available = True
+                self.async_write_ha_state()
+                return
+            if "wip" not in data or data.get("wip") is None:
+                if wifi_state is True:
+                    self._attr_native_value = _network_state_label(
+                        self, "connected_no_ip"
+                    )
+                    self._attr_available = True
+                    self.async_write_ha_state()
+                    return
+                if "wip" not in data:
+                    return
+
         if self._sensor_id == "ethernet_ip":
             ethernet_state = _ethernet_port_state(data.get("ethPort"))
             if ethernet_state is False:
@@ -1899,7 +1904,9 @@ class JackerySensor(SensorEntity):
             elif value is None:
                 self._attr_native_value = None
             elif _ip_address_is_missing(value):
-                self._attr_native_value = _network_state_label(self, "no_ip")
+                wifi_state = _wifi_connection_state(data)
+                state_key = "connected_no_ip" if wifi_state is True else "no_ip"
+                self._attr_native_value = _network_state_label(self, state_key)
             else:
                 self._attr_native_value = str(value)
         elif self._sensor_id == "ethernet_ip":

@@ -3,6 +3,7 @@
 import ast
 import json
 from pathlib import Path
+from unittest.mock import MagicMock
 
 from custom_components.jackery import sensor
 from custom_components.jackery.entities import sensor_definitions
@@ -117,3 +118,25 @@ def test_sensor_definitions_depend_only_on_ha_metadata() -> None:
         if isinstance(node, ast.ImportFrom)
     }
     assert imports == {"typing", "homeassistant.components.sensor", "homeassistant.const"}
+
+
+def test_ct_energy_sensors_keep_identity_and_scale_but_default_disabled(coordinator) -> None:
+    """The evidence-driven default changes no protocol or entity identity."""
+    expected = {
+        "ct_import_energy": ("inCtEgy", 12345),
+        "ct_export_energy": ("outCtEgy", 23456),
+    }
+
+    for sensor_id, (json_key, raw_value) in expected.items():
+        config = sensor_definitions.SENSORS[sensor_id]
+        entity = sensor.JackerySensor(sensor_id, coordinator, "entry")
+
+        assert config["json_key"] == json_key
+        assert config["scale"] == 0.01
+        assert entity._attr_unique_id == f"jackery_TESTSN001_{sensor_id}"
+        assert entity._attr_entity_registry_enabled_default is False
+        entity.async_write_ha_state = MagicMock()
+
+        entity._update_from_coordinator({json_key: raw_value})
+        assert entity._attr_native_value == raw_value * 0.01
+        assert entity._attr_available is True

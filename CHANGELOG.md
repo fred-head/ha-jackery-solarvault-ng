@@ -12,6 +12,15 @@ Changes in **Unreleased** are planned for a future release.
 - Package the integration as `jackery.zip` for each published GitHub release so
   HACS and the Home Assistant Marketplace can count release asset downloads.
 
+### Changed
+
+- Classify registered entities by their diagnostic cause and compare registry
+  entries with live Home Assistant runtime objects across entity platforms.
+- Treat Wi-Fi and Ethernet as independent links, clear cached IP values after
+  proven link changes, and never interpret `wsig=0` as a measured dBm value.
+- Create CT import/export energy sensors disabled by default on new registry
+  entries while preserving their protocol fields, scaling, and identities.
+
 ## [3.0.0] - 2026-11-23
 
 ### Added

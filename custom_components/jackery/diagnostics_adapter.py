@@ -16,6 +16,7 @@ from homeassistant.const import __version__ as HA_VERSION
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers import device_registry as dr
 from homeassistant.helpers import entity_registry as er
+from homeassistant.helpers.entity_platform import DATA_ENTITY_PLATFORM
 
 from . import DOMAIN
 from .devices.classification import (
@@ -43,8 +44,9 @@ from .diagnostics_snapshot import (
     TransportDiagnosticsInput,
     Type106EvidenceInput,
 )
-from .entities.sensor_definitions import SENSORS
+from .entities.sensor_definitions import SENSORS, WORK_MODE_MAP
 from .identity import parse_child_device_identifier
+from .protocol.network import wifi_is_disconnected
 from .protocol.routing import subdevice_serial
 from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
 from .registry_identity import iter_device_identifiers
@@ -564,6 +566,62 @@ def _protocol_inputs(
     )
 
 
+_SAFE_ENTITY_KEYS = frozenset(
+    {
+        *SENSORS,
+        "isFollowMeterPw",
+        "work_mode",
+        "work_mode_select",
+    }
+)
+_WIFI_ENTITY_KEYS_WITH_NO_SAMPLE = frozenset({"wifi_signal"})
+_REQUIRED_LISTENER_PLATFORMS = frozenset({"number", "select", "sensor", "switch"})
+_INACTIVE_ENTRY_STATES = frozenset({"not_loaded", "unload_in_progress"})
+_INITIALIZING_ENTRY_STATES = frozenset({"setup_in_progress", "setup_retry"})
+
+
+def _entity_registry_key(
+    registry_entry: Any,
+    runtime_entity: Any | None = None,
+) -> str:
+    """Return a code-owned entity suffix without exposing registry identifiers."""
+    for attribute in ("_sensor_id", "_sensor_key", "_key"):
+        candidate = getattr(runtime_entity, attribute, None)
+        if isinstance(candidate, str) and candidate in _SAFE_ENTITY_KEYS:
+            return candidate
+    unique_id = getattr(registry_entry, "unique_id", None)
+    if isinstance(unique_id, str):
+        for key in sorted(_SAFE_ENTITY_KEYS, key=len, reverse=True):
+            if unique_id.endswith(f"_{key}"):
+                return key
+    return "unknown"
+
+
+def _entity_expected_classification(
+    entity_key: str,
+    cache: Mapping[str, Any],
+) -> str | None:
+    """Classify only known protocol-backed inactive/no-measurement cases."""
+    if entity_key == "isFollowMeterPw":
+        raw_mode = cache.get("workMode")
+        mode: int | None = None
+        if isinstance(raw_mode, int) and not isinstance(raw_mode, bool):
+            mode = raw_mode
+        elif isinstance(raw_mode, float) and raw_mode.is_integer():
+            mode = int(raw_mode)
+        elif isinstance(raw_mode, str) and raw_mode.strip().isdigit():
+            mode = int(raw_mode.strip())
+        if mode in WORK_MODE_MAP and mode != 4:
+            return "expected_inactive"
+
+    if (
+        entity_key in _WIFI_ENTITY_KEYS_WITH_NO_SAMPLE
+        and wifi_is_disconnected(cache)
+    ):
+        return "expected_no_data"
+    return None
+
+
 def _registry_inputs(
     hass: HomeAssistant,
     entry: ConfigEntry,
@@ -582,21 +640,128 @@ def _registry_inputs(
         for registry_entry in entries
         if registry_entry.domain in {"button", "number", "select", "sensor", "switch"}
     )
-    state_counts: Counter[str] = Counter()
+    raw_state_counts: Counter[str] = Counter()
+    state_by_entity_id: dict[str, str] = {}
     for registry_entry in entries:
         state = hass.states.get(registry_entry.entity_id)
         if state is None or state.state == STATE_UNKNOWN:
-            state_counts["unknown"] += 1
+            state_bucket = "unknown"
         elif state.state == STATE_UNAVAILABLE:
-            state_counts["unavailable"] += 1
+            state_bucket = "unavailable"
         else:
-            state_counts["available"] += 1
+            state_bucket = "available"
+        raw_state_counts[state_bucket] += 1
+        state_by_entity_id[registry_entry.entity_id] = state_bucket
 
-    device_registry = dr.async_get(hass)
+    # The HA entity platforms are the runtime inventory. Coordinator callbacks
+    # are a separate inventory because buttons and future non-listener entities
+    # legitimately have no update callback.
+    entity_platforms: dict[str, list[Any]] = {}
+    runtime_objects: dict[int, tuple[Any, str]] = {}
+    platform_rows = hass.data.get(DATA_ENTITY_PLATFORM, {}).get(DOMAIN, ())
+    for entity_platform in tuple(platform_rows):
+        platform_entry = getattr(entity_platform, "config_entry", None)
+        if platform_entry is None or platform_entry.entry_id != entry.entry_id:
+            continue
+        platform_domain = getattr(entity_platform, "domain", None)
+        if isinstance(platform_domain, str):
+            entity_platforms.setdefault(platform_domain, []).append(entity_platform)
+        for entity in tuple(getattr(entity_platform, "entities", {}).values()):
+            entity_id = getattr(entity, "entity_id", None)
+            entity_domain = (
+                entity_id.split(".", 1)[0]
+                if isinstance(entity_id, str) and "." in entity_id
+                else platform_domain
+            )
+            runtime_objects[id(entity)] = (entity, entity_domain or "unknown")
+
+    listeners: tuple[Any, ...] = ()
+    if coordinator is not None:
+        listeners = tuple(dict.copy(coordinator._sensors).values())
+        for listener in listeners:
+            entity_id = getattr(listener, "entity_id", None)
+            entity_domain = (
+                entity_id.split(".", 1)[0]
+                if isinstance(entity_id, str) and "." in entity_id
+                else "unknown"
+            )
+            runtime_objects.setdefault(id(listener), (listener, entity_domain))
+
+    runtime_by_entity_id: dict[str, list[Any]] = {}
+    runtime_without_identity: list[tuple[Any, str]] = []
+    for runtime_entity, runtime_domain in runtime_objects.values():
+        entity_id = getattr(runtime_entity, "entity_id", None)
+        if isinstance(entity_id, str) and "." in entity_id:
+            runtime_by_entity_id.setdefault(entity_id, []).append(runtime_entity)
+        else:
+            runtime_without_identity.append((runtime_entity, runtime_domain))
+
+    registry_by_entity_id = {record.entity_id: record for record in entries}
+    enabled_entries = tuple(record for record in entries if record.disabled_by is None)
+    enabled_by_entity_id = {record.entity_id: record for record in enabled_entries}
+    entry_state = getattr(entry.state, "value", entry.state)
+    entry_initializing = entry_state in _INITIALIZING_ENTRY_STATES
+    entry_inactive = entry_state in _INACTIVE_ENTRY_STATES
+
+    def is_initializing(record: Any) -> bool:
+        if entry_initializing:
+            return True
+        return any(
+            getattr(platform, "_setup_complete", None) is False
+            for platform in entity_platforms.get(record.domain, ())
+        )
+
+    cache: Mapping[str, Any] = {}
+    if coordinator is not None:
+        cache = dict.copy(coordinator._runtime_state.data_cache)
+
+    classification_counts: Counter[str] = Counter(
+        {
+            "available": 0,
+            "disabled": 0,
+            "expected_no_data": 0,
+            "expected_inactive": 0,
+            "integration_inactive": 0,
+            "pending_initialization": 0,
+            "unexpected_unknown": 0,
+            "unexpected_unavailable": 0,
+        }
+    )
+    classification_details: list[dict[str, Any]] = []
+    for registry_entry in entries:
+        state_bucket = state_by_entity_id[registry_entry.entity_id]
+        runtime_candidates = runtime_by_entity_id.get(registry_entry.entity_id, ())
+        runtime_entity = runtime_candidates[0] if runtime_candidates else None
+        entity_key = _entity_registry_key(registry_entry, runtime_entity)
+        if registry_entry.disabled_by is not None:
+            classification = "disabled"
+        elif entry_inactive:
+            classification = "integration_inactive"
+        elif state_bucket == "available":
+            classification = "available"
+        else:
+            expected = _entity_expected_classification(entity_key, cache)
+            if expected is not None:
+                classification = expected
+            elif is_initializing(registry_entry):
+                classification = "pending_initialization"
+            elif state_bucket == "unknown":
+                classification = "unexpected_unknown"
+            else:
+                classification = "unexpected_unavailable"
+        classification_counts[classification] += 1
+        if classification not in {"available", "disabled"}:
+            classification_details.append(
+                {
+                    "classification": classification,
+                    "platform": registry_entry.domain,
+                    "key": entity_key,
+                }
+            )
+
+    devices = dr.async_get(hass)
     device_counts: Counter[str] = Counter()
-    for device in tuple(
-        dr.async_entries_for_config_entry(device_registry, entry.entry_id)
-    ):
+    for device in tuple(dr.async_entries_for_config_entry(devices, entry.entry_id)):
         is_child = any(
             domain == DOMAIN
             and parse_child_device_identifier(identifier) is not None
@@ -604,35 +769,141 @@ def _registry_inputs(
         )
         device_counts["child" if is_child else "host"] += 1
 
-    listeners: tuple[Any, ...] = ()
-    if coordinator is not None:
-        listeners = tuple(dict.copy(coordinator._sensors).values())
-    mqtt_listeners = sum(
-        callable(getattr(listener, "_update_from_coordinator", None))
+    listener_objects = {
+        id(listener)
         for listener in listeners
-    )
-    http_listeners = sum(
-        callable(getattr(listener, "_update_from_http", None))
-        for listener in listeners
-    )
-    enabled_registry_sensors = sum(
-        registry_entry.domain == "sensor" and registry_entry.disabled_by is None
-        for registry_entry in entries
-    )
-    runtime_sensor_count = sum(
-        callable(getattr(listener, "_update_from_coordinator", None))
+        if callable(getattr(listener, "_update_from_coordinator", None))
         or callable(getattr(listener, "_update_from_http", None))
+    }
+    mqtt_listeners = {
+        id(listener)
         for listener in listeners
+        if callable(getattr(listener, "_update_from_coordinator", None))
+    }
+    http_listeners = {
+        id(listener)
+        for listener in listeners
+        if callable(getattr(listener, "_update_from_http", None))
+    }
+    registry_entity_ids = set(registry_by_entity_id)
+    runtime_entity_ids = set(runtime_by_entity_id)
+    missing_runtime_entries = [
+        record
+        for record in enabled_entries
+        if (
+            record.entity_id not in runtime_entity_ids
+            and not is_initializing(record)
+            and not entry_inactive
+        )
+    ]
+    unregistered_runtime_entities = [
+        (runtime_entity, runtime_domain)
+        for runtime_entity, runtime_domain in runtime_objects.values()
+        if (entity_id := getattr(runtime_entity, "entity_id", None))
+        and isinstance(entity_id, str)
+        and "." in entity_id
+        and entity_id not in registry_entity_ids
+    ]
+    expected_non_listener_count = 0
+    missing_coordinator_listener_count = 0
+    consistency_details: list[dict[str, Any]] = []
+
+    def add_consistency_detail(issue: str, platform: str, key: str) -> None:
+        consistency_details.append(
+            {"issue": issue, "platform": platform, "key": key}
+        )
+
+    for registry_entry in missing_runtime_entries:
+        add_consistency_detail(
+            "missing_runtime_entity",
+            registry_entry.domain,
+            _entity_registry_key(registry_entry),
+        )
+    for runtime_entity, runtime_domain in unregistered_runtime_entities:
+        add_consistency_detail(
+            "unregistered_runtime_entity",
+            runtime_domain,
+            _entity_registry_key(None, runtime_entity),
+        )
+    for runtime_entity, runtime_domain in runtime_without_identity:
+        add_consistency_detail(
+            "unresolved_identity",
+            runtime_domain,
+            _entity_registry_key(None, runtime_entity),
+        )
+    for entity_id, record in enabled_by_entity_id.items():
+        runtime_candidates = runtime_by_entity_id.get(entity_id, ())
+        if not runtime_candidates:
+            continue
+        runtime_entity = runtime_candidates[0]
+        if id(runtime_entity) in listener_objects:
+            continue
+        if record.domain == "button":
+            expected_non_listener_count += 1
+        elif record.domain in _REQUIRED_LISTENER_PLATFORMS:
+            missing_coordinator_listener_count += 1
+            add_consistency_detail(
+                "missing_coordinator_listener",
+                record.domain,
+                _entity_registry_key(record, runtime_entity),
+            )
+
+    unresolved_identity_count = len(runtime_without_identity)
+    missing_runtime_count = len(missing_runtime_entries)
+    unregistered_runtime_count = len(unregistered_runtime_entities)
+    mismatch_count = (
+        missing_runtime_count
+        + unregistered_runtime_count
+        + unresolved_identity_count
+        + missing_coordinator_listener_count
     )
+
+    def grouped_details(rows: list[dict[str, Any]]) -> tuple[dict[str, Any], ...]:
+        counts: Counter[tuple[str, str, str]] = Counter()
+        for row in rows:
+            kind = str(row.get("classification", row.get("issue", "")))
+            identity = (kind, str(row["platform"]), str(row["key"]))
+            counts[identity] += 1
+        return tuple(
+            {
+                (
+                    "classification"
+                    if rows and "classification" in rows[0]
+                    else "issue"
+                ): kind,
+                "platform": platform_name,
+                "key": key,
+                "count": count,
+            }
+            for (kind, platform_name, key), count in sorted(counts.items())
+        )
+
+    grouped_classification_details = grouped_details(classification_details)
+    grouped_consistency_details = grouped_details(consistency_details)
 
     return EntityDiagnosticsInput(
         registry_total=len(entries),
+        enabled_registry_entities=len(enabled_entries),
         by_platform=dict(by_platform),
-        disabled_count=sum(entry.disabled_by is not None for entry in entries),
-        state_counts=dict(state_counts),
+        disabled_count=classification_counts["disabled"],
+        state_counts=dict(raw_state_counts),
+        classification_counts=dict(classification_counts),
+        classification_details=grouped_classification_details,
+        classification_detail_total=len(classification_details),
         device_counts=dict(device_counts),
-        runtime_listener_counts={"mqtt": mqtt_listeners, "http": http_listeners},
-        mismatch_count=abs(enabled_registry_sensors - runtime_sensor_count),
+        runtime_listener_counts={
+            "mqtt": len(mqtt_listeners),
+            "http": len(http_listeners),
+        },
+        runtime_entity_count=len(runtime_objects),
+        expected_non_listener_count=expected_non_listener_count,
+        missing_runtime_count=missing_runtime_count,
+        unregistered_runtime_count=unregistered_runtime_count,
+        unresolved_identity_count=unresolved_identity_count,
+        missing_coordinator_listener_count=missing_coordinator_listener_count,
+        consistency_details=grouped_consistency_details,
+        consistency_detail_total=len(consistency_details),
+        mismatch_count=mismatch_count,
     )
 
 
