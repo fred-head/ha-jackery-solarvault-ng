@@ -472,13 +472,13 @@ def test_children_are_deterministically_bounded_and_output_fits_budget() -> None
 def test_size_fallback_drops_children_then_entity_detail_deterministically(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    monkeypatch.setattr(diagnostics_module, "MAX_SNAPSHOT_BYTES", 3_200)
+    monkeypatch.setattr(diagnostics_module, "MAX_SNAPSHOT_BYTES", 3_600)
     child_limited = build_diagnostics_snapshot(_populated_input(), now=NOW)
 
     assert child_limited["children"]["included"] == 0
     assert child_limited["integration"]["truncation"]["children_omitted"] > 0
     assert child_limited["smartmeter"]["http"]["target_alias"] is None
-    assert len(_compact_json(child_limited).encode()) <= 3_200
+    assert len(_compact_json(child_limited).encode()) <= 3_600
 
     entity_input = DiagnosticsSnapshotInput(
         entities=EntityDiagnosticsInput(
@@ -489,15 +489,15 @@ def test_size_fallback_drops_children_then_entity_detail_deterministically(
             runtime_listener_counts={"http": 99, "mqtt": 99},
         )
     )
-    monkeypatch.setattr(diagnostics_module, "MAX_SNAPSHOT_BYTES", 2_600)
+    monkeypatch.setattr(diagnostics_module, "MAX_SNAPSHOT_BYTES", 3_260)
     entity_limited = build_diagnostics_snapshot(entity_input, now=NOW)
 
     assert entity_limited["entities"]["by_platform"] == {}
     assert entity_limited["entities"]["runtime_listener_counts"] == {}
     assert entity_limited["integration"]["truncation"]["entity_detail_omitted"]
-    assert len(_compact_json(entity_limited).encode()) <= 2_600
+    assert len(_compact_json(entity_limited).encode()) <= 3_260
 
-    monkeypatch.setattr(diagnostics_module, "MAX_SNAPSHOT_BYTES", 2_500)
+    monkeypatch.setattr(diagnostics_module, "MAX_SNAPSHOT_BYTES", 3_100)
     with pytest.raises(ValueError, match="exceeds the fixed size budget"):
         build_diagnostics_snapshot(entity_input, now=NOW)
 
@@ -664,3 +664,69 @@ def test_snapshot_module_has_only_standard_library_dependencies_and_adapter_call
             callers.add(path.name)
 
     assert callers == {"diagnostics.py", "diagnostics_adapter.py"}
+
+
+def test_entity_health_details_are_bounded_and_allowlisted() -> None:
+    details = tuple(
+        {
+            "classification": "unexpected_unknown",
+            "platform": ("sensor", "switch", "number", "select", "button")[index // 8],
+            "key": (
+                "wifi_signal",
+                "wifi_signal_quality",
+                "wifi_ssid",
+                "wlan_ip",
+                "ethernet_ip",
+                "ct_import_energy",
+                "ct_export_energy",
+                "device_capability",
+            )[index % 8],
+            "count": 1,
+            "entity_id": f"sensor.private_{index}",
+        }
+        for index in range(40)
+    )
+    snapshot = build_diagnostics_snapshot(
+        DiagnosticsSnapshotInput(
+            entities=EntityDiagnosticsInput(
+                registry_total=40,
+                enabled_registry_entities=40,
+                classification_counts={
+                    "available": 0,
+                    "disabled": 0,
+                    "expected_no_data": 0,
+                    "expected_inactive": 0,
+                    "integration_inactive": 0,
+                    "pending_initialization": 0,
+                    "unexpected_unknown": 40,
+                    "unexpected_unavailable": 0,
+                },
+                classification_details=details,
+                classification_detail_total=40,
+                consistency_details=(
+                    {
+                        "issue": "missing_runtime_entity",
+                        "platform": "sensor",
+                        "key": "ENTITY_IDENTIFIER_SECRET_CANARY",
+                        "entity_id": "sensor.private_secret",
+                    },
+                ),
+                consistency_detail_total=1,
+            )
+        ),
+        now=NOW,
+    )
+
+    assert snapshot["integration"]["schema_version"] == 3
+    assert sum(snapshot["entities"]["classification_counts"].values()) == 40
+    assert len(snapshot["entities"]["classification_details"]) == 32
+    assert snapshot["entities"]["classification_details_omitted"] == 8
+    assert snapshot["entities"]["classification_details"][0] == {
+        "classification": "unexpected_unknown",
+        "platform": "button",
+        "key": "ct_export_energy",
+        "count": 1,
+    }
+    serialized = _compact_json(snapshot)
+    assert "ENTITY_IDENTIFIER_SECRET_CANARY" not in serialized
+    assert "sensor.private_secret" not in serialized

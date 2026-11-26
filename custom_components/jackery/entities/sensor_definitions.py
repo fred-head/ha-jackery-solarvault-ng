@@ -496,6 +496,7 @@ SENSORS: dict[str, MainSensorConfig] = {
         "device_class": SensorDeviceClass.ENERGY,
         "state_class": SensorStateClass.TOTAL_INCREASING,
         "scale": 0.01,
+        "entity_registry_enabled_default": False,
     },
     "ct_export_energy": {
         "json_key": "outCtEgy",
@@ -505,6 +506,7 @@ SENSORS: dict[str, MainSensorConfig] = {
         "device_class": SensorDeviceClass.ENERGY,
         "state_class": SensorStateClass.TOTAL_INCREASING,
         "scale": 0.01,
+        "entity_registry_enabled_default": False,
     },
     "ac_to_grid_energy": {
         "json_key": "acOtOngridEgy",

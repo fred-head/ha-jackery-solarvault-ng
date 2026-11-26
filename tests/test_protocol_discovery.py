@@ -376,7 +376,7 @@ def test_p31_discovery_export_is_explicit_aged_json_safe_and_versioned() -> None
         now=NOW,
     )
     discovery = snapshot["protocol"]["discovery"]
-    assert snapshot["integration"]["schema_version"] == DIAGNOSTICS_SCHEMA_VERSION == 2
+    assert snapshot["integration"]["schema_version"] == DIAGNOSTICS_SCHEMA_VERSION == 3
     assert snapshot["protocol"]["discovery_enabled"] is True
     assert discovery["version"] == 1
     assert discovery["limits"] == {
@@ -488,7 +488,7 @@ def test_utf8_byte_budget_is_exact_at_and_below_the_boundary(monkeypatch) -> Non
     )
     baseline = build_diagnostics_snapshot(inputs, now=NOW)
     exact_size = len(compact(baseline))
-    assert exact_size == 65_519
+    assert exact_size == 65_475
 
     monkeypatch.setattr(snapshot_module, "MAX_SNAPSHOT_BYTES", exact_size)
     exact = build_diagnostics_snapshot(inputs, now=NOW)

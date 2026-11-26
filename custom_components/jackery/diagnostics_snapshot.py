@@ -14,8 +14,9 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, NotRequired, TypedDict
 
-DIAGNOSTICS_SCHEMA_VERSION: Final = 2
+DIAGNOSTICS_SCHEMA_VERSION: Final = 3
 MAX_CHILDREN: Final = 100
+MAX_ENTITY_DETAILS: Final = 32
 MAX_SNAPSHOT_BYTES: Final = 64 * 1024
 MAX_VERSION_LENGTH: Final = 32
 DISCOVERY_DETAIL_BUDGET_BYTES: Final = 8 * 1024
@@ -122,6 +123,40 @@ _SOURCE_REASONS: Final = {
 }
 _PLATFORMS: Final = ("button", "number", "select", "sensor", "switch")
 _ENTITY_STATES: Final = ("available", "unavailable", "unknown")
+_ENTITY_CLASSIFICATIONS: Final = (
+    "available",
+    "disabled",
+    "expected_no_data",
+    "expected_inactive",
+    "integration_inactive",
+    "pending_initialization",
+    "unexpected_unknown",
+    "unexpected_unavailable",
+)
+_ENTITY_DETAIL_KEYS: Final = frozenset(
+    {
+        "ct_export_energy",
+        "ct_import_energy",
+        "device_capability",
+        "ethernet_connected",
+        "ethernet_ip",
+        "func_enable",
+        "isFollowMeterPw",
+        "unknown",
+        "wlan_ip",
+        "wifi_signal",
+        "wifi_signal_quality",
+        "wifi_ssid",
+    }
+)
+_ENTITY_MISMATCH_KINDS: Final = frozenset(
+    {
+        "missing_runtime_entity",
+        "unregistered_runtime_entity",
+        "unresolved_identity",
+        "missing_coordinator_listener",
+    }
+)
 _DEVICE_ROLES: Final = ("child", "host")
 _LISTENER_KINDS: Final = ("http", "mqtt")
 _MIGRATION_CATEGORIES: Final = frozenset(
@@ -387,14 +422,26 @@ class SmartMeterDiagnosticsInput:
 
 @dataclass(frozen=True, slots=True)
 class EntityDiagnosticsInput:
-    """Pre-aggregated HA facts for the future thin adapter."""
+    """Pre-aggregated HA facts and safe entity-health classifications."""
 
     registry_total: int | None = None
+    enabled_registry_entities: int | None = None
     by_platform: Mapping[str, Any] = field(default_factory=dict)
     disabled_count: int | None = None
     state_counts: Mapping[str, Any] = field(default_factory=dict)
+    classification_counts: Mapping[str, Any] = field(default_factory=dict)
+    classification_details: Sequence[Mapping[str, Any]] = ()
+    classification_detail_total: int | None = None
     device_counts: Mapping[str, Any] = field(default_factory=dict)
     runtime_listener_counts: Mapping[str, Any] = field(default_factory=dict)
+    runtime_entity_count: int | None = None
+    expected_non_listener_count: int | None = None
+    missing_runtime_count: int | None = None
+    unregistered_runtime_count: int | None = None
+    unresolved_identity_count: int | None = None
+    missing_coordinator_listener_count: int | None = None
+    consistency_details: Sequence[Mapping[str, Any]] = ()
+    consistency_detail_total: int | None = None
     mismatch_count: int | None = None
 
 
@@ -520,11 +567,25 @@ class EntitiesSection(TypedDict):
     """Entities section of the diagnostics contract."""
 
     registry_total: int | None
+    enabled_registry_entities: int | None
     by_platform: dict[str, int | None]
     disabled_count: int | None
     state_counts: dict[str, int | None]
+    classification_counts: dict[str, int | None]
+    classification_details: list[dict[str, str | int]]
+    classification_detail_total: int | None
+    classification_details_omitted: int | None
     device_counts: dict[str, int | None]
     runtime_listener_counts: dict[str, int | None]
+    runtime_entity_count: int | None
+    expected_non_listener_entities: int | None
+    missing_runtime_entities: int | None
+    unregistered_runtime_entities: int | None
+    unresolved_identity_mappings: int | None
+    missing_coordinator_listeners: int | None
+    consistency_details: list[dict[str, str | int]]
+    consistency_detail_total: int | None
+    consistency_details_omitted: int | None
     mismatch_count: int | None
 
 
@@ -1238,21 +1299,131 @@ def _smartmeter_section(
     }
 
 
+def _safe_entity_details(
+    details: Sequence[Mapping[str, Any]],
+    *,
+    kind: str,
+    omit_detail: bool,
+) -> list[dict[str, str | int]]:
+    """Allowlist, group and cap identifiers-free entity details."""
+    if omit_detail:
+        return []
+    grouped: dict[tuple[str, str, str], int] = {}
+    for detail in details:
+        if not isinstance(detail, Mapping):
+            continue
+        platform = detail.get("platform")
+        safe_platform = (
+            platform if isinstance(platform, str) and platform in _PLATFORMS else "unknown"
+        )
+        key = detail.get("key")
+        safe_key = (
+            key
+            if isinstance(key, str) and key in _ENTITY_DETAIL_KEYS
+            else "unknown"
+        )
+        if kind == "classification":
+            category = detail.get("classification")
+            if not isinstance(category, str) or category not in _ENTITY_CLASSIFICATIONS:
+                continue
+        else:
+            category = detail.get("issue")
+            if not isinstance(category, str) or category not in _ENTITY_MISMATCH_KINDS:
+                continue
+        count = _optional_count(detail.get("count"))
+        if count is None or count == 0:
+            count = 1
+        identity = (category, safe_platform, safe_key)
+        grouped[identity] = min(grouped.get(identity, 0) + count, 2_147_483_647)
+
+    result: list[dict[str, str | int]] = []
+    for (category, platform, key), count in sorted(grouped.items())[:MAX_ENTITY_DETAILS]:
+        field_name = "classification" if kind == "classification" else "issue"
+        result.append(
+            {field_name: category, "platform": platform, "key": key, "count": count}
+        )
+    return result
+
+
 def _entities_section(
     inputs: DiagnosticsSnapshotInput, *, omit_detail: bool
 ) -> EntitiesSection:
     source = inputs.entities
+    classification_details = _safe_entity_details(
+        source.classification_details,
+        kind="classification",
+        omit_detail=omit_detail,
+    )
+    consistency_details = _safe_entity_details(
+        source.consistency_details,
+        kind="consistency",
+        omit_detail=omit_detail,
+    )
+    classification_detail_total = _optional_count(
+        source.classification_detail_total
+    )
+    consistency_detail_total = _optional_count(source.consistency_detail_total)
     return {
         "registry_total": _optional_count(source.registry_total),
+        "enabled_registry_entities": _optional_count(
+            source.enabled_registry_entities
+        ),
         "by_platform": {}
         if omit_detail
         else _fixed_count_map(source.by_platform, _PLATFORMS),
         "disabled_count": _optional_count(source.disabled_count),
+        # Kept for schema compatibility: these are raw HA state-object buckets,
+        # not the primary mutually exclusive entity-health classification.
         "state_counts": _fixed_count_map(source.state_counts, _ENTITY_STATES),
+        "classification_counts": _fixed_count_map(
+            source.classification_counts, _ENTITY_CLASSIFICATIONS
+        ),
+        "classification_details": classification_details,
+        "classification_detail_total": classification_detail_total,
+        "classification_details_omitted": (
+            None
+            if classification_detail_total is None
+            else max(
+                classification_detail_total
+                - sum(
+                    _optional_count(detail.get("count")) or 0
+                    for detail in classification_details
+                ),
+                0,
+            )
+        ),
         "device_counts": _fixed_count_map(source.device_counts, _DEVICE_ROLES),
         "runtime_listener_counts": {}
         if omit_detail
         else _fixed_count_map(source.runtime_listener_counts, _LISTENER_KINDS),
+        "runtime_entity_count": _optional_count(source.runtime_entity_count),
+        "expected_non_listener_entities": _optional_count(
+            source.expected_non_listener_count
+        ),
+        "missing_runtime_entities": _optional_count(source.missing_runtime_count),
+        "unregistered_runtime_entities": _optional_count(
+            source.unregistered_runtime_count
+        ),
+        "unresolved_identity_mappings": _optional_count(
+            source.unresolved_identity_count
+        ),
+        "missing_coordinator_listeners": _optional_count(
+            source.missing_coordinator_listener_count
+        ),
+        "consistency_details": consistency_details,
+        "consistency_detail_total": consistency_detail_total,
+        "consistency_details_omitted": (
+            None
+            if consistency_detail_total is None
+            else max(
+                consistency_detail_total
+                - sum(
+                    _optional_count(detail.get("count")) or 0
+                    for detail in consistency_details
+                ),
+                0,
+            )
+        ),
         "mismatch_count": _optional_count(source.mismatch_count),
     }
 

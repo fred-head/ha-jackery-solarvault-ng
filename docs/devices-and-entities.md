@@ -88,14 +88,22 @@ Child-device entities are created when the SolarVault reports the device. Availa
 | Home-grid power limit | Sensor | <code>maxOutPw</code> | — | — | Device-reported limit for the SolarVault's OnGrid AC output. |
 | Home consumption (calculated) | Sensor | Calculated | — | — | Estimated home consumption based on available meter and SolarVault power readings. Without a meter, SolarVault AC output is used as an estimate. |
 | Public-grid net power (import + / export −) | Sensor | Calculated | — | — | Grid import minus export. Positive values mean import; negative values mean export. The calculation uses available meter readings when present. |
-| CT import energy | Sensor | <code>inCtEgy</code> | — | — | Cumulative CT import energy reported by supported firmware. |
-| CT export energy | Sensor | <code>outCtEgy</code> | — | — | Cumulative CT export energy reported by supported firmware. |
+| CT import energy | Sensor | <code>inCtEgy</code> | — | — | Cumulative CT import energy reported by supported firmware. Disabled by default for new entity-registry entries because independent SolarVault Pro Max MQTT evidence for this field and its scale is not currently available; users can enable it manually. |
+| CT export energy | Sensor | <code>outCtEgy</code> | — | — | Cumulative CT export energy reported by supported firmware. Disabled by default for new entity-registry entries because independent SolarVault Pro Max MQTT evidence for this field and its scale is not currently available; users can enable it manually. |
 | Home consumption (device estimate) | Sensor | <code>otherLoadPw</code> | — | — | Estimate of other home loads reported by the SolarVault. |
 | Grid AC input power | Sensor | <code>gridInPw</code> | — | — | AC input power reported for the grid side. |
 | Grid AC output power | Sensor | <code>gridOutPw</code> | — | — | AC output power reported for the grid side. |
 | Grid-side input power | Sensor | <code>inGridSidePw</code> | — | — | Separate reading for input power on the grid side. |
 | Grid-side output power | Sensor | <code>outGridSidePw</code> | — | — | Separate reading for output power on the grid side. |
 | Public-grid export limit | Sensor | <code>maxFeedGrid</code> | — | — | Public-grid export limit reported by the device. A separate number entity can change this setting. |
+
+The CT import/export energy entities remain implemented with their existing
+JSON fields (`inCtEgy`, `outCtEgy`), 0.01 scaling, and unique IDs. They are
+created disabled by default only when Home Assistant creates a new registry
+entry. Existing registry settings are not changed. This default reflects the
+current evidence boundary: an earlier live capture is referenced in project
+history, but its raw payload is unavailable, and the field-to-message mapping
+and scaling have not been independently confirmed for SolarVault Pro Max.
 
 The SolarVault's OnGrid readings describe power and energy at its own AC
 connection. They do not represent whole-home grid import or export. For
@@ -137,10 +145,10 @@ These readings show cumulative energy assigned to each path by the SolarVault.
 | Inverter output power | Sensor | <code>stackOutPw</code> | — | — | Power at the output of the inverter stack. |
 | Ethernet connected | Sensor | <code>ethPort</code> | Codes 0, 1 | No; Yes | Whether the device reports the Ethernet port as disconnected (0) or connected (1). This does not confirm that an IP address was assigned. |
 | Wi-Fi signal strength | Sensor | <code>wsig</code> | — | — | Wi-Fi signal strength in dBm. A zero reading is treated as no usable signal measurement. |
-| Wi-Fi signal quality | Sensor | <code>wsig</code> | — | Very good; Good; Medium; Weak; Very weak; Not connected | User-friendly signal band: Very good ≥ −50 dBm; Good ≥ −60 and < −50; Medium ≥ −70 and < −60; Weak ≥ −80 and < −70; Very weak < −80. “Not connected” requires an explicitly empty SSID and an empty or `0.0.0.0` IP together. |
-| Wi-Fi name | Sensor | <code>wname</code> | — | — | Name of the Wi-Fi network. An explicit empty name shows “Not connected” only alongside an explicit no-IP sentinel; otherwise it shows that no name was reported. |
+| Wi-Fi signal quality | Sensor | <code>wsig</code> | — | Very good; Good; Medium; Weak; Very weak; Not connected | User-friendly signal band: Very good ≥ −50 dBm; Good ≥ −60 and < −50; Medium ≥ −70 and < −60; Weak ≥ −80 and < −70; Very weak < −80. Zero is a no-signal sentinel, never a dBm reading. “Not connected” requires an empty SSID plus explicit no-IP or zero-signal evidence; Ethernet state alone is not used. |
+| Wi-Fi name | Sensor | <code>wname</code> | — | — | Name of the Wi-Fi network. An empty name is displayed as “Not connected” only when explicit no-IP or zero-signal evidence also exists; missing fields remain unknown. |
 | Ethernet IP address | Sensor | <code>eip</code> | — | — | Shows the reported IP. `ethPort=0` shows “Not connected”; `ethPort=1` with an explicit empty or `0.0.0.0` IP shows “Connected, no IP address”. If the IP field has not been reported, it remains unknown. |
-| Wi-Fi IP address | Sensor | <code>wip</code> | — | — | IP address of the Wi-Fi interface. An explicit empty string or `0.0.0.0` shows “No IP address” unless an explicitly empty SSID is also reported, in which case it shows “Not connected”. A missing or null field remains unknown. |
+| Wi-Fi IP address | Sensor | <code>wip</code> | — | — | IP address of the Wi-Fi interface. An explicit disconnected state shows “Not connected”; an active interface with no reported IP shows “Connected, no IP address”. Missing protocol evidence remains unknown. Ethernet and Wi-Fi may be active at the same time. |
 | Device capabilities | Sensor | <code>ability</code> | — | — | Capabilities reported by the device as a bitmask. |
 | Function flags | Sensor | <code>funcEnable</code> | — | — | Function bitmask; decoded flags are also available as state attributes. |
 | Device status | Sensor | <code>stat</code> | Codes 0, 1, 2, 3, 4, 5, 8 | Normal; Waiting; Alarm; Fault; Standby; Low power; Fast charging | General device status. The integration displays recognized statuses in English, such as Normal, Waiting, Alarm, Fault, Standby, Low Power, or Fast charging. |
