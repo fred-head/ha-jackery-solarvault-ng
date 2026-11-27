@@ -21,14 +21,30 @@ Jackery or the Home Assistant project.
 - Provide controls for supported SolarVault settings and Smart Plugs.
 - Optionally retrieve local measurements from the Jackery SmartMeter 3P over
   HTTP.
+- Optionally enable experimental Protocol discovery to record unknown message
+  types, commands and structures with bounded MQTT examples for troubleshooting.
+  It is disabled by default; review diagnostic exports before sharing them.
 - Optionally check the main device and expansion batteries for Jackery cloud
-  firmware offers, with a firmware sensor and Home Assistant notification.
+  firmware offers, with diagnostic firmware sensors and Home Assistant
+  notifications.
 - Set up through Home Assistant; YAML entity definitions are not required.
 
 Implemented device paths include SolarVault 3 and SolarVault 3 Pro Max,
 Jackery SmartMeter 3P, Shelly Pro 3EM data routed through Jackery, and selected
 expansion batteries and Smart Plugs. Available entities and controls vary by
 model and firmware.
+
+### Optional Jackery cloud firmware checks
+
+Firmware checks are disabled by default. Enable them in the integration's
+**Configure** options and provide the Jackery account, password, and account
+region. Home Assistant checks firmware metadata for the SolarVault and known
+expansion batteries; it does not download or install firmware. Jackery permits
+only one active account login, so a check signs the official Jackery app out.
+The account credentials and device serial numbers are sent to Jackery for the
+checks. Local MQTT operation continues if a cloud check fails. See the
+[installation guide](docs/installation.md#jackery-cloud-firmware-checks) for
+setup and credential details.
 
 The project is under active development. Check the [changelog](CHANGELOG.md)
 before updating, especially when changing from another Jackery integration.
