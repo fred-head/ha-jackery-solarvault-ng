@@ -56,8 +56,9 @@
                 },
                 "data_description": {
                     "cloud_firmware_enabled": "Wenn aktiviert, meldet sich die Integration bei Jackery an und fragt das Hauptgerät sowie jeden bekannten Zusatzakku alle 24 Stunden ab. Jackery erlaubt nur eine aktive Anmeldung. Die Anmeldung von Home Assistant meldet dich daher aus der offiziellen Jackery-App ab. Die Abfrage ist unabhängig von lokalem MQTT und standardmäßig deaktiviert.",
+                    "cloud_firmware_account": "Nur erforderlich, wenn Cloud-Firmwareabfragen aktiviert sind. Verwende die E-Mail-Adresse oder Telefonnummer deines Jackery-Kontos.",
                     "cloud_firmware_password": "Leer lassen, um das gespeicherte Passwort beizubehalten. Das Passwort wird im Home-Assistant-Konfigurationseintrag gespeichert und nicht in den Integrationsdiagnosen ausgegeben.",
-                    "cloud_firmware_region": "Zweistelliger Jackery-Regionscode, zum Beispiel DE.",
+                    "cloud_firmware_region": "Nur erforderlich, wenn Cloud-Firmwareabfragen aktiviert sind. Zweistelliger Jackery-Regionscode, zum Beispiel DE.",
                     "clear_cloud_firmware_credentials": "Deaktiviert auch die Cloud-Firmwareabfrage, falls sie derzeit aktiviert ist.",
                     "protocol_discovery_enabled": "Zeichnet begrenzte Strukturbeobachtungen und ausgewählte MQTT-Rohpayloads dauerhaft auf. Rohdaten können vertrauliche Informationen enthalten. Diagnosedaten vor dem Teilen sorgfältig prüfen.",
                     "alert_capture_enabled": "Zeichnet unbekannte MQTT-Alert-Nachrichten passiv und lokal als begrenzte Rohdaten auf. Die Daten können vertrauliche Informationen enthalten und sind vor dem Teilen zu prüfen. Nur für Entwickler und Tester empfohlen.",

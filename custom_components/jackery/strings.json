@@ -56,8 +56,9 @@
                 },
                 "data_description": {
                     "cloud_firmware_enabled": "When enabled, the integration logs in to Jackery and checks the host and each known expansion battery once every 24 hours. Jackery allows only one active login, so a Home Assistant check signs you out of the official Jackery app. This is separate from local MQTT and disabled by default.",
+                    "cloud_firmware_account": "Only needed when cloud firmware checks are enabled. Use the email address or phone number for your Jackery account.",
                     "cloud_firmware_password": "Leave blank to keep the saved password. The password is stored in this Home Assistant config entry and is not included in integration diagnostics.",
-                    "cloud_firmware_region": "Two-letter Jackery account region code, for example DE.",
+                    "cloud_firmware_region": "Only needed when cloud firmware checks are enabled. Two-letter Jackery account region code, for example DE.",
                     "clear_cloud_firmware_credentials": "Also disables cloud firmware checks if they are currently enabled.",
                     "protocol_discovery_enabled": "Records bounded structural observations and selected raw MQTT payloads persistently. Raw data may contain sensitive information; review diagnostics carefully before sharing.",
                     "alert_capture_enabled": "Passively records unknown MQTT alert messages locally as bounded raw data. Records may contain sensitive information and should be reviewed before sharing. Recommended for developers and testers only.",

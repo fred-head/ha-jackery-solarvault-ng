@@ -56,8 +56,9 @@
                 },
                 "data_description": {
                     "cloud_firmware_enabled": "Une fois activée, l'intégration se connecte à Jackery et vérifie l'appareil principal ainsi que chaque batterie d'extension connue toutes les 24 heures. Jackery n'autorise qu'une seule connexion active ; la connexion de Home Assistant vous déconnecte donc de l'application officielle Jackery. Cette fonction est indépendante du MQTT local et désactivée par défaut.",
+                    "cloud_firmware_account": "Requis uniquement lorsque les vérifications du micrologiciel cloud sont activées. Utilisez l'adresse e-mail ou le numéro de téléphone de votre compte Jackery.",
                     "cloud_firmware_password": "Laissez vide pour conserver le mot de passe enregistré. Il est stocké dans cette entrée de configuration Home Assistant et n'est pas inclus dans les diagnostics de l'intégration.",
-                    "cloud_firmware_region": "Code de région Jackery à deux lettres, par exemple DE.",
+                    "cloud_firmware_region": "Requis uniquement lorsque les vérifications du micrologiciel cloud sont activées. Code de région Jackery à deux lettres, par exemple DE.",
                     "clear_cloud_firmware_credentials": "Désactive également les vérifications du micrologiciel si elles sont actuellement activées.",
                     "protocol_discovery_enabled": "Enregistre de façon persistante des observations structurelles limitées et certaines charges utiles MQTT brutes. Ces données peuvent contenir des informations sensibles ; vérifiez soigneusement le diagnostic avant de le partager.",
                     "alert_capture_enabled": "Enregistre passivement et localement les messages d’alerte MQTT inconnus sous forme de données brutes limitées. Elles peuvent contenir des informations sensibles et doivent être vérifiées avant tout partage. Recommandé uniquement aux développeurs et testeurs.",
