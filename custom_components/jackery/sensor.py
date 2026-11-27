@@ -26,6 +26,7 @@ from .calculations.energy_flow import (
     calculate_energy_flow,
     select_grid_source,
 )
+from .cloud_firmware import CloudFirmwareMonitor
 from .coordinator_state import CoordinatorRuntimeState
 from .devices.classification import (
     CT_SUBTYPE_MAP,
@@ -43,6 +44,7 @@ from .diagnostics_observation import (
     ProtocolRouteBucket,
 )
 from .discovery import ChildDiscoveryState, child_entity_spec
+from .entities.cloud_firmware import JackeryCloudFirmwareSensor
 from .entities.sensor_definitions import (
     BATTERY_STATE_MAP as BATTERY_STATE_MAP,
 )
@@ -291,6 +293,7 @@ class JackeryDataCoordinator:
         protocol_discovery_capture: ProtocolDiscoveryCapture | None = None,
         alert_capture: AlertCapture | None = None,
         bmslog_capture: BmslogCapture | None = None,
+        cloud_firmware_monitor: CloudFirmwareMonitor | None = None,
     ) -> None:
         self.hass = hass
         self._topic_prefix = topic_prefix
@@ -322,6 +325,8 @@ class JackeryDataCoordinator:
         self._alert_capture_active = False
         self._bmslog_capture = bmslog_capture
         self._bmslog_capture_active = False
+        self._cloud_firmware_monitor = cloud_firmware_monitor
+        self._cloud_firmware_entity_sns: set[str] = set()
 
         self._child_discovery_state = ChildDiscoveryState()
         # Compatibility aliases retained for existing coordinator consumers.
@@ -455,6 +460,11 @@ class JackeryDataCoordinator:
                 if entry and entry.options.get("smartmeter_http_poll", False):
                     self._smartmeter_http_task = asyncio.create_task(self._smartmeter_http_poll_loop())
                     _LOGGER.info("SmartMeter HTTP polling enabled (interval=%ds)", entry.options.get("smartmeter_poll_interval", 10))
+                if self._cloud_firmware_monitor is not None:
+                    self._cloud_firmware_monitor.set_expansion_serials(
+                        self._expansion_battery_sns
+                    )
+                    await self._cloud_firmware_monitor.async_start()
                 self._subscribed = True
                 self._lifecycle_active = not self._stop_requested
             except (Exception, asyncio.CancelledError):
@@ -479,6 +489,11 @@ class JackeryDataCoordinator:
         self._delete_no_mqtt_response_issue()
         errors: list[Exception] = []
         had_subscriptions = self._mqtt_transport.unsubscribe_count > 0
+        if self._cloud_firmware_monitor is not None:
+            try:
+                await self._cloud_firmware_monitor.async_stop()
+            except Exception as error:
+                errors.append(error)
         try:
             await self._mqtt_transport.async_stop()
         except ExceptionGroup as error:
@@ -1089,6 +1104,11 @@ class JackeryDataCoordinator:
         # Drop all in-memory references so the device can be re-discovered cleanly
         self._child_membership().remove(sn)
         self._subdevice_last_seen.pop(sn, None)
+        if self._cloud_firmware_monitor is not None:
+            self._cloud_firmware_monitor.set_expansion_serials(
+                self._expansion_battery_sns
+            )
+            self._cloud_firmware_entity_sns.discard(sn)
         for sensor_id in self._entity_keys_for_subdevice(sn):
             self.unregister_sensor(sensor_id)
 
@@ -1130,7 +1150,7 @@ class JackeryDataCoordinator:
             self._remove_subdevice_from_ha(sn)
 
         # 3. Add newly discovered devices
-        new_entities = []
+        new_entities: list[SensorEntity] = []
         new_switch_entities = []
         for plug in all_devices:
             sn = plug.get("deviceSn") or plug.get("sn")
@@ -1187,7 +1207,7 @@ class JackeryDataCoordinator:
         exp_bats = self._data_cache.get("expansion_batteries")
         if not exp_bats or not hasattr(self, "config_entry_id"):
             return
-        new_entities = []
+        new_entities: list[SensorEntity] = []
         for sn in exp_bats:
             if sn not in self._known_plugs and self.child_identity_allowed(sn):
                 self._child_membership().register(sn, expansion_battery=True)
@@ -1216,8 +1236,41 @@ class JackeryDataCoordinator:
                     else:
                         entity._attr_available = False
                     new_entities.append(entity)
+        if self._cloud_firmware_monitor is not None:
+            self._cloud_firmware_monitor.set_expansion_serials(
+                self._expansion_battery_sns
+            )
+            new_entities.extend(self._new_cloud_firmware_sensors())
         if new_entities and self.add_entities_callback:
             self.add_entities_callback(new_entities)
+
+    def _new_cloud_firmware_sensors(self) -> list[JackeryCloudFirmwareSensor]:
+        """Create stable diagnostic firmware entities for newly seen batteries."""
+        monitor = self._cloud_firmware_monitor
+        if monitor is None or not self.config_entry_id:
+            return []
+        config_entry = self.hass.config_entries.async_get_entry(self.config_entry_id)
+        if config_entry is None:
+            return []
+
+        entities: list[JackeryCloudFirmwareSensor] = []
+        for serial in sorted(self._expansion_battery_sns):
+            if (
+                serial in self._cloud_firmware_entity_sns
+                or not self.child_identity_allowed(serial)
+            ):
+                continue
+            entities.append(
+                JackeryCloudFirmwareSensor(
+                    host_serial=self._device_sn or self.config_entry_id,
+                    device_serial=serial,
+                    monitor=monitor,
+                    config_entry=config_entry,
+                    expansion_battery=True,
+                )
+            )
+            self._cloud_firmware_entity_sns.add(serial)
+        return entities
 
     def get_subdevices(self) -> list[dict[str, Any]]:
         """Return latest sub-device list from cache."""
@@ -1662,6 +1715,17 @@ async def async_setup_entry(
     # claim a conflicting row when its ownership cannot be proven.
     if registered_entity_id is None or owned_existing_row is not None:
         entities.append(JackeryWorkModeSensor(coordinator, config_entry.entry_id))
+
+    if coordinator._cloud_firmware_monitor is not None and coordinator._device_sn:
+        entities.append(
+            JackeryCloudFirmwareSensor(
+                host_serial=coordinator._device_sn,
+                device_serial=coordinator._device_sn,
+                monitor=coordinator._cloud_firmware_monitor,
+                config_entry=config_entry,
+            )
+        )
+        coordinator._cloud_firmware_entity_sns.add(coordinator._device_sn)
 
     async_add_entities(entities)
 

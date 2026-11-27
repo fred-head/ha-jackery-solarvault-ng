@@ -39,22 +39,37 @@
         "step": {
             "init": {
                 "title": "Jackery Optionen",
-                "description": "Verbindung, optionales SmartMeter-HTTP-Polling und Entwicklerdiagnose konfigurieren. Experimentelle MQTT-Rohmitschnitte können vertrauliche Informationen enthalten; Diagnosedaten vor dem Teilen sorgfältig prüfen.",
+                "description": "MQTT-Verbindung, optionales lokales SmartMeter-Polling, Jackery-Cloud-Firmwareabfragen und Entwicklerdiagnose konfigurieren. Cloud-Firmwareabfragen senden Jackery-Zugangsdaten und Geräte-Seriennummern an Jackery. Experimentelle MQTT-Rohmitschnitte können vertrauliche Informationen enthalten; Diagnosedaten vor dem Teilen sorgfältig prüfen.",
                 "data": {
                     "token": "Token",
                     "topic_prefix": "MQTT-Topic-Präfix",
                     "smartmeter_http_poll": "SmartMeter per HTTP abfragen (Spannung, Strom, Blindleistung, …)",
                     "smartmeter_poll_interval": "SmartMeter-Abfrageintervall (Sekunden)",
+                    "cloud_firmware_enabled": "Firmwareversionen über die Jackery-Cloud abfragen",
+                    "cloud_firmware_account": "Jackery-Konto (E-Mail oder Telefonnummer)",
+                    "cloud_firmware_password": "Jackery-Kontopasswort",
+                    "cloud_firmware_region": "Jackery-Kontoregion",
+                    "clear_cloud_firmware_credentials": "Gespeicherte Jackery-Cloud-Zugangsdaten entfernen",
                     "protocol_discovery_enabled": "Experimentelle Protokollerkennung mit persistenter Aufzeichnung relevanter unbekannter MQTT-Nachrichten",
                     "alert_capture_enabled": "Experimentelle MQTT-Alert-Aufzeichnung",
                     "bmslog_capture_enabled": "Experimentellen BMS-Log-Mitschnitt aktivieren"
                 },
                 "data_description": {
+                    "cloud_firmware_enabled": "Wenn aktiviert, meldet sich die Integration bei Jackery an und fragt das Hauptgerät sowie jeden bekannten Zusatzakku alle 24 Stunden ab. Die Abfrage ist unabhängig von lokalem MQTT und standardmäßig deaktiviert.",
+                    "cloud_firmware_password": "Leer lassen, um das gespeicherte Passwort beizubehalten. Das Passwort wird im Home-Assistant-Konfigurationseintrag gespeichert und nicht in den Integrationsdiagnosen ausgegeben.",
+                    "cloud_firmware_region": "Zweistelliger Jackery-Regionscode, zum Beispiel DE.",
+                    "clear_cloud_firmware_credentials": "Deaktiviert auch die Cloud-Firmwareabfrage, falls sie derzeit aktiviert ist.",
                     "protocol_discovery_enabled": "Zeichnet begrenzte Strukturbeobachtungen und ausgewählte MQTT-Rohpayloads dauerhaft auf. Rohdaten können vertrauliche Informationen enthalten. Diagnosedaten vor dem Teilen sorgfältig prüfen.",
                     "alert_capture_enabled": "Zeichnet unbekannte MQTT-Alert-Nachrichten passiv und lokal als begrenzte Rohdaten auf. Die Daten können vertrauliche Informationen enthalten und sind vor dem Teilen zu prüfen. Nur für Entwickler und Tester empfohlen.",
                     "bmslog_capture_enabled": "Zeichnet passiv ausschließlich das exakte /bmslog-Topic des konfigurierten Geräts als begrenzte Rohdaten auf. Payloads können vertrauliche Informationen enthalten und sind vor dem Teilen zu prüfen. Standardmäßig deaktiviert."
                 }
             }
+        },
+        "error": {
+            "invalid_cloud_account": "Gib das in der Jackery-App verwendete Konto ein.",
+            "invalid_cloud_password": "Gib das Jackery-Kontopasswort ein.",
+            "invalid_cloud_region": "Gib einen zweistelligen Regionscode ein, zum Beispiel DE.",
+            "cloud_credentials_required": "Deaktiviere Cloud-Firmwareabfragen, bevor du die gespeicherten Zugangsdaten entfernst."
         }
     },
     "entity": {
@@ -118,6 +133,9 @@
             }
         },
         "sensor": {
+            "cloud_firmware": {
+                "name": "Firmware"
+            },
             "battery_soc": {
                 "name": "Ladezustand Hauptakku"
             },

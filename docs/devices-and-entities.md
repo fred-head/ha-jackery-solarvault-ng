@@ -26,7 +26,7 @@ for the recorded real-hardware paths and their evidence boundary.
 
 | Device or path | Detection | Transport | Entities and controls | Limits and known behavior | Validation evidence |
 | --- | --- | --- | --- | --- | --- |
-| SolarVault 3 | Main device configured by serial number. Host `deviceType=3` sets the Home Assistant model label to `DIY3`; other values use the generic `Energy Monitor` label. This is metadata, not a model-specific capability gate. | MQTT | Main-unit sensors and controls listed below. | Some controls are not gated by a reported capability bit; availability and behavior can vary by model and firmware. | The archived capability inventory records a prior hardware report related to SOC-bound behavior on this model and Pro Max. It does not establish full model/firmware coverage ([inventory](archive/current-capability-inventory.md)). |
+| SolarVault 3 | Main device configured by serial number. Host `deviceType=3` sets the Home Assistant model label to `DIY3`; other values use the generic `Energy Monitor` label. This is metadata, not a model-specific capability gate. | MQTT; optional Jackery cloud firmware polling. | Main-unit sensors and controls listed below; optional cloud firmware sensor. | Some controls are not gated by a reported capability bit; availability and behavior can vary by model and firmware. | The archived capability inventory records a prior hardware report related to SOC-bound behavior on this model and Pro Max. It does not establish full model/firmware coverage ([inventory](archive/current-capability-inventory.md)). |
 | SolarVault 3 Pro Max | Same host path as SolarVault 3; `deviceType=3` is the only named host-model mapping. | MQTT | Main-unit sensors and controls listed below. | The integration does not use a separate Pro Max capability registry. | The archived capability inventory records a prior hardware-tested claim including SmartMeter and Shelly setups. Exact model/firmware details are not preserved there; the recent pre-production path report does not identify its host model ([inventory](archive/current-capability-inventory.md)). |
 | SolarVault 3 Pro | Uses the generic serial-configured main-device path; no distinct model-specific runtime mapping was found. | MQTT | Main-unit sensors and controls listed below when the device reports the corresponding fields. | The changelog records a 1200 W output option for this model; no model-specific capability registry is implemented. | No model-specific hardware/firmware validation is recorded. |
 | Other SolarVault variants | Uses the generic serial-configured main-device path; no distinct model-specific runtime mapping was found. | MQTT | Main-unit sensors and controls listed below when the device reports the corresponding fields. | Field-based compatibility is inferred; no model-specific capability registry is implemented. | Not individually hardware-verified in the available evidence; no model-specific fixture or full certification is claimed. |
@@ -34,7 +34,7 @@ for the recorded real-hardware paths and their evidence boundary.
 | Shelly Pro 3EM routed through Jackery | Child `devType=3`, `subType=2`. | Jackery MQTT only; no direct Shelly connection. | Same three-phase entity group as HTO907A. Read-only. | Only data relayed by Jackery is used; no Shelly RPC or direct Shelly HTTP support. | The archived capability inventory records a prior hardware test report. Automated classifier/entity path tests exist; the exact tested unit and firmware are not captured ([inventory](archive/current-capability-inventory.md)). |
 | Jackery D0 Reader (HTO910A) | Child `devType=4`, `subType=7`, routed from the `collectors` array. | MQTT. | Aggregate import/export power and communication details. Read-only; no per-phase entities. | No local HTTP polling path is implemented for this device. | A live MQTT field capture and automated path tests are recorded; a separate hardware/firmware qualification is not documented. |
 | CT meter sub-device | Usually `devType=2`; `devType=4` other than `subType=7` also follows the CT family path. Subtype affects legacy phase selection where present. | MQTT. | CT power and cumulative CT energy. Read-only. | Direction and phase fallback depend on the reported subtype and fields; this is not a universal meter model mapping. | Automated classification and entity-path tests exist; model-specific hardware coverage is not recorded. |
-| BP2500 expansion battery | Type-23 child with `devType=1`; the classifier does not require a subtype. | MQTT. | Cumulative charge and discharge energy. Read-only. | No separate live power or state-of-charge entities are exposed for the expansion battery. | Automated Type-23 discovery/entity tests exist; model-specific hardware coverage is not recorded. |
+| BP2500 expansion battery | Type-23 child with `devType=1`; the classifier does not require a subtype. | MQTT; optional Jackery cloud firmware polling. | Cumulative charge and discharge energy; optional cloud firmware sensor. Read-only. | No separate live power or state-of-charge entities are exposed for the expansion battery. Cloud results require the battery to be associated with the Jackery account. | Automated Type-23 discovery/entity tests exist; model-specific hardware coverage is not recorded. |
 | Smart Plug sub-device | Child `devType=6`. | MQTT. | Power and energy sensors plus an on/off switch. | Commands are allowed only when reported `commMode` is LAN (`1`). A successful publish is not a device execution acknowledgement. | Automated discovery, command, and LAN-mode guard tests exist; model-specific hardware coverage is not recorded. |
 | Unknown child type | Explicit unrecognized `devType`, or a payload that cannot be classified by the established rules. | MQTT payload may be received; unknown types are ignored for entity creation. | No entities or controls are created. | Unknown data is not promoted to entities automatically. | Automated unknown-type classification and discovery-rejection tests exist. |
 
@@ -272,3 +272,35 @@ They appear after a successful HTTP response.
 | L2 power factor | Sensor | <code>fact2</code> | — | — | Power factor on phase L2. |
 | L3 power factor | Sensor | <code>fact3</code> | — | — | Power factor on phase L3. |
 | Grid frequency | Sensor | <code>freq</code> | — | — | Measured grid frequency. |
+
+## Optional Jackery cloud firmware checks
+
+Enable **Check firmware versions through the Jackery cloud** in the integration
+options and provide the Jackery account, password, and two-letter region. This
+feature is off by default. It sends those credentials and each device serial to
+the Jackery API; the account-derived API client ID is calculated in memory and
+is not stored. The integration logs in once per poll cycle and makes a separate
+`device/ota/list` GET for the main SolarVault and each known expansion battery.
+It checks on startup, when a new expansion battery is discovered, and every 24
+hours. A device without an account-matched API row remains unavailable without
+blocking the other devices.
+
+| Entity name | Type | API field | Meaning |
+| --- | --- | --- | --- |
+| Firmware | Diagnostic sensor, attached to each device | `currentVersion` | Jackery backend's reported firmware. Attributes include raw `targetVersion`, raw `updateStatus`, its known app meaning, and the last check times. This is not an independent device measurement. |
+
+The sensor appears in the entity list for the main device and for each detected
+expansion battery. Home Assistant does not add it to a dashboard automatically;
+add the **Firmware** entity to a dashboard card if you want it there.
+
+The integration treats API status `0` as an offered update and creates a
+persistent notification once for that device and offered target. Status `1`
+means downloading, `2` means installing, and `6` means no pending update. Other
+values are retained as unknown; the integration does not infer an update from a
+version-string comparison. A missing `targetVersion` stays missing in the
+raw `target_version` attribute; `app_display_target_version` separately mirrors
+the app's fallback to `currentVersion` for its target label. The notification
+does not present that fallback current value as a new target.
+Status meanings follow the inspected Jackery app callback; only the no-update
+case has been observed in a saved API response. Update download and installation
+are not implemented.

@@ -7,6 +7,13 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+### Added
+
+- Add optional, disabled-by-default Jackery cloud firmware checks for the main
+  SolarVault and discovered expansion batteries. The integration checks each
+  serial separately every 24 hours and notifies once when the API reports an
+  offered update.
+
 ## [3.0.1] - 2026-11-26
 
 ### Added

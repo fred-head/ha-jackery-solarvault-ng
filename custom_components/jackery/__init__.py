@@ -1,6 +1,7 @@
 """Energy Monitor MQTT Integration for Home Assistant."""
 import asyncio
 import logging
+import re
 from typing import cast
 
 from homeassistant.components import mqtt
@@ -308,6 +309,45 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         _LOGGER.error("Invalid Jackery configuration field types; setup aborted")
         return False
 
+    from .cloud_firmware import (
+        CLOUD_FIRMWARE_ACCOUNT,
+        CLOUD_FIRMWARE_ENABLED,
+        CLOUD_FIRMWARE_PASSWORD,
+        CLOUD_FIRMWARE_REGION,
+        CloudFirmwareMonitor,
+    )
+
+    cloud_firmware_monitor = None
+    if entry.options.get(CLOUD_FIRMWARE_ENABLED) is True:
+        cloud_account = config.get(CLOUD_FIRMWARE_ACCOUNT)
+        cloud_password = config.get(CLOUD_FIRMWARE_PASSWORD)
+        cloud_region = config.get(CLOUD_FIRMWARE_REGION, "DE")
+        valid_cloud_config = (
+            isinstance(device_sn, str)
+            and bool(device_sn)
+            and re.fullmatch(r"[A-Za-z0-9_-]{4,64}", device_sn) is not None
+            and isinstance(cloud_account, str)
+            and bool(cloud_account.strip())
+            and isinstance(cloud_password, str)
+            and bool(cloud_password)
+            and isinstance(cloud_region, str)
+            and re.fullmatch(r"[A-Za-z]{2}", cloud_region) is not None
+        )
+        if valid_cloud_config:
+            cloud_firmware_monitor = CloudFirmwareMonitor(
+                hass,
+                entry.entry_id,
+                cast(str, cloud_account).strip(),
+                cast(str, cloud_password),
+                cast(str, cloud_region).upper(),
+                cast(str, device_sn),
+            )
+        else:
+            # Optional cloud configuration must never prevent local MQTT setup.
+            _LOGGER.warning(
+                "Optional Jackery cloud firmware polling is disabled because its configuration is incomplete"
+            )
+
     from .alert_capture import (
         OPTION_ALERT_CAPTURE_ENABLED,
         AlertCapture,
@@ -398,6 +438,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
         protocol_discovery_capture=protocol_discovery_capture,
         alert_capture=alert_capture,
         bmslog_capture=bmslog_capture,
+        cloud_firmware_monitor=cloud_firmware_monitor,
     )
     coordinator.config_entry_id = entry.entry_id
     coordinator._child_migration = child_migration

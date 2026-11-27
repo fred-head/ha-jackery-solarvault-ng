@@ -174,6 +174,35 @@ as voltage, current and frequency from a supported Jackery SmartMeter 3P
 
 Saving the options reloads the integration.
 
+### Jackery cloud firmware checks
+
+Cloud firmware checks are optional and disabled by default. To enable them,
+open the Jackery integration entry under **Settings → Devices & services**,
+select **Configure**, and enable **Check firmware versions through the Jackery
+cloud**. Enter the Jackery account, password, and two-letter account region
+used by the Jackery app.
+
+The account credentials and device serial numbers are sent to Jackery for
+these checks. The password is stored in the Home Assistant config entry and is
+not included in integration diagnostics. Leave the password field blank to
+keep a saved password. Select **Remove saved Jackery cloud credentials** to
+delete the saved account and password; this also disables cloud checks.
+
+The integration checks the main SolarVault at startup, each known expansion
+battery when discovered, and all known devices every 24 hours. Each serial
+number is queried separately. An expansion battery must be associated with the
+same Jackery account to return a firmware result.
+
+The result appears as a diagnostic sensor named **Firmware** on the main
+device and, when detected, on each expansion battery. Its state is the
+`currentVersion` reported by Jackery. Open the device's entity list to view
+the sensor and its attributes; it is not added to a dashboard automatically.
+The attributes include `target_version`, `update_status`, the known status
+meaning, and the last check time. A persistent Home Assistant notification
+appears when Jackery reports `updateStatus=0` (update offered). This uses the
+backend status, not a comparison of version strings. If an offer already
+exists on the first check, it can notify immediately.
+
 ### Experimental capture options
 
 Protocol discovery, MQTT alert capture and BMS log capture are disabled by

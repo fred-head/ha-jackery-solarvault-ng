@@ -21,6 +21,8 @@ Jackery or the Home Assistant project.
 - Provide controls for supported SolarVault settings and Smart Plugs.
 - Optionally retrieve local measurements from the Jackery SmartMeter 3P over
   HTTP.
+- Optionally check the main device and expansion batteries for Jackery cloud
+  firmware offers, with a firmware sensor and Home Assistant notification.
 - Set up through Home Assistant; YAML entity definitions are not required.
 
 Implemented device paths include SolarVault 3 and SolarVault 3 Pro Max,
