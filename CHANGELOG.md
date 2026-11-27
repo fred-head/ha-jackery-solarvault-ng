@@ -7,6 +7,13 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-11-27
+
+### Fixed
+
+- Keep the Jackery account and region optional when cloud firmware checks are
+  disabled, so unrelated option changes do not require cloud credentials.
+
 ## [3.1.0] - 2026-11-27
 
 ### Added
