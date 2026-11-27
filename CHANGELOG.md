@@ -7,6 +7,8 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-11-27
+
 ### Added
 
 - Add optional, disabled-by-default Jackery cloud firmware checks for the main
