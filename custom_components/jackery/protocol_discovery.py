@@ -18,10 +18,11 @@ from typing import Any, Final
 
 OPTION_PROTOCOL_DISCOVERY_ENABLED: Final = "protocol_discovery_enabled"
 
-DISCOVERY_VERSION: Final = 1
+DISCOVERY_VERSION: Final = 2
 MAX_COUNTER: Final = 2_147_483_647
 MAX_SAFE_PROTOCOL_INTEGER: Final = 65_535
 MAX_MESSAGE_TYPE_BUCKETS: Final = 32
+MAX_COMMAND_BUCKETS: Final = 32
 MAX_DEVICE_TYPE_BUCKETS: Final = 64
 MAX_STRUCTURAL_SIGNATURES: Final = 64
 MAX_MAPPING_ENTRIES: Final = 64
@@ -33,11 +34,16 @@ _JSON_TYPES: Final = frozenset(
     {"array", "bool", "integer", "null", "number", "object", "string", "unsupported"}
 )
 _STRUCTURAL_PATHS: Final = frozenset(
-    {"child_item", "envelope", "expansion_item", "payload"}
+    {"child_item", "envelope", "expansion_item", "payload", "pv_item"}
 )
 _SAFE_SHAPE_CHARS: Final = re.compile(r"[a-zA-Z0-9:(),]+\Z")
 
 _KNOWN_MESSAGE_TYPES: Final = frozenset({2, 23, 25, 101, 102, 106, 107, 123})
+_KNOWN_COMMANDS: Final = {
+    2: frozenset({106, 107}),
+    101: frozenset({110}),
+    106: frozenset({120}),
+}
 _CHILD_ARRAY_KEYS: Final = (
     "plugs",
     "plug",
@@ -50,46 +56,169 @@ _CHILD_ARRAY_KEYS: Final = (
 _KNOWN_ENVELOPE_FIELDS: Final = frozenset(
     {"type", "body", "eventId", "messageId", "ts", "deviceType", "token", "softver"}
 )
-_KNOWN_PAYLOAD_FIELDS: Final = frozenset(
+_COMMON_METADATA_FIELDS: Final = frozenset(
     {
         "type", "cmd", "deviceSn", "sn", "deviceType", "devType", "subType",
-        "softver", "errorCode", "plugs", "plug", "socket", "sockets",
-        "cts", "ct", "collectors", "batSoc", "soc", "pvPw", "pv1",
-        "pv2", "pv3", "pv4", "batInPw", "batOutPw", "gridInPw",
-        "gridOutPw", "gridBuyPw", "gridSellPw", "inGridSidePw",
-        "outGridSidePw", "inOngridPw", "outOngridPw", "swEpsInPw",
-        "swEpsOutPw", "stackInPw", "stackOutPw", "otherLoadPw", "stat",
-        "workMode", "workModel", "funcEnable", "commMode", "commState",
-        "switchSta", "sysSwitch", "totalEgy", "inPw", "outPw", "power",
-        "aPhasePw", "bPhasePw", "cPhasePw", "tPhasePw", "anPhasePw",
-        "bnPhasePw", "cnPhasePw", "tnPhasePw", "AphasePw", "BphasePw",
-        "CphasePw", "TphasePw", "aPhaseEgy", "bPhaseEgy", "cPhaseEgy",
-        "tPhaseEgy", "anPhaseEgy", "bnPhaseEgy", "cnPhaseEgy", "tnPhaseEgy",
-        "AphaseEgy", "BphaseEgy", "CphaseEgy", "TphaseEgy", "schePhase",
-        "funForm", "wip", "name", "scanName",
+        "softver", "errorCode",
     }
 )
-_KNOWN_CHILD_FIELDS: Final = frozenset(
+_CHILD_ARRAY_CONTAINER_FIELDS: Final = frozenset(
+    {"plugs", "plug", "socket", "sockets", "cts", "ct", "collectors"}
+)
+_COMMON_PAYLOAD_FIELDS: Final = _COMMON_METADATA_FIELDS | _CHILD_ARRAY_CONTAINER_FIELDS
+_TYPE2_CAPTURE_FIELDS: Final = frozenset(
     {
-        "deviceSn", "sn", "devType", "subType", "commMode", "commState",
-        "switchSta", "sysSwitch", "totalEgy", "inPw", "outPw", "power",
-        "aPhasePw", "bPhasePw", "cPhasePw", "tPhasePw", "anPhasePw",
-        "bnPhasePw", "cnPhasePw", "tnPhasePw", "AphasePw", "BphasePw",
-        "CphasePw", "TphasePw", "aPhaseEgy", "bPhaseEgy", "cPhaseEgy",
-        "tPhaseEgy", "anPhaseEgy", "bnPhaseEgy", "cnPhaseEgy", "tnPhaseEgy",
-        "AphaseEgy", "BphaseEgy", "CphaseEgy", "TphaseEgy", "schePhase",
-        "funForm", "wip", "name", "scanName", "batSoc", "soc", "batInPw",
-        "batOutPw", "temp", "softver",
+        "maxCellTemp", "minCellTemp", "maxCellVolt", "minCellVolt",
+        "stackChgCurLimit", "stackDischgCurLimit", "emsChgCurLimit",
+        "emsDischgCurLimit", "pcsSetPw",
     }
 )
-_EXPECTED_ENVELOPE_TYPES: Final = {"type": "integer", "body": "object"}
-_EXPECTED_PAYLOAD_TYPES: Final = {"cmd": "integer"}
-_EXPECTED_CHILD_TYPES: Final = {
-    "deviceSn": "string",
-    "sn": "string",
-    "devType": "integer",
-    "subType": "integer",
+_HOST_TYPE2_FIELDS: Final = _COMMON_METADATA_FIELDS | frozenset(
+    {
+        "batSoc", "soc", "batInPw", "batOutPw", "cellTemp", "batNum", "batState",
+        "pvPw", "pv1", "pv2", "pv3", "pv4", "inOngridPw", "outOngridPw",
+        "maxOutPw", "maxFeedGrid", "maxInvStdPw", "maxGridStdPw", "swEpsInPw",
+        "swEpsOutPw", "swEpsState", "swEps", "stackInPw", "stackOutPw",
+        "socChgLimit", "socDischgLimit", "socForceChg", "autoStandby",
+        "isAutoStandby", "ethPort", "wsig", "wname", "eip", "emac", "wip",
+        "ability", "maxIotNum", "stat", "workMode", "workModel", "ongridStat",
+        "ctStat", "gridSate", "otherLoadPw", "inCtEgy", "outCtEgy",
+    }
+) | _TYPE2_CAPTURE_FIELDS
+_HOST_TYPE2_ACK_FIELDS: Final = _COMMON_METADATA_FIELDS | frozenset(
+    {
+        "socChgLimit", "socDischgLimit", "maxOutPw", "maxFeedGrid", "autoStandby",
+        "isAutoStandby", "swEps", "socForceChg", "reboot", "workModel",
+        "defaultPw", "isFollowMeterPw", "offGridDown",
+    }
+)
+_TYPE107_INCREMENTAL_FIELDS: Final = _COMMON_METADATA_FIELDS | frozenset(
+    {"batSoc", "soc", "workMode", "workModel", "stat"}
+)
+_HOST_TYPE106_FIELDS: Final = (_HOST_TYPE2_FIELDS - _TYPE2_CAPTURE_FIELDS) | frozenset(
+    {
+        "gridInPw", "gridOutPw", "gridBuyPw", "gridSellPw", "inGridSidePw",
+        "outGridSidePw", "defaultPw", "energyPlanPw", "isFollowMeterPw",
+        "offGridDown", "offGridTime", "standbyPw", "pvMaxChgPower",
+        "maxSysOutPw", "maxSysInPw", "chargePlanPw", "wps", "wpc", "funcEnable",
+        "tempUnit",
+    }
+)
+_TYPE23_HOST_FIELDS: Final = _COMMON_METADATA_FIELDS | frozenset(
+    {
+        "pvEgy", "pv1Egy", "pv2Egy", "pv3Egy", "pv4Egy", "batChgEgy",
+        "batDisChgEgy", "inOngridEgy", "outOngridEgy", "inEpsEgy", "outEpsEgy",
+        "pvOtBatEgy", "pvOtAcEgy", "pvOtOngridEgy", "ongridOtAcLoadEgy",
+        "batOtAcEgy", "batOtGridEgy", "ongridOtBatEgy", "acOtBatEgy",
+        "acOtOngridEgy",
+    }
+)
+_CHILD_COMMON_FIELDS: Final = frozenset(
+    {"deviceSn", "sn", "devType", "subType", "softver", "name", "scanName", "commMode", "commState"}
+)
+_CHILD_PLUG_FIELDS: Final = _CHILD_COMMON_FIELDS | frozenset(
+    {"switchSta", "sysSwitch", "totalEgy", "inPw", "outPw", "power"}
+)
+_CHILD_METER_FIELDS: Final = _CHILD_COMMON_FIELDS | frozenset(
+    {
+        "phasePw", "phaseEgy", "aPhasePw", "bPhasePw", "cPhasePw", "tPhasePw",
+        "anPhasePw", "bnPhasePw", "cnPhasePw", "tnPhasePw", "AphasePw",
+        "BphasePw", "CphasePw", "TphasePw", "aPhaseEgy", "bPhaseEgy",
+        "cPhaseEgy", "tPhaseEgy", "anPhaseEgy", "bnPhaseEgy", "cnPhaseEgy",
+        "tnPhaseEgy", "AphaseEgy", "BphaseEgy", "CphaseEgy", "TphaseEgy",
+        "inPw", "outPw", "wip",
+    }
+)
+_CHILD_COLLECTOR_FIELDS: Final = _CHILD_COMMON_FIELDS | frozenset(
+    {"inPw", "outPw", "wip"}
+)
+_CHILD_EXPANSION_FIELDS: Final = _CHILD_COMMON_FIELDS | frozenset({"inEgy", "outEgy"})
+_TYPE23_SMARTMETER_FIELDS: Final = _CHILD_COMMON_FIELDS | frozenset(
+    {
+        "tPhaseEgy", "tnPhaseEgy", "aPhaseEgy", "bPhaseEgy", "cPhaseEgy",
+        "anPhaseEgy", "bnPhaseEgy", "cnPhaseEgy",
+    }
+)
+_CHILD_ARRAY_FIELDS: Final = _COMMON_PAYLOAD_FIELDS
+_PV_ITEM_FIELDS: Final = frozenset({"pvPw", "commState"})
+
+_KNOWN_PAYLOAD_FIELDS: Final = frozenset().union(
+    _COMMON_PAYLOAD_FIELDS,
+    _HOST_TYPE2_FIELDS,
+    _HOST_TYPE106_FIELDS,
+    _TYPE23_HOST_FIELDS,
+    _CHILD_PLUG_FIELDS,
+    _CHILD_METER_FIELDS,
+    _CHILD_COLLECTOR_FIELDS,
+    _CHILD_EXPANSION_FIELDS,
+    _TYPE23_SMARTMETER_FIELDS,
+    _PV_ITEM_FIELDS,
+)
+_KNOWN_CHILD_FIELDS: Final = frozenset().union(
+    _CHILD_COMMON_FIELDS,
+    _CHILD_PLUG_FIELDS,
+    _CHILD_METER_FIELDS,
+    _CHILD_COLLECTOR_FIELDS,
+    _CHILD_EXPANSION_FIELDS,
+)
+
+_NUMERIC_TYPES: Final[frozenset[str]] = frozenset({"integer", "number"})
+_COMMON_EXPECTED_TYPES: Final[dict[str, str | frozenset[str]]] = {
+    "type": "integer", "cmd": "integer", "deviceSn": "string", "sn": "string",
+    "deviceType": "integer", "devType": "integer", "subType": "integer",
+    "softver": "string", "errorCode": "integer",
 }
+_HOST_NUMERIC_FIELDS: Final = frozenset(
+    {
+        "batSoc", "soc", "batInPw", "batOutPw", "cellTemp", "batNum", "batState",
+        "pvPw", "inOngridPw", "outOngridPw", "maxOutPw", "maxFeedGrid",
+        "maxInvStdPw", "maxGridStdPw", "swEpsInPw", "swEpsOutPw", "swEpsState",
+        "swEps", "stackInPw", "stackOutPw", "socChgLimit", "socDischgLimit",
+        "socForceChg", "autoStandby", "isAutoStandby", "reboot", "ethPort", "wsig",
+        "ability", "maxIotNum", "stat", "workMode", "workModel", "ongridStat", "ctStat",
+        "gridSate", "otherLoadPw", "inCtEgy", "outCtEgy", "gridInPw", "gridOutPw",
+        "gridBuyPw", "gridSellPw", "inGridSidePw", "outGridSidePw", "defaultPw",
+        "energyPlanPw", "isFollowMeterPw", "offGridDown", "offGridTime", "standbyPw",
+        "pvMaxChgPower", "maxSysOutPw", "maxSysInPw", "chargePlanPw", "wps", "wpc",
+        "funcEnable", "maxCellTemp", "minCellTemp", "maxCellVolt", "minCellVolt",
+        "stackChgCurLimit", "stackDischgCurLimit", "emsChgCurLimit",
+        "emsDischgCurLimit", "pcsSetPw",
+    }
+)
+_ENERGY_NUMERIC_FIELDS: Final = frozenset(
+    {
+        "pvEgy", "pv1Egy", "pv2Egy", "pv3Egy", "pv4Egy", "batChgEgy", "batDisChgEgy",
+        "inOngridEgy", "outOngridEgy", "inEpsEgy", "outEpsEgy", "pvOtBatEgy",
+        "pvOtAcEgy", "pvOtOngridEgy", "ongridOtAcLoadEgy", "batOtAcEgy", "batOtGridEgy",
+        "ongridOtBatEgy", "acOtBatEgy", "acOtOngridEgy", "inEgy", "outEgy",
+        "totalEgy", "phasePw", "phaseEgy", "aPhasePw", "bPhasePw", "cPhasePw",
+        "tPhasePw", "anPhasePw", "bnPhasePw", "cnPhasePw", "tnPhasePw", "AphasePw",
+        "BphasePw", "CphasePw", "TphasePw", "aPhaseEgy", "bPhaseEgy", "cPhaseEgy",
+        "tPhaseEgy", "anPhaseEgy", "bnPhaseEgy", "cnPhaseEgy", "tnPhaseEgy",
+        "AphaseEgy", "BphaseEgy", "CphaseEgy", "TphaseEgy", "inPw", "outPw", "power",
+    }
+)
+_CHILD_EXPECTED_TYPES: Final[dict[str, str | frozenset[str]]] = {
+    **_COMMON_EXPECTED_TYPES,
+    "name": "string", "scanName": "string", "commMode": "integer", "commState": "integer",
+    "switchSta": "integer", "sysSwitch": "integer",
+    **dict.fromkeys(_ENERGY_NUMERIC_FIELDS, _NUMERIC_TYPES),
+}
+_EXPECTED_ENVELOPE_TYPES: Final = {"type": "integer", "body": "object"}
+_EXPECTED_PAYLOAD_TYPES: Final[dict[str, str | frozenset[str]]] = {
+    **_COMMON_EXPECTED_TYPES,
+    **dict.fromkeys(_HOST_NUMERIC_FIELDS | _ENERGY_NUMERIC_FIELDS, _NUMERIC_TYPES),
+    **dict.fromkeys({"wname", "eip", "emac", "wip"}, "string"),
+    **dict.fromkeys({"pv1", "pv2", "pv3", "pv4"}, "object"),
+    **dict.fromkeys({"plugs", "plug", "socket", "sockets", "cts", "ct", "collectors"}, "array"),
+    "tempUnit": "integer",
+}
+_EXPECTED_CHILD_TYPES: Final = _CHILD_EXPECTED_TYPES
+_EXPECTED_PV_ITEM_TYPES: Final[dict[str, str | frozenset[str]]] = {
+    "pvPw": _NUMERIC_TYPES,
+    "commState": "integer",
+}
+_STORED_KNOWN_FIELDS: Final = _KNOWN_ENVELOPE_FIELDS | _KNOWN_PAYLOAD_FIELDS | _KNOWN_CHILD_FIELDS | {"cmd"}
 
 
 def _saturating_add(value: int, increment: int = 1) -> int:
@@ -112,6 +241,10 @@ def _json_type(value: Any) -> str:
     if isinstance(value, Sequence) and not isinstance(value, (str, bytes, bytearray)):
         return "array"
     return "unsupported"
+
+
+def _expected_type_matches(observed: str, expected: str | frozenset[str]) -> bool:
+    return observed in expected if isinstance(expected, frozenset) else observed == expected
 
 
 def _safe_protocol_integer(value: Any) -> int | None:
@@ -199,6 +332,14 @@ class MessageTypeKey:
 
 
 @dataclass(frozen=True, slots=True, order=True)
+class CommandKey:
+    """Safe command identifier in a known message-type namespace."""
+
+    message_type: int
+    command: int | None
+
+
+@dataclass(frozen=True, slots=True, order=True)
 class DeviceTypeKey:
     """Safe unknown numeric device-type combination."""
 
@@ -233,6 +374,12 @@ class MessageTypeDiscovery:
 
 
 @dataclass(frozen=True, slots=True)
+class CommandDiscovery:
+    key: CommandKey
+    observation: DiscoveryObservation
+
+
+@dataclass(frozen=True, slots=True)
 class DeviceTypeDiscovery:
     key: DeviceTypeKey
     observation: DiscoveryObservation
@@ -250,9 +397,11 @@ class ProtocolDiscoverySnapshot:
 
     version: int
     unknown_message_types: tuple[MessageTypeDiscovery, ...]
+    unknown_commands: tuple[CommandDiscovery, ...]
     unknown_device_types: tuple[DeviceTypeDiscovery, ...]
     structures: tuple[StructuralDiscovery, ...]
     message_type_overflow: int
+    command_overflow: int
     device_type_overflow: int
     structural_overflow: int
     traversal_dropped: int
@@ -282,9 +431,11 @@ class ProtocolDiscoveryState:
 
     def __init__(self) -> None:
         self._message_types: dict[MessageTypeKey, _MutableObservation] = {}
+        self._commands: dict[CommandKey, _MutableObservation] = {}
         self._device_types: dict[DeviceTypeKey, _MutableObservation] = {}
         self._structures: dict[StructuralKey, _MutableObservation] = {}
         self._message_type_overflow = 0
+        self._command_overflow = 0
         self._device_type_overflow = 0
         self._structural_overflow = 0
         self._traversal_dropped = 0
@@ -356,13 +507,39 @@ class ProtocolDiscoveryState:
             self._device_type_overflow = _saturating_add(self._device_type_overflow)
         return key
 
+    def _observe_command(
+        self,
+        message_type: Any,
+        body: Mapping[str, Any],
+        now: float,
+    ) -> CommandKey | None:
+        safe_message_type = _safe_protocol_integer(message_type)
+        if safe_message_type is None or "cmd" not in body:
+            return None
+        known_commands = _KNOWN_COMMANDS.get(safe_message_type)
+        if known_commands is None:
+            return None
+        command_value = body.get("cmd")
+        if type(command_value) is not int or command_value in known_commands:
+            return None
+        safe_command = _safe_protocol_integer(command_value)
+        key = CommandKey(safe_message_type, safe_command)
+        if not self._record_bucket(
+            self._commands,
+            key,
+            now=now,
+            limit=MAX_COMMAND_BUCKETS,
+        ):
+            self._command_overflow = _saturating_add(self._command_overflow)
+        return key
+
     def _observe_structure(
         self,
         path: str,
         value: Mapping[str, Any],
         *,
         known_fields: frozenset[str],
-        expected_types: Mapping[str, str],
+        expected_types: Mapping[str, str | frozenset[str]],
         now: float,
     ) -> StructuralKey | None:
         sampled = list(islice(value.items(), MAX_MAPPING_ENTRIES))
@@ -378,7 +555,7 @@ class ProtocolDiscoveryState:
             if raw_key in known_fields:
                 expected = expected_types.get(raw_key)
                 observed = _json_type(item)
-                if expected is not None and observed != expected:
+                if expected is not None and not _expected_type_matches(observed, expected):
                     mismatches.append((raw_key, observed))
                 continue
             unknown_count += 1
@@ -407,6 +584,93 @@ class ProtocolDiscoveryState:
             self._structural_overflow = _saturating_add(self._structural_overflow)
         return key
 
+    @staticmethod
+    def _device_payload_fields(
+        item: Mapping[str, Any],
+        *,
+        container: str | None = None,
+        type23: bool = False,
+    ) -> tuple[frozenset[str], Mapping[str, str | frozenset[str]]]:
+        """Select only fields supported by this child family and route."""
+        dev_type = _safe_protocol_integer(item.get("devType"))
+        sub_type = _safe_protocol_integer(item.get("subType"))
+
+        if type23:
+            if dev_type == 1 and sub_type == 0:
+                return _CHILD_EXPANSION_FIELDS, _CHILD_EXPECTED_TYPES
+            if dev_type == 3 and sub_type == 5:
+                return _TYPE23_SMARTMETER_FIELDS, _CHILD_EXPECTED_TYPES
+            return _CHILD_COMMON_FIELDS, _COMMON_EXPECTED_TYPES
+        if not type23 and dev_type == 1 and container in {"plug", "plugs", "socket", "sockets"}:
+            return _CHILD_PLUG_FIELDS, _CHILD_EXPECTED_TYPES
+        if not type23 and (dev_type == 6 or (
+            dev_type is None and container in {"plug", "plugs", "socket", "sockets"}
+        )):
+            return _CHILD_PLUG_FIELDS, _CHILD_EXPECTED_TYPES
+        if dev_type == 4 and sub_type == 7:
+            return _CHILD_COLLECTOR_FIELDS, _CHILD_EXPECTED_TYPES
+        if dev_type in {2, 3, 4}:
+            # A recognized type with an unrecognized subtype still uses the
+            # generic device fallback; do not treat its family payload as fully known.
+            known_meter_subtype = (
+                dev_type == 2 and sub_type in {1, 2, 3, 4, 5, 6, 7}
+            ) or (dev_type == 3 and sub_type in {2, 5}) or (
+                dev_type == 4 and sub_type in {1, 2, 3, 4, 5, 6}
+            )
+            if known_meter_subtype or (dev_type == 2 and container in {"ct", "cts"} and sub_type is None):
+                return _CHILD_METER_FIELDS, _CHILD_EXPECTED_TYPES
+            return _CHILD_COMMON_FIELDS, _COMMON_EXPECTED_TYPES
+        if container in {"collectors"} and dev_type is None:
+            return _CHILD_COLLECTOR_FIELDS, _CHILD_EXPECTED_TYPES
+        return _CHILD_COMMON_FIELDS, _COMMON_EXPECTED_TYPES
+
+    @staticmethod
+    def _payload_context(
+        message_type: Any,
+        body: Mapping[str, Any],
+    ) -> tuple[str, frozenset[str], Mapping[str, str | frozenset[str]]]:
+        """Return a bounded context name and the field contract for one body."""
+        safe_message_type = _safe_protocol_integer(message_type)
+        command = body.get("cmd")
+
+        if safe_message_type == 2:
+            if type(command) is int and command == 107:
+                return "payload", _HOST_TYPE2_ACK_FIELDS, _EXPECTED_PAYLOAD_TYPES
+            if "cmd" not in body or (type(command) is int and command == 106):
+                return "payload", _HOST_TYPE2_FIELDS, _EXPECTED_PAYLOAD_TYPES
+        if safe_message_type == 106 and (
+            "cmd" not in body or (type(command) is int and command == 120)
+        ):
+            return "payload", _HOST_TYPE106_FIELDS, _EXPECTED_PAYLOAD_TYPES
+        if safe_message_type == 23:
+            dev_type = _safe_protocol_integer(body.get("devType"))
+            sub_type = _safe_protocol_integer(body.get("subType"))
+            if dev_type == 1:
+                fields, expected = ProtocolDiscoveryState._device_payload_fields(body, type23=True)
+                path = "expansion_item" if sub_type == 0 else "child_item"
+                return path, fields, expected
+            if dev_type in {2, 3, 4, 6}:
+                fields, expected = ProtocolDiscoveryState._device_payload_fields(body, type23=True)
+                return "child_item", fields, expected
+            if dev_type is None or dev_type == 0:
+                return "payload", _TYPE23_HOST_FIELDS, _EXPECTED_PAYLOAD_TYPES
+            return "child_item", _CHILD_COMMON_FIELDS, _COMMON_EXPECTED_TYPES
+        if safe_message_type in {101, 102}:
+            has_child_container = any(
+                isinstance(body.get(key), list) for key in _CHILD_ARRAY_KEYS
+            )
+            if safe_message_type == 101 or has_child_container:
+                return "payload", _CHILD_ARRAY_FIELDS, _EXPECTED_PAYLOAD_TYPES
+            fields, expected = ProtocolDiscoveryState._device_payload_fields(body)
+            return "child_item", fields, expected
+        if safe_message_type == 25:
+            return "payload", _HOST_TYPE2_FIELDS, _EXPECTED_PAYLOAD_TYPES
+        if safe_message_type == 107:
+            return "payload", _TYPE107_INCREMENTAL_FIELDS, _EXPECTED_PAYLOAD_TYPES
+        if safe_message_type == 123:
+            return "payload", _COMMON_METADATA_FIELDS, _EXPECTED_PAYLOAD_TYPES
+        return "payload", _COMMON_METADATA_FIELDS, _COMMON_EXPECTED_TYPES
+
     def observe(
         self,
         raw_envelope: Mapping[str, Any],
@@ -428,6 +692,17 @@ class ProtocolDiscoveryState:
                     ),
                 )
             )
+        unknown_command = self._observe_command(message_type, body, now)
+        if unknown_command is not None and unknown_message_type is None:
+            signals.append(
+                DiscoverySignal(
+                    "unknown_command",
+                    json.dumps(
+                        [unknown_command.message_type, unknown_command.command],
+                        separators=(",", ":"),
+                    ),
+                )
+            )
         structures: list[StructuralKey] = []
         device_types: list[DeviceTypeKey] = []
         structure = self._observe_structure(
@@ -439,11 +714,12 @@ class ProtocolDiscoveryState:
         )
         if structure is not None:
             structures.append(structure)
+        path, known_fields, expected_types = self._payload_context(message_type, body)
         structure = self._observe_structure(
-            "payload",
+            path,
             body,
-            known_fields=_KNOWN_PAYLOAD_FIELDS,
-            expected_types=_EXPECTED_PAYLOAD_TYPES,
+            known_fields=known_fields,
+            expected_types=expected_types,
             now=now,
         )
         if structure is not None:
@@ -452,16 +728,28 @@ class ProtocolDiscoveryState:
         if device_type is not None:
             device_types.append(device_type)
 
-        if body.get("devType") == 1:
-            structure = self._observe_structure(
-                "expansion_item",
-                body,
-                known_fields=_KNOWN_CHILD_FIELDS,
-                expected_types=_EXPECTED_CHILD_TYPES,
-                now=now,
-            )
-            if structure is not None:
-                structures.append(structure)
+        has_type2_status_context = message_type == 2 and (
+            "cmd" not in body
+            or (type(body.get("cmd")) is int and body.get("cmd") == 106)
+        )
+        has_type106_state_context = message_type == 106 and (
+            "cmd" not in body
+            or (type(body.get("cmd")) is int and body.get("cmd") == 120)
+        )
+        if has_type2_status_context or has_type106_state_context:
+            for pv_key in ("pv1", "pv2", "pv3", "pv4"):
+                item = body.get(pv_key)
+                if not isinstance(item, Mapping):
+                    continue
+                structure = self._observe_structure(
+                    "pv_item",
+                    item,
+                    known_fields=_PV_ITEM_FIELDS,
+                    expected_types=_EXPECTED_PV_ITEM_TYPES,
+                    now=now,
+                )
+                if structure is not None:
+                    structures.append(structure)
 
         for container in _CHILD_ARRAY_KEYS:
             items = body.get(container)
@@ -475,22 +763,29 @@ class ProtocolDiscoveryState:
                 device_type = self._observe_device_type(item, now)
                 if device_type is not None:
                     device_types.append(device_type)
+                known_fields, expected_types = self._device_payload_fields(
+                    item,
+                    container=container,
+                )
                 structure = self._observe_structure(
                     "child_item",
                     item,
-                    known_fields=_KNOWN_CHILD_FIELDS,
-                    expected_types=_EXPECTED_CHILD_TYPES,
+                    known_fields=known_fields,
+                    expected_types=expected_types,
                     now=now,
                 )
                 if structure is not None:
                     structures.append(structure)
 
         if unknown_message_type is None:
-            for key in device_types:
+            for device_type_key in device_types:
                 signals.append(
                     DiscoverySignal(
                         "unknown_device_type",
-                        json.dumps([key.dev_type, key.sub_type], separators=(",", ":")),
+                        json.dumps(
+                            [device_type_key.dev_type, device_type_key.sub_type],
+                            separators=(",", ":"),
+                        ),
                     )
                 )
         if unknown_message_type is None and not device_types:
@@ -527,6 +822,16 @@ class ProtocolDiscoveryState:
                 }
                 for item in snapshot.unknown_message_types
             ],
+            "unknown_commands": [
+                {
+                    "message_type": item.key.message_type,
+                    "command": item.key.command,
+                    "count": item.observation.count,
+                    "first_seen_at": item.observation.first_seen_at,
+                    "last_seen_at": item.observation.last_seen_at,
+                }
+                for item in snapshot.unknown_commands
+            ],
             "unknown_device_types": [
                 {
                     "dev_type": item.key.dev_type,
@@ -551,6 +856,7 @@ class ProtocolDiscoveryState:
                 for item in snapshot.structures
             ],
             "message_type_overflow": snapshot.message_type_overflow,
+            "command_overflow": snapshot.command_overflow,
             "device_type_overflow": snapshot.device_type_overflow,
             "structural_overflow": snapshot.structural_overflow,
             "traversal_dropped": snapshot.traversal_dropped,
@@ -559,20 +865,26 @@ class ProtocolDiscoveryState:
     @classmethod
     def from_storage(cls, value: object) -> ProtocolDiscoveryState | None:
         """Restore a strictly validated value-free state or reject it entirely."""
-        if not isinstance(value, Mapping) or value.get("version") != DISCOVERY_VERSION:
+        if not isinstance(value, Mapping):
+            return None
+        stored_version = value.get("version")
+        if type(stored_version) is not int or stored_version not in {1, DISCOVERY_VERSION}:
             return None
         state = cls()
         raw_message_types = value.get("unknown_message_types")
+        raw_commands = value.get("unknown_commands", [] if stored_version == 1 else None)
         raw_device_types = value.get("unknown_device_types")
         raw_structures = value.get("structures")
         if (
             not isinstance(raw_message_types, list)
+            or not isinstance(raw_commands, list)
             or not isinstance(raw_device_types, list)
             or not isinstance(raw_structures, list)
         ):
             return None
         if (
             len(raw_message_types) > MAX_MESSAGE_TYPE_BUCKETS
+            or len(raw_commands) > MAX_COMMAND_BUCKETS
             or len(raw_device_types) > MAX_DEVICE_TYPE_BUCKETS
             or len(raw_structures) > MAX_STRUCTURAL_SIGNATURES
         ):
@@ -603,6 +915,32 @@ class ProtocolDiscoveryState:
             if message_key in state._message_types:
                 return None
             state._message_types[message_key] = observation
+
+        for item in raw_commands:
+            if not isinstance(item, Mapping):
+                return None
+            message_type = item.get("message_type")
+            command = item.get("command")
+            if (
+                type(message_type) is not int
+                or message_type not in _KNOWN_COMMANDS
+                or (
+                    command is not None
+                    and (
+                        type(command) is not int
+                        or not 0 <= command <= MAX_SAFE_PROTOCOL_INTEGER
+                        or command in _KNOWN_COMMANDS[message_type]
+                    )
+                )
+            ):
+                return None
+            observation = _restore_observation(item)
+            if observation is None:
+                return None
+            command_key = CommandKey(message_type, command)
+            if command_key in state._commands:
+                return None
+            state._commands[command_key] = observation
 
         for item in raw_device_types:
             if not isinstance(item, Mapping):
@@ -644,7 +982,7 @@ class ProtocolDiscoveryState:
                 or len(raw_shapes) > MAX_NESTED_SHAPES
                 or not isinstance(raw_mismatches, list)
                 or len(raw_mismatches)
-                > len(_KNOWN_ENVELOPE_FIELDS | _KNOWN_CHILD_FIELDS) + 1
+                > len(_STORED_KNOWN_FIELDS)
             ):
                 return None
             unknown_types: list[tuple[str, int]] = []
@@ -673,7 +1011,7 @@ class ProtocolDiscoveryState:
                     or len(pair) != 2
                     or not isinstance(pair[0], str)
                     or pair[0]
-                    not in (_KNOWN_ENVELOPE_FIELDS | _KNOWN_CHILD_FIELDS | {"cmd"})
+                    not in _STORED_KNOWN_FIELDS
                     or not isinstance(pair[1], str)
                     or pair[1] not in _JSON_TYPES
                 ):
@@ -702,16 +1040,18 @@ class ProtocolDiscoveryState:
         counters: list[int] = []
         for name in (
             "message_type_overflow",
+            "command_overflow",
             "device_type_overflow",
             "structural_overflow",
             "traversal_dropped",
         ):
-            counter = value.get(name)
+            counter = value.get(name, 0 if stored_version == 1 and name == "command_overflow" else None)
             if type(counter) is not int or not 0 <= counter <= MAX_COUNTER:
                 return None
             counters.append(counter)
         (
             state._message_type_overflow,
+            state._command_overflow,
             state._device_type_overflow,
             state._structural_overflow,
             state._traversal_dropped,
@@ -736,6 +1076,20 @@ class ProtocolDiscoveryState:
                     ),
                 )
             ),
+            unknown_commands=tuple(
+                CommandDiscovery(
+                    key,
+                    DiscoveryObservation(value.count, value.first_seen_at, value.last_seen_at),
+                )
+                for key, value in sorted(
+                    self._commands.items(),
+                    key=lambda item: (
+                        item[0].message_type,
+                        item[0].command is None,
+                        item[0].command if item[0].command is not None else 0,
+                    ),
+                )
+            ),
             unknown_device_types=tuple(
                 DeviceTypeDiscovery(
                     key,
@@ -751,6 +1105,7 @@ class ProtocolDiscoveryState:
                 for key, value in sorted(self._structures.items())
             ),
             message_type_overflow=self._message_type_overflow,
+            command_overflow=self._command_overflow,
             device_type_overflow=self._device_type_overflow,
             structural_overflow=self._structural_overflow,
             traversal_dropped=self._traversal_dropped,
@@ -776,6 +1131,7 @@ class ProtocolDiscoveryState:
 
 
 __all__ = [
+    "MAX_COMMAND_BUCKETS",
     "DISCOVERY_DETAIL_BUDGET_BYTES",
     "DISCOVERY_VERSION",
     "MAX_ARRAY_ITEMS",

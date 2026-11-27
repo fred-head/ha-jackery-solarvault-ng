@@ -10,7 +10,7 @@ dashboards, and troubleshooting.
 | Architecture | [Implemented architecture](architecture.md) |
 | Protocol and calculations | [MQTT protocol inventory](mqtt-protocol-inventory.md), [routing and command contract](protocol-routing-commands.md), [energy-source policy](energy-source-policy.md) |
 | Device support | [Public device and entity matrix](../devices-and-entities.md) |
-| Diagnostics | [Diagnostics architecture](diagnostics-architecture.md) |
+| Diagnostics | [Diagnostics architecture](diagnostics-architecture.md), [Protocol Discovery](protocol-discovery.md) |
 | Upstream comparison | [Feature matrix](upstream-feature-matrix.md) |
 
 Keep these references aligned with the implementation. Historical plans,

@@ -46,6 +46,7 @@ PROTOCOL_SAVE_DELAY_SECONDS: Final = 1.0
 DISCOVERY_REASONS: Final = frozenset(
     {
         "invalid_envelope",
+        "unknown_command",
         "unknown_device_type",
         "unknown_message_type",
         "unknown_structure",

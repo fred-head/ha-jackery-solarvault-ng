@@ -18,8 +18,10 @@ from custom_components.jackery import diagnostics_snapshot as snapshot_module
 from custom_components.jackery.diagnostics import async_get_config_entry_diagnostics
 from custom_components.jackery.diagnostics_snapshot import (
     DIAGNOSTICS_SCHEMA_VERSION,
+    MAX_DISCOVERY_COMMANDS,
     MAX_SNAPSHOT_BYTES,
     DiagnosticsSnapshotInput,
+    DiscoveryCommandInput,
     DiscoveryDeviceTypeInput,
     DiscoveryMessageTypeInput,
     DiscoveryObservationInput,
@@ -31,6 +33,7 @@ from custom_components.jackery.diagnostics_snapshot import (
 from custom_components.jackery.protocol_capture import ProtocolDiscoveryCapture
 from custom_components.jackery.protocol_discovery import (
     DISCOVERY_DETAIL_BUDGET_BYTES,
+    MAX_COMMAND_BUCKETS,
     MAX_DEVICE_TYPE_BUCKETS,
     MAX_MAPPING_ENTRIES,
     MAX_MESSAGE_TYPE_BUCKETS,
@@ -278,6 +281,307 @@ def test_non_integer_cmd_is_reported_as_a_type_mismatch_and_restores(
     assert restored.snapshot().structures == structures
 
 
+@pytest.mark.parametrize(
+    ("message_type", "body"),
+    (
+        (
+            2,
+            {
+                "cmd": 106, "batSoc": 50, "soc": 50, "batInPw": 0, "batOutPw": 0,
+                "cellTemp": 250, "batState": 1, "pvPw": 0,
+                "pv1": {"pvPw": 0, "commState": 1}, "socChgLimit": 90,
+                "socDischgLimit": 10, "socForceChg": 0, "ethPort": 1,
+                "eip": "192.0.2.1", "wsig": -55, "wname": "lan",
+                "swEpsState": 1, "stackInPw": 0, "stackOutPw": 0, "workModel": 4,
+                "maxCellTemp": 250, "minCellTemp": 100, "maxCellVolt": 3500,
+                "minCellVolt": 3000, "stackChgCurLimit": 30,
+                "stackDischgCurLimit": 40, "emsChgCurLimit": 30,
+                "emsDischgCurLimit": 40, "pcsSetPw": 1500,
+            },
+        ),
+        (2, {"soc": 50, "pvPw": 0}),
+        (
+            2,
+            {
+                "cmd": 107, "socChgLimit": 90, "socDischgLimit": 10,
+                "maxOutPw": 2500, "maxFeedGrid": 800, "autoStandby": 2,
+                "isAutoStandby": 1, "swEps": 1, "socForceChg": 0,
+                "reboot": 0, "workModel": 4, "defaultPw": 500,
+                "isFollowMeterPw": 0, "offGridDown": 0,
+            },
+        ),
+        (
+            106,
+            {
+                "cmd": 120, "ongridStat": 1, "ctStat": 1, "gridSate": 1,
+                "isFollowMeterPw": 0, "energyPlanPw": 0, "workModel": 4,
+                "maxFeedGrid": 800, "defaultPw": 500, "offGridDown": 0,
+                "offGridTime": 120, "standbyPw": 0, "pvMaxChgPower": 4000,
+                "maxSysOutPw": 2500, "maxSysInPw": 2500, "funcEnable": 0,
+                "chargePlanPw": 0, "tempUnit": 0,
+            },
+        ),
+        (106, {"gridInPw": 0, "gridOutPw": 0, "energyPlanPw": 0}),
+        (
+            23,
+            {
+                "cmd": 0, "deviceSn": "system", "pvEgy": 1, "pv1Egy": 2,
+                "pv2Egy": 3, "pv3Egy": 4, "pv4Egy": 5, "batChgEgy": 6,
+                "batDisChgEgy": 7, "inOngridEgy": 8, "outOngridEgy": 9,
+                "inEpsEgy": 10, "outEpsEgy": 11, "pvOtBatEgy": 12,
+                "pvOtAcEgy": 13, "pvOtOngridEgy": 14, "ongridOtAcLoadEgy": 15,
+                "batOtAcEgy": 16, "batOtGridEgy": 17, "ongridOtBatEgy": 18,
+                "acOtBatEgy": 19, "acOtOngridEgy": 20,
+            },
+        ),
+        (23, {"deviceSn": "BATTERY", "devType": 1, "subType": 0, "inEgy": 100, "outEgy": 80}),
+        (
+            101,
+            {
+                "cmd": 110,
+                "plugs": [{
+                    "deviceSn": "PLUG", "devType": 6, "subType": 0, "commMode": 1,
+                    "commState": 1, "switchSta": 1, "sysSwitch": 1, "outPw": 20, "totalEgy": 30,
+                }],
+                "cts": [{
+                    "deviceSn": "METER", "devType": 3, "subType": 5, "commMode": 1,
+                    "commState": 1, "tPhasePw": 10, "tnPhasePw": 0, "tPhaseEgy": 40,
+                    "tnPhaseEgy": 0, "aPhasePw": 10, "bPhasePw": 0, "cPhasePw": 0,
+                    "anPhasePw": 0, "bnPhasePw": 0, "cnPhasePw": 0,
+                }],
+                "collectors": [{
+                    "deviceSn": "COLLECTOR", "devType": 4, "subType": 7,
+                    "commState": 1, "inPw": 10, "outPw": 0,
+                }],
+            },
+        ),
+    ),
+)
+def test_known_message_and_device_contexts_do_not_create_findings(
+    message_type: int,
+    body: dict[str, object],
+) -> None:
+    state = ProtocolDiscoveryState()
+    signals = state.observe(
+        {"type": message_type, "body": body}, body, message_type=message_type, now=NOW
+    )
+
+    assert signals == ()
+    assert state.snapshot().structures == ()
+    assert state.snapshot().unknown_commands == ()
+
+
+@pytest.mark.parametrize(
+    ("message_type", "body", "expected_path"),
+    (
+        (2, {"cmd": 106, "newType2Field": 1}, "payload"),
+        (106, {"cmd": 120, "newType106Field": 1}, "payload"),
+        (23, {"pvEgy": 1, "newType23HostField": 1}, "payload"),
+        (
+            23,
+            {
+                "deviceSn": "synthetic-battery",
+                "devType": 1,
+                "subType": 0,
+                "inEgy": 1,
+                "outEgy": 1,
+                "newBp2500Field": 1,
+            },
+            "expansion_item",
+        ),
+    ),
+)
+def test_unknown_fields_remain_visible_in_each_discovery_context(
+    message_type: int,
+    body: dict[str, object],
+    expected_path: str,
+) -> None:
+    state = ProtocolDiscoveryState()
+
+    signals = state.observe(
+        {"type": message_type, "body": body},
+        body,
+        message_type=message_type,
+        now=NOW,
+    )
+
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+    assert any(item.key.path == expected_path for item in state.snapshot().structures)
+
+
+def test_capture_observed_fields_remain_context_scoped() -> None:
+    type2_wrong_context = ProtocolDiscoveryState()
+    body = {"cmd": 106, "tempUnit": 0}
+    signals = type2_wrong_context.observe(
+        {"type": 2, "body": body}, body, message_type=2, now=NOW
+    )
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+
+    type106_wrong_context = ProtocolDiscoveryState()
+    body = {"cmd": 120, "maxCellTemp": 250}
+    signals = type106_wrong_context.observe(
+        {"type": 106, "body": body}, body, message_type=106, now=NOW
+    )
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+
+    bp2500_wrong_context = ProtocolDiscoveryState()
+    body = {
+        "devType": 1,
+        "subType": 0,
+        "inEgy": 1,
+        "outEgy": 1,
+        "maxCellTemp": 250,
+    }
+    signals = bp2500_wrong_context.observe(
+        {"type": 23, "body": body}, body, message_type=23, now=NOW
+    )
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+    assert bp2500_wrong_context.snapshot().structures[0].key.unknown_field_count == 1
+
+
+def test_unknown_command_variants_are_distinct_bounded_and_persisted() -> None:
+    state = ProtocolDiscoveryState()
+    for offset in range(MAX_COMMAND_BUCKETS + 3):
+        body = {"cmd": 1_000 + offset}
+        signals = state.observe(
+            {"type": 2, "body": body}, body, message_type=2, now=NOW + offset
+        )
+        assert any(signal.reason == "unknown_command" for signal in signals)
+
+    snapshot = state.snapshot()
+    assert len(snapshot.unknown_commands) == MAX_COMMAND_BUCKETS
+    assert snapshot.command_overflow == 3
+    assert snapshot.unknown_commands[0].key.message_type == 2
+    assert snapshot.unknown_commands[0].key.command == 1_000
+    restored = ProtocolDiscoveryState.from_storage(state.to_storage())
+    assert restored is not None
+    assert restored.snapshot().unknown_commands == snapshot.unknown_commands
+    assert restored.snapshot().command_overflow == 3
+
+
+def test_old_discovery_storage_is_migrated_without_reclassifying_signatures() -> None:
+    legacy = {
+        "version": 1,
+        "unknown_message_types": [],
+        "unknown_device_types": [],
+        "structures": [{
+            "path": "payload", "unknown_field_count": 2,
+            "unknown_value_types": [["integer", 2]], "nested_shapes": [],
+            "type_mismatches": [], "count": 12,
+            "first_seen_at": NOW - 20, "last_seen_at": NOW - 2,
+        }],
+        "message_type_overflow": 0, "device_type_overflow": 0,
+        "structural_overflow": 0, "traversal_dropped": 0,
+    }
+
+    restored = ProtocolDiscoveryState.from_storage(legacy)
+
+    assert restored is not None
+    assert restored.snapshot().version == 2
+    assert len(restored.snapshot().structures) == 1
+    assert restored.snapshot().structures[0].observation.count == 12
+    assert restored.snapshot().unknown_commands == ()
+
+
+@pytest.mark.parametrize(
+    ("message_type", "body", "envelope", "expected_path", "mismatch"),
+    (
+        (2, {"cmd": 106, "soc": "50"}, None, "payload", ("soc", "string")),
+        (2, {"cmd": 106, "maxCellTemp": "250"}, None, "payload", ("maxCellTemp", "string")),
+        (106, {"cmd": 120, "tempUnit": "celsius"}, None, "payload", ("tempUnit", "string")),
+        (2, {"cmd": 106, "pv1": 50}, None, "payload", ("pv1", "integer")),
+        (101, {"plugs": [{"deviceSn": "PLUG", "devType": True, "subType": 0}]}, None, "child_item", ("devType", "bool")),
+        (2, {}, {"type": 2, "body": "not an object"}, "envelope", ("body", "string")),
+    ),
+)
+def test_known_fields_with_wrong_types_are_still_reported(
+    message_type: int,
+    body: dict[str, object],
+    envelope: dict[str, object] | None,
+    expected_path: str,
+    mismatch: tuple[str, str],
+) -> None:
+    state = ProtocolDiscoveryState()
+    raw_envelope = envelope or {"type": message_type, "body": body}
+
+    signals = state.observe(raw_envelope, body, message_type=message_type, now=NOW)
+
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+    assert any(
+        item.key.path == expected_path and mismatch in item.key.type_mismatches
+        for item in state.snapshot().structures
+    )
+
+
+def test_new_nested_and_cross_context_fields_remain_findings() -> None:
+    nested = ProtocolDiscoveryState()
+    body = {"cmd": 106, "pv1": {"pvPw": 0, "commState": 1, "newNested": {"x": 1}}}
+    signals = nested.observe({"type": 2, "body": body}, body, message_type=2, now=NOW)
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+    assert any(item.key.path == "pv_item" for item in nested.snapshot().structures)
+
+    incremental = ProtocolDiscoveryState()
+    body_without_cmd = {"pv1": {"pvPw": 0, "commState": 1, "newNested": {"x": 1}}}
+    signals = incremental.observe(
+        {"type": 2, "body": body_without_cmd},
+        body_without_cmd,
+        message_type=2,
+        now=NOW,
+    )
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+    assert any(item.key.path == "pv_item" for item in incremental.snapshot().structures)
+
+    cross_context = ProtocolDiscoveryState()
+    wrong_family = {"cmd": 0, "pvPw": 1}
+    signals = cross_context.observe(
+        {"type": 23, "body": wrong_family}, wrong_family, message_type=23, now=NOW
+    )
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+    assert cross_context.snapshot().structures[0].key.unknown_field_count == 1
+
+    misplaced_container = ProtocolDiscoveryState()
+    misplaced_body = {
+        "cmd": 106,
+        "plugs": [{"deviceSn": "PLUG", "devType": 6, "subType": 0, "sysSwitch": 1}],
+    }
+    signals = misplaced_container.observe(
+        {"type": 2, "body": misplaced_body},
+        misplaced_body,
+        message_type=2,
+        now=NOW,
+    )
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+    assert misplaced_container.snapshot().structures[0].key.path == "payload"
+
+
+def test_command_observation_uses_only_established_namespaces() -> None:
+    type101 = ProtocolDiscoveryState()
+    body101 = {"cmd": 111, "plugs": []}
+    signals101 = type101.observe(
+        {"type": 101, "body": body101}, body101, message_type=101, now=NOW
+    )
+    assert any(signal.reason == "unknown_command" for signal in signals101)
+
+    type23 = ProtocolDiscoveryState()
+    body23 = {"cmd": 999, "deviceSn": "system", "pvEgy": 1}
+    signals23 = type23.observe(
+        {"type": 23, "body": body23}, body23, message_type=23, now=NOW
+    )
+    assert not any(signal.reason == "unknown_command" for signal in signals23)
+    assert type23.snapshot().unknown_commands == ()
+
+
+def test_generic_known_device_fallback_does_not_hide_unknown_family_fields() -> None:
+    state = ProtocolDiscoveryState()
+    body = {"cts": [{"deviceSn": "METER", "devType": 3, "subType": 99, "tPhasePw": 25}]}
+
+    signals = state.observe({"type": 101, "body": body}, body, message_type=101, now=NOW)
+
+    assert any(signal.reason == "unknown_structure" for signal in signals)
+    assert state.snapshot().unknown_device_types == ()
+    assert state.snapshot().structures[0].key.unknown_field_count == 1
+
+
 def test_unknown_payload_field_remains_reported_alongside_integer_cmd() -> None:
     state = ProtocolDiscoveryState()
     body = {"cmd": 106, "newly_observed_field": "shape only"}
@@ -347,6 +651,10 @@ def _discovery_input(size: int = 1) -> ProtocolDiscoveryDiagnosticsInput:
             DiscoveryMessageTypeInput("integer", 1_000 + index, observation)
             for index in range(size)
         ),
+        unknown_commands=tuple(
+            DiscoveryCommandInput(2, 1_000 + index, observation)
+            for index in range(size)
+        ),
         unknown_device_types=tuple(
             DiscoveryDeviceTypeInput(2_000 + index, index, observation)
             for index in range(size)
@@ -376,12 +684,13 @@ def test_p31_discovery_export_is_explicit_aged_json_safe_and_versioned() -> None
         now=NOW,
     )
     discovery = snapshot["protocol"]["discovery"]
-    assert snapshot["integration"]["schema_version"] == DIAGNOSTICS_SCHEMA_VERSION == 3
+    assert snapshot["integration"]["schema_version"] == DIAGNOSTICS_SCHEMA_VERSION == 4
     assert snapshot["protocol"]["discovery_enabled"] is True
-    assert discovery["version"] == 1
+    assert discovery["version"] == 2
     assert discovery["limits"] == {
         "detail_budget_bytes": DISCOVERY_DETAIL_BUDGET_BYTES,
         "message_type_buckets": MAX_MESSAGE_TYPE_BUCKETS,
+        "command_buckets": MAX_DISCOVERY_COMMANDS,
         "device_type_buckets": MAX_DEVICE_TYPE_BUCKETS,
         "structural_signatures": MAX_STRUCTURAL_SIGNATURES,
         "mapping_entries": MAX_MAPPING_ENTRIES,
@@ -394,6 +703,8 @@ def test_p31_discovery_export_is_explicit_aged_json_safe_and_versioned() -> None
     assert discovery["unknown_message_types"]["items"][0][
         "last_seen_age_seconds"
     ] == 2
+    assert discovery["unknown_commands"]["items"][0]["message_type"] == 2
+    assert discovery["unknown_commands"]["items"][0]["command"] == 1_000
     assert json.loads(_serialized(snapshot)) == snapshot
 
 
@@ -488,7 +799,7 @@ def test_utf8_byte_budget_is_exact_at_and_below_the_boundary(monkeypatch) -> Non
     )
     baseline = build_diagnostics_snapshot(inputs, now=NOW)
     exact_size = len(compact(baseline))
-    assert exact_size == 65_475
+    assert exact_size == 65_447
 
     monkeypatch.setattr(snapshot_module, "MAX_SNAPSHOT_BYTES", exact_size)
     exact = build_diagnostics_snapshot(inputs, now=NOW)

@@ -126,6 +126,61 @@ async def test_unknown_device_classes_and_new_signatures_are_findings(hass) -> N
     await capture.async_clear()
 
 
+async def test_known_expansion_payload_is_not_sampled_twice(hass) -> None:
+    capture = _capture(hass, entry_id="known-expansion-entry")
+    await capture.async_load()
+    body = {
+        "deviceSn": "BATTERY",
+        "devType": 1,
+        "subType": 0,
+        "inEgy": 100,
+        "outEgy": 80,
+    }
+
+    captured = capture.observe(
+        topic=TOPIC,
+        payload=b'{"type":23,"body":{"devType":1,"subType":0,"inEgy":100,"outEgy":80}}',
+        raw_envelope={"type": 23, "body": body},
+        body=body,
+        message_type=23,
+        now=10_000,
+    )
+
+    assert captured is False
+    assert capture.snapshot().structures == ()
+    assert capture.raw_snapshot()["total_observed"] == 0
+    assert capture.raw_snapshot()["stored_count"] == 0
+    await capture.async_clear()
+
+
+async def test_unknown_command_capture_persists_and_explicit_clear_resets_period(hass) -> None:
+    capture = _capture(hass, entry_id="unknown-command-entry")
+    await capture.async_load()
+    body = {"cmd": 108}
+    assert capture.observe(
+        topic=TOPIC,
+        payload=b'{"type":2,"body":{"cmd":108}}',
+        raw_envelope={"type": 2, "body": body},
+        body=body,
+        message_type=2,
+        now=10_000,
+    )
+    await capture.async_flush()
+
+    restored = _capture(hass, entry_id="unknown-command-entry")
+    await restored.async_load()
+    assert restored.snapshot().unknown_commands[0].key.message_type == 2
+    assert restored.snapshot().unknown_commands[0].key.command == 108
+    assert restored.raw_snapshot()["events"][0]["discovery_reason"] == "unknown_command"
+
+    await restored.async_clear()
+    fresh_period = _capture(hass, entry_id="unknown-command-entry")
+    await fresh_period.async_load()
+    assert fresh_period.snapshot().unknown_commands == ()
+    assert fresh_period.raw_snapshot()["events"] == []
+    await fresh_period.async_clear()
+
+
 async def test_sampling_deduplicates_and_allows_occasional_new_examples(hass) -> None:
     capture = _capture(hass)
     await capture.async_load()

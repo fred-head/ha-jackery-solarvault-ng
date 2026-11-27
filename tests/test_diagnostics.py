@@ -658,7 +658,7 @@ async def test_both_raw_capture_extensions_are_bounded_and_separately_versioned(
     protocol_export = snapshot["experimental_protocol_capture"]
     assert alert_export["capture_version"] == 1
     assert protocol_export["capture_version"] == 1
-    assert protocol_export["discovery_version"] == 1
+    assert protocol_export["discovery_version"] == 2
     assert alert_export["privacy_warning"]
     assert protocol_export["privacy_warning"]
     assert alert_export["events"][0]["topic"] == "{prefix}/device/{host}/alert"

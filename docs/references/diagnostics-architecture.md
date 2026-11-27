@@ -138,8 +138,9 @@ health
 ```
 
 Every field is explicitly declared by the snapshot schema. The cause-oriented
-entity classification is schema version 3; version 2 consumers must account for
-the added entity health and registry/runtime fields. Missing information uses
+entity classification is schema version 3; schema version 4 adds bounded
+unknown-command records to opt-in Protocol Discovery. Version 2 consumers must
+account for the entity health and registry/runtime fields added in version 3. Missing information uses
 `null`, an empty collection or the fixed enum `unknown`; it is never guessed as
 healthy. Booleans and numbers keep their types. Non-finite numbers are rejected.
 Absolute wall-clock times are converted to rounded, non-negative ages.
@@ -548,7 +549,8 @@ registry/runtime consistency categories. Entity IDs are used transiently to
 match runtime objects and retrieve a state; the adapter reads only normalized
 state strings and never reads attributes, including `raw_data`. Registry IDs,
 identities, names, labels and areas are not passed to P3.1. Schema version 3
-records these added fields and the corrected `mismatch_count` semantics.
+records these added fields and the corrected `mismatch_count` semantics; version
+4 adds the discovery command subsection.
 
 Coordinator application state is normalized from the config-entry state and
 the existing `_subscribed` application flag. MQTT and HTTP tasks become only
@@ -638,7 +640,8 @@ structural observer remains Home-Assistant-independent and observes:
 - unknown-field counts at fixed structural paths;
 - observed JSON primitive/container type signatures;
 - occurrence count and first/last-seen ages;
-- bounded differences from known structural schemas.
+- bounded differences from known structural schemas;
+- unknown command identifiers in established message-type namespaces.
 
 Its valid-message observation point is in `JackeryDataCoordinator._handle_message`,
 after exact topic/host ownership and successful JSON/envelope validation,
@@ -652,8 +655,9 @@ freshness, child-discovery, calculation and entity fan-out code.
 
 Unknown message types that are safe integers may be bucketed numerically.
 Arbitrary string/object message types are bucketed by primitive type, not value.
-Unknown field names are compared transiently with code-owned allowlists at the
-fixed paths `envelope`, `payload`, `child_item` and `expansion_item`; neither raw
+Unknown field names are compared transiently with context-specific, code-owned
+allowlists at the fixed paths `envelope`, `payload`, `child_item`,
+`expansion_item` and `pv_item`; neither raw
 names nor aliases/hashes/fragments are retained. A structural signature contains
 only the path token, unknown-field count, JSON value-type multiset, bounded
 container shapes and code-owned known-field/type mismatches. Unknown scalar
@@ -668,9 +672,13 @@ only by JSON type. Known message types are `2`, `23`, `25`, `101`, `102`, `106`,
 `4`, `6`) do not create unknown-combination records. Bucket counts saturate at
 2,147,483,647.
 
-Bounds are fixed at 32 unknown-message buckets, 64 unknown-device-pair buckets,
-64 structural signatures, 64 mapping entries, 16 array items, three structural
-levels and 16 nested shapes per signature. Existing buckets keep counting after
+Command IDs are tracked only for Type 2 (`106`, `107`), Type 23 (`0`), Type 101
+(`110`) and Type 106 (`120`). Missing commands remain valid. A new command is
+reported without making its payload fields known in another message context.
+
+Bounds are fixed at 32 unknown-message buckets, 32 unknown-command buckets,
+64 unknown-device-pair buckets, 64 structural signatures, 64 mapping entries,
+16 array items, three structural levels and 16 nested shapes per signature. Existing buckets keep counting after
 a collection fills; new buckets increment the corresponding overflow count.
 Traversal beyond a shape bound increments `traversal_dropped`. This deliberately
 simple first-observed retention policy is deterministic for an identical message
@@ -678,18 +686,21 @@ stream and does not introduce an LRU or persistent identity.
 
 Diagnostics schema version 2 adds `protocol.discovery_enabled`. When disabled,
 there is no `protocol.discovery` object. When enabled, the versioned discovery
-object contains the fixed limits, unknown-message records, unknown-device-pair
-records, structural records, first/last-seen ages, overflow counts, traversal
+object contains the fixed limits, unknown-message records, unknown-command
+records, unknown-device-pair records, structural records, first/last-seen ages, overflow counts, traversal
 drops and deterministic omitted-record count. The immutable state snapshot is
 translated into explicit P3.1 input records; it is never serialized generically.
 Discovery has an 8-KiB detail budget inside the unchanged 64-KiB complete budget.
-Structural records are removed first, then device-pair records, then message-type
+Structural records are removed first, then command, device-pair and message-type
 records. Omission/overflow metadata remains, and complete-snapshot enforcement
 drops discovery detail before existing child/entity details, preserving the
 standard diagnostics core.
 
 The immutable structural snapshot still contains no unknown names or scalar
-values. It now restores across integration reloads and HA restarts. A separate
+values. Discovery storage version 2 migrates version-1 summaries without
+deleting or reclassifying legacy signatures; the historical summaries do not
+retain field names. The raw capture format remains version 1. State restores
+across integration reloads and HA restarts. A separate
 raw extension exists only under this experimental opt-in; its Base64 content is
 intentionally not described as anonymous or safe to share. Structural canary
 tests continue to inspect the internal snapshot and standard diagnostics before
@@ -699,7 +710,7 @@ the opt-in raw extension is appended.
 
 The same option enables the raw recorder; no second required option or MQTT
 subscription is added. It captures only unknown message types, unknown device
-type pairs, new structural signatures, and malformed envelopes. Regular known
+type pairs, new commands, new structural signatures, and malformed envelopes. Regular known
 status messages with no structural deviation are not retained. A finding
 signature gets its first example and up to three additional distinct payloads.
 After four samples, a new payload can be retained at most once per hour for that
@@ -710,8 +721,8 @@ configured serials or prefixes, are used in the export.
 The recorder stores the original payload bytes as Base64 without JSON
 re-serialization. Each record includes receipt time, the private exact topic,
 payload byte count, truncation status, QoS, retain and one fixed reason enum:
-`unknown_message_type`, `unknown_device_type`, `unknown_structure` or
-`invalid_envelope`. Payloads over 4 KiB keep the first 4 KiB and set an explicit
+`unknown_message_type`, `unknown_command`, `unknown_device_type`,
+`unknown_structure` or `invalid_envelope`. Payloads over 4 KiB keep the first 4 KiB and set an explicit
 truncation flag. The raw ring buffer holds up to 100 events and has a 256-KiB
 serialized budget. Structural state has a separate 32-KiB budget; sampling
 metadata is also bounded. Writes are debounced and flushed during unload.

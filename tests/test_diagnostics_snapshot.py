@@ -717,7 +717,7 @@ def test_entity_health_details_are_bounded_and_allowlisted() -> None:
         now=NOW,
     )
 
-    assert snapshot["integration"]["schema_version"] == 3
+    assert snapshot["integration"]["schema_version"] == 4
     assert sum(snapshot["entities"]["classification_counts"].values()) == 40
     assert len(snapshot["entities"]["classification_details"]) == 32
     assert snapshot["entities"]["classification_details_omitted"] == 8

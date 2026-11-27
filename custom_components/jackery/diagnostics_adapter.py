@@ -28,6 +28,7 @@ from .diagnostics_snapshot import (
     ChildDiagnosticsInput,
     ChildFreshnessDiagnosticsInput,
     DiagnosticsSnapshotInput,
+    DiscoveryCommandInput,
     DiscoveryDeviceTypeInput,
     DiscoveryMessageTypeInput,
     DiscoveryObservationInput,
@@ -517,6 +518,18 @@ def _protocol_inputs(
                 )
                 for item in discovery_snapshot.unknown_message_types
             ),
+            unknown_commands=tuple(
+                DiscoveryCommandInput(
+                    message_type=item.key.message_type,
+                    command=item.key.command,
+                    observation=DiscoveryObservationInput(
+                        count=item.observation.count,
+                        first_seen_at=item.observation.first_seen_at,
+                        last_seen_at=item.observation.last_seen_at,
+                    ),
+                )
+                for item in discovery_snapshot.unknown_commands
+            ),
             unknown_device_types=tuple(
                 DiscoveryDeviceTypeInput(
                     dev_type=item.key.dev_type,
@@ -545,6 +558,7 @@ def _protocol_inputs(
                 for item in discovery_snapshot.structures
             ),
             message_type_overflow=discovery_snapshot.message_type_overflow,
+            command_overflow=discovery_snapshot.command_overflow,
             device_type_overflow=discovery_snapshot.device_type_overflow,
             structural_overflow=discovery_snapshot.structural_overflow,
             traversal_dropped=discovery_snapshot.traversal_dropped,
