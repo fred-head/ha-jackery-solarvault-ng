@@ -14,13 +14,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, Final, NotRequired, TypedDict
 
-DIAGNOSTICS_SCHEMA_VERSION: Final = 3
+DIAGNOSTICS_SCHEMA_VERSION: Final = 4
 MAX_CHILDREN: Final = 100
 MAX_ENTITY_DETAILS: Final = 32
 MAX_SNAPSHOT_BYTES: Final = 64 * 1024
 MAX_VERSION_LENGTH: Final = 32
 DISCOVERY_DETAIL_BUDGET_BYTES: Final = 8 * 1024
 MAX_DISCOVERY_MESSAGE_TYPES: Final = 32
+MAX_DISCOVERY_COMMANDS: Final = 32
 MAX_DISCOVERY_DEVICE_TYPES: Final = 64
 MAX_DISCOVERY_STRUCTURES: Final = 64
 MAX_DISCOVERY_MAPPING_ENTRIES: Final = 64
@@ -219,11 +220,29 @@ _HTTP_HEALTH_STATES: Final = frozenset(
 _DISCOVERY_TYPES: Final = frozenset(
     {"array", "bool", "integer", "null", "number", "object", "string"}
 )
+_DISCOVERY_KNOWN_COMMANDS: Final = {
+    2: frozenset({106, 107}),
+    23: frozenset({0}),
+    101: frozenset({110}),
+    106: frozenset({120}),
+}
 _DISCOVERY_PATHS: Final = frozenset(
-    {"child_item", "envelope", "expansion_item", "payload"}
+    {"child_item", "envelope", "expansion_item", "payload", "pv_item"}
 )
 _DISCOVERY_FIELDS: Final = frozenset(
-    {"body", "deviceSn", "devType", "sn", "subType", "type"}
+    {
+        "body", "cmd", "deviceSn", "devType", "sn", "subType", "type", "soc",
+        "batSoc", "pv1", "pv2", "pv3", "pv4", "pvPw", "batInPw", "batOutPw",
+        "commState", "commMode", "switchSta", "sysSwitch", "totalEgy", "inPw", "outPw",
+        "power", "workModel", "workMode", "stat", "softver", "errorCode",
+        "deviceType", "name", "scanName", "wip", "wname", "eip", "emac",
+        "ethPort", "wsig", "cellTemp", "batState", "socChgLimit", "socDischgLimit",
+        "socForceChg", "swEpsState", "stackInPw", "stackOutPw", "ongridStat", "ctStat",
+        "gridSate", "energyPlanPw", "isFollowMeterPw", "maxFeedGrid", "phasePw", "phaseEgy",
+        "tPhasePw", "tnPhasePw", "aPhasePw", "bPhasePw", "cPhasePw", "anPhasePw",
+        "bnPhasePw", "cnPhasePw", "aPhaseEgy", "bPhaseEgy", "cPhaseEgy", "tPhaseEgy",
+        "tnPhaseEgy", "anPhaseEgy", "bnPhaseEgy", "cnPhaseEgy", "pvEgy", "inEgy", "outEgy",
+    }
 )
 _DISCOVERY_SHAPE = re.compile(
     r"(?=.{1,256}\Z)[a-z]+(?:\([a-z0-9:,_()]*\))?"
@@ -318,6 +337,15 @@ class DiscoveryDeviceTypeInput:
 
 
 @dataclass(frozen=True, slots=True)
+class DiscoveryCommandInput:
+    """One unknown command identifier scoped to a known message type."""
+
+    message_type: int
+    command: int | None
+    observation: DiscoveryObservationInput
+
+
+@dataclass(frozen=True, slots=True)
 class DiscoveryStructureInput:
     """One value-free structural signature at a fixed path."""
 
@@ -333,11 +361,13 @@ class DiscoveryStructureInput:
 class ProtocolDiscoveryDiagnosticsInput:
     """Explicit P3.1 input for the optional discovery contract."""
 
-    version: int = 1
+    version: int = 2
     unknown_message_types: Sequence[DiscoveryMessageTypeInput] = ()
+    unknown_commands: Sequence[DiscoveryCommandInput] = ()
     unknown_device_types: Sequence[DiscoveryDeviceTypeInput] = ()
     structures: Sequence[DiscoveryStructureInput] = ()
     message_type_overflow: int = 0
+    command_overflow: int = 0
     device_type_overflow: int = 0
     structural_overflow: int = 0
     traversal_dropped: int = 0
@@ -959,6 +989,7 @@ def _discovery_section(
     now: float,
 ) -> dict[str, Any]:
     message_types: list[dict[str, Any]] = []
+    commands: list[dict[str, Any]] = []
     device_types: list[dict[str, Any]] = []
     structures: list[dict[str, Any]] = []
 
@@ -980,6 +1011,30 @@ def _discovery_section(
                     "kind": kind,
                     "value": value,
                     **_discovery_observation(message_item.observation, now=now),
+                }
+            )
+
+        for command_item in source.unknown_commands:
+            message_type = command_item.message_type
+            command = command_item.command
+            if (
+                type(message_type) is not int
+                or message_type not in _DISCOVERY_KNOWN_COMMANDS
+                or (
+                    command is not None
+                    and (
+                        type(command) is not int
+                        or not 0 <= command <= MAX_SAFE_PROTOCOL_INTEGER
+                        or command in _DISCOVERY_KNOWN_COMMANDS[message_type]
+                    )
+                )
+            ):
+                continue
+            commands.append(
+                {
+                    "message_type": message_type,
+                    "command": command,
+                    **_discovery_observation(command_item.observation, now=now),
                 }
             )
 
@@ -1041,13 +1096,19 @@ def _discovery_section(
             )
 
     message_types.sort(key=lambda item: json.dumps(item, sort_keys=True))
+    commands.sort(key=lambda item: json.dumps(item, sort_keys=True))
     device_types.sort(key=lambda item: json.dumps(item, sort_keys=True))
     structures.sort(key=lambda item: json.dumps(item, sort_keys=True))
     result: dict[str, Any] = {
-        "version": 1,
+        "version": (
+            source.version
+            if source is not None and type(source.version) is int and source.version in {1, 2}
+            else 2
+        ),
         "limits": {
             "detail_budget_bytes": DISCOVERY_DETAIL_BUDGET_BYTES,
             "message_type_buckets": MAX_DISCOVERY_MESSAGE_TYPES,
+            "command_buckets": MAX_DISCOVERY_COMMANDS,
             "device_type_buckets": MAX_DISCOVERY_DEVICE_TYPES,
             "structural_signatures": MAX_DISCOVERY_STRUCTURES,
             "mapping_entries": MAX_DISCOVERY_MAPPING_ENTRIES,
@@ -1058,6 +1119,13 @@ def _discovery_section(
             "items": message_types,
             "overflow_count": _optional_count(
                 source.message_type_overflow if source is not None else 0
+            )
+            or 0,
+        },
+        "unknown_commands": {
+            "items": commands,
+            "overflow_count": _optional_count(
+                source.command_overflow if source is not None else 0
             )
             or 0,
         },
@@ -1089,7 +1157,12 @@ def _discovery_section(
 
 def _remove_discovery_record(discovery: dict[str, Any]) -> bool:
     """Drop the lowest-priority discovery detail deterministically."""
-    for section in ("structures", "unknown_device_types", "unknown_message_types"):
+    for section in (
+        "structures",
+        "unknown_commands",
+        "unknown_device_types",
+        "unknown_message_types",
+    ):
         items = discovery[section]["items"]
         if items:
             items.pop()
@@ -1618,6 +1691,7 @@ __all__ = [
     "DiagnosticsSnapshot",
     "DiagnosticsSnapshotInput",
     "DiscoveryDeviceTypeInput",
+    "DiscoveryCommandInput",
     "DiscoveryMessageTypeInput",
     "DiscoveryObservationInput",
     "DiscoveryStructureInput",
@@ -1627,6 +1701,7 @@ __all__ = [
     "HealthDiagnosticsInput",
     "HostDiagnosticsInput",
     "IntegrationDiagnosticsInput",
+    "MAX_DISCOVERY_COMMANDS",
     "ProtocolDiagnosticsInput",
     "ProtocolDiscoveryDiagnosticsInput",
     "SmartMeterDiagnosticsInput",

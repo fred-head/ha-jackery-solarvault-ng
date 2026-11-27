@@ -15,6 +15,14 @@ Changes in **Unreleased** are planned for a future release.
   offered update. Warn users that the cloud login signs them out of the
   official Jackery app because Jackery allows only one active login.
 
+### Changed
+
+- Reduce Protocol Discovery false positives with context-scoped host and child
+  field sets, validated field types, explicit unknown-command records, and a
+  single Type-23 expansion-battery observation path. Real-capture fields are
+  accepted only in their observed message contexts; existing discovery data
+  migrates without deleting or reclassifying historical signatures.
+
 ## [3.0.1] - 2026-11-26
 
 ### Added
