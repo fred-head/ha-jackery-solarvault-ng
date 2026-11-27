@@ -55,7 +55,7 @@
                     "bmslog_capture_enabled": "Enable experimental BMS log capture"
                 },
                 "data_description": {
-                    "cloud_firmware_enabled": "When enabled, the integration logs in to Jackery and checks the host and each known expansion battery once every 24 hours. This is separate from local MQTT and disabled by default.",
+                    "cloud_firmware_enabled": "When enabled, the integration logs in to Jackery and checks the host and each known expansion battery once every 24 hours. Jackery allows only one active login, so a Home Assistant check signs you out of the official Jackery app. This is separate from local MQTT and disabled by default.",
                     "cloud_firmware_password": "Leave blank to keep the saved password. The password is stored in this Home Assistant config entry and is not included in integration diagnostics.",
                     "cloud_firmware_region": "Two-letter Jackery account region code, for example DE.",
                     "clear_cloud_firmware_credentials": "Also disables cloud firmware checks if they are currently enabled.",

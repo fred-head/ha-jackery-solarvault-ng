@@ -14,6 +14,10 @@ The password is not prefilled in options forms, emitted in logs, or included in
 integration diagnostics. The API session token exists only in the monitor's
 memory for one polling cycle.
 
+Jackery allows only one active account login. A Home Assistant firmware check
+therefore signs the user out of the official Jackery app; the app requires a
+new login to be used again.
+
 Each poll performs one encrypted `auth/login` and then one sequential
 `GET /device/ota/list?deviceSnList=<serial>` per target serial. The targets are
 the configured SolarVault and known expansion batteries. Serial numbers are

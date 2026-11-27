@@ -182,6 +182,10 @@ select **Configure**, and enable **Check firmware versions through the Jackery
 cloud**. Enter the Jackery account, password, and two-letter account region
 used by the Jackery app.
 
+> **Important:** Jackery allows only one active account login. When Home
+> Assistant logs in for a firmware check, it signs you out of the official
+> Jackery app. You will need to log in to the app again to use it.
+
 The account credentials and device serial numbers are sent to Jackery for
 these checks. The password is stored in the Home Assistant config entry and is
 not included in integration diagnostics. Leave the password field blank to

@@ -279,7 +279,9 @@ Enable **Check firmware versions through the Jackery cloud** in the integration
 options and provide the Jackery account, password, and two-letter region. This
 feature is off by default. It sends those credentials and each device serial to
 the Jackery API; the account-derived API client ID is calculated in memory and
-is not stored. The integration logs in once per poll cycle and makes a separate
+is not stored. Jackery allows only one active account login, so a Home
+Assistant firmware check signs you out of the official Jackery app. The
+integration logs in once per poll cycle and makes a separate
 `device/ota/list` GET for the main SolarVault and each known expansion battery.
 It checks on startup, when a new expansion battery is discovered, and every 24
 hours. A device without an account-matched API row remains unavailable without

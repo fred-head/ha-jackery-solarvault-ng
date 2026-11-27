@@ -55,7 +55,7 @@
                     "bmslog_capture_enabled": "Activer la capture expérimentale des journaux BMS"
                 },
                 "data_description": {
-                    "cloud_firmware_enabled": "Une fois activée, l'intégration se connecte à Jackery et vérifie l'appareil principal ainsi que chaque batterie d'extension connue toutes les 24 heures. Cette fonction est indépendante du MQTT local et désactivée par défaut.",
+                    "cloud_firmware_enabled": "Une fois activée, l'intégration se connecte à Jackery et vérifie l'appareil principal ainsi que chaque batterie d'extension connue toutes les 24 heures. Jackery n'autorise qu'une seule connexion active ; la connexion de Home Assistant vous déconnecte donc de l'application officielle Jackery. Cette fonction est indépendante du MQTT local et désactivée par défaut.",
                     "cloud_firmware_password": "Laissez vide pour conserver le mot de passe enregistré. Il est stocké dans cette entrée de configuration Home Assistant et n'est pas inclus dans les diagnostics de l'intégration.",
                     "cloud_firmware_region": "Code de région Jackery à deux lettres, par exemple DE.",
                     "clear_cloud_firmware_credentials": "Désactive également les vérifications du micrologiciel si elles sont actuellement activées.",

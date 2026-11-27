@@ -55,7 +55,7 @@
                     "bmslog_capture_enabled": "Experimentellen BMS-Log-Mitschnitt aktivieren"
                 },
                 "data_description": {
-                    "cloud_firmware_enabled": "Wenn aktiviert, meldet sich die Integration bei Jackery an und fragt das Hauptgerät sowie jeden bekannten Zusatzakku alle 24 Stunden ab. Die Abfrage ist unabhängig von lokalem MQTT und standardmäßig deaktiviert.",
+                    "cloud_firmware_enabled": "Wenn aktiviert, meldet sich die Integration bei Jackery an und fragt das Hauptgerät sowie jeden bekannten Zusatzakku alle 24 Stunden ab. Jackery erlaubt nur eine aktive Anmeldung. Die Anmeldung von Home Assistant meldet dich daher aus der offiziellen Jackery-App ab. Die Abfrage ist unabhängig von lokalem MQTT und standardmäßig deaktiviert.",
                     "cloud_firmware_password": "Leer lassen, um das gespeicherte Passwort beizubehalten. Das Passwort wird im Home-Assistant-Konfigurationseintrag gespeichert und nicht in den Integrationsdiagnosen ausgegeben.",
                     "cloud_firmware_region": "Zweistelliger Jackery-Regionscode, zum Beispiel DE.",
                     "clear_cloud_firmware_credentials": "Deaktiviert auch die Cloud-Firmwareabfrage, falls sie derzeit aktiviert ist.",
