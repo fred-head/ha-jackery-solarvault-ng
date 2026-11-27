@@ -4,6 +4,7 @@ from __future__ import annotations
 from unittest.mock import patch
 
 import pytest
+import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.helpers.selector import TextSelector, TextSelectorType
@@ -196,6 +197,38 @@ async def test_cloud_firmware_cannot_be_enabled_without_credentials(hass):
     assert result["errors"]["cloud_firmware_account"] == "invalid_cloud_account"
     assert result["errors"]["cloud_firmware_password"] == "invalid_cloud_password"
     assert entry.options.get("cloud_firmware_enabled", False) is False
+
+
+async def test_cloud_firmware_credentials_are_optional_when_disabled(hass):
+    entry, flow = await _start_options_flow(hass)
+
+    for field in ("cloud_firmware_account", "cloud_firmware_region"):
+        marker = next(
+            key
+            for key in flow["data_schema"].schema
+            if getattr(key, "schema", None) == field
+        )
+        assert isinstance(marker, vol.Optional)
+
+    user_input = _options_input(flow)
+    user_input.update(
+        {
+            "cloud_firmware_enabled": False,
+            "cloud_firmware_account": "",
+            "cloud_firmware_region": "",
+            "smartmeter_http_poll": True,
+        }
+    )
+
+    result = await hass.config_entries.options.async_configure(
+        flow["flow_id"], user_input=user_input
+    )
+
+    assert result["type"] == FlowResultType.CREATE_ENTRY
+    assert entry.options["smartmeter_http_poll"] is True
+    assert entry.options["cloud_firmware_enabled"] is False
+    assert "cloud_firmware_account" not in entry.data
+    assert "cloud_firmware_region" not in entry.data
 
 
 async def test_cloud_firmware_options_store_credentials_without_prefilling_password(hass):

@@ -318,7 +318,7 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     CLOUD_FIRMWARE_ENABLED,
                     default=current_options.get(CLOUD_FIRMWARE_ENABLED, False),
                 ): bool,
-                vol.Required(
+                vol.Optional(
                     CLOUD_FIRMWARE_ACCOUNT,
                     default=current_data.get(CLOUD_FIRMWARE_ACCOUNT, ""),
                 ): str,
@@ -328,7 +328,7 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                         autocomplete="current-password",
                     )
                 ),
-                vol.Required(
+                vol.Optional(
                     CLOUD_FIRMWARE_REGION,
                     default=current_data.get(CLOUD_FIRMWARE_REGION, "DE"),
                 ): str,
