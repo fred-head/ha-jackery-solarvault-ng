@@ -2,15 +2,24 @@
 from __future__ import annotations
 
 import logging
+import re
+from collections.abc import Mapping
 from typing import Any
 
 import voluptuous as vol
 from homeassistant import config_entries
 from homeassistant.components import mqtt
+from homeassistant.helpers.selector import TextSelector, TextSelectorConfig, TextSelectorType
 
 from . import DOMAIN
 from .alert_capture import OPTION_ALERT_CAPTURE_ENABLED
 from .bmslog_capture import OPTION_BMSLOG_CAPTURE_ENABLED
+from .cloud_firmware import (
+    CLOUD_FIRMWARE_ACCOUNT,
+    CLOUD_FIRMWARE_ENABLED,
+    CLOUD_FIRMWARE_PASSWORD,
+    CLOUD_FIRMWARE_REGION,
+)
 from .protocol_discovery import OPTION_PROTOCOL_DISCOVERY_ENABLED
 
 _LOGGER = logging.getLogger(__name__)
@@ -172,9 +181,56 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
         current_options = self._config_entry.options
 
         if user_input is not None:
+            errors: dict[str, str] = {}
+            cloud_enabled = user_input.get(CLOUD_FIRMWARE_ENABLED, False) is True
+            clear_cloud_credentials = user_input.get(
+                "clear_cloud_firmware_credentials", False
+            ) is True
+            cloud_account = user_input.get(
+                CLOUD_FIRMWARE_ACCOUNT,
+                current_data.get(CLOUD_FIRMWARE_ACCOUNT, ""),
+            )
+            if not isinstance(cloud_account, str):
+                cloud_account = ""
+            cloud_account = cloud_account.strip()
+            cloud_password_input = user_input.get(CLOUD_FIRMWARE_PASSWORD, "")
+            if not isinstance(cloud_password_input, str):
+                cloud_password_input = ""
+            stored_cloud_password = current_data.get(CLOUD_FIRMWARE_PASSWORD, "")
+            if not isinstance(stored_cloud_password, str):
+                stored_cloud_password = ""
+            cloud_password = cloud_password_input or stored_cloud_password
+            cloud_region = user_input.get(
+                CLOUD_FIRMWARE_REGION,
+                current_data.get(CLOUD_FIRMWARE_REGION, "DE"),
+            )
+            if not isinstance(cloud_region, str):
+                cloud_region = ""
+            cloud_region = cloud_region.strip().upper()
+
+            if clear_cloud_credentials and cloud_enabled:
+                errors["base"] = "cloud_credentials_required"
+            elif cloud_enabled:
+                if not cloud_account:
+                    errors[CLOUD_FIRMWARE_ACCOUNT] = "invalid_cloud_account"
+                if not cloud_password:
+                    errors[CLOUD_FIRMWARE_PASSWORD] = "invalid_cloud_password"
+            if cloud_enabled and not re.fullmatch(r"[A-Z]{2}", cloud_region):
+                errors[CLOUD_FIRMWARE_REGION] = "invalid_cloud_region"
+            elif cloud_region and not re.fullmatch(r"[A-Z]{2}", cloud_region):
+                errors[CLOUD_FIRMWARE_REGION] = "invalid_cloud_region"
+
+            if errors:
+                return self.async_show_form(
+                    step_id="init",
+                    data_schema=self._options_schema(current_data, current_options),
+                    errors=errors,
+                )
+
             new_options = {
                 "smartmeter_http_poll": user_input["smartmeter_http_poll"],
                 "smartmeter_poll_interval": user_input["smartmeter_poll_interval"],
+                CLOUD_FIRMWARE_ENABLED: cloud_enabled,
                 OPTION_PROTOCOL_DISCOVERY_ENABLED: user_input[
                     OPTION_PROTOCOL_DISCOVERY_ENABLED
                 ],
@@ -190,6 +246,7 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 for key, default in (
                     ("smartmeter_http_poll", False),
                     ("smartmeter_poll_interval", DEFAULT_SMARTMETER_POLL_INTERVAL),
+                    (CLOUD_FIRMWARE_ENABLED, False),
                     (OPTION_PROTOCOL_DISCOVERY_ENABLED, False),
                     (OPTION_ALERT_CAPTURE_ENABLED, False),
                     (OPTION_BMSLOG_CAPTURE_ENABLED, False),
@@ -200,9 +257,29 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 data_updates["token"] = user_input["token"]
             if user_input["topic_prefix"] != current_data.get("topic_prefix", "hb"):
                 data_updates["topic_prefix"] = user_input["topic_prefix"]
+            if clear_cloud_credentials:
+                data_updates[CLOUD_FIRMWARE_ACCOUNT] = None
+                data_updates[CLOUD_FIRMWARE_PASSWORD] = None
+            else:
+                if cloud_account and cloud_account != current_data.get(CLOUD_FIRMWARE_ACCOUNT):
+                    data_updates[CLOUD_FIRMWARE_ACCOUNT] = cloud_account
+                if cloud_password_input:
+                    data_updates[CLOUD_FIRMWARE_PASSWORD] = cloud_password_input
+                if (
+                    cloud_enabled
+                    and cloud_region
+                    and cloud_region != current_data.get(CLOUD_FIRMWARE_REGION)
+                ):
+                    data_updates[CLOUD_FIRMWARE_REGION] = cloud_region
             if data_updates:
+                updated_data = dict(current_data)
+                for key, value in data_updates.items():
+                    if value is None:
+                        updated_data.pop(key, None)
+                    else:
+                        updated_data[key] = value
                 self.hass.config_entries.async_update_entry(
-                    self._config_entry, data={**current_data, **data_updates}
+                    self._config_entry, data=updated_data
                 )
                 # HA reloads changed options after this flow completes. A data-only
                 # change needs the same reload without a config-entry listener.
@@ -215,6 +292,16 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 data=new_options if options_changed else dict(current_options),
             )
 
+        return self.async_show_form(
+            step_id="init",
+            data_schema=self._options_schema(current_data, current_options),
+        )
+
+    @staticmethod
+    def _options_schema(
+        current_data: Mapping[str, Any], current_options: Mapping[str, Any]
+    ) -> vol.Schema:
+        """Build options while never prefilling the stored cloud password."""
         schema = vol.Schema(
             {
                 vol.Required("token", default=current_data.get("token", "")): str,
@@ -227,6 +314,25 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                     "smartmeter_poll_interval",
                     default=current_options.get("smartmeter_poll_interval", DEFAULT_SMARTMETER_POLL_INTERVAL),
                 ): vol.All(int, vol.Range(min=2, max=60)),
+                vol.Required(
+                    CLOUD_FIRMWARE_ENABLED,
+                    default=current_options.get(CLOUD_FIRMWARE_ENABLED, False),
+                ): bool,
+                vol.Required(
+                    CLOUD_FIRMWARE_ACCOUNT,
+                    default=current_data.get(CLOUD_FIRMWARE_ACCOUNT, ""),
+                ): str,
+                vol.Optional(CLOUD_FIRMWARE_PASSWORD): TextSelector(
+                    TextSelectorConfig(
+                        type=TextSelectorType.PASSWORD,
+                        autocomplete="current-password",
+                    )
+                ),
+                vol.Required(
+                    CLOUD_FIRMWARE_REGION,
+                    default=current_data.get(CLOUD_FIRMWARE_REGION, "DE"),
+                ): str,
+                vol.Required("clear_cloud_firmware_credentials", default=False): bool,
                 vol.Required(
                     OPTION_PROTOCOL_DISCOVERY_ENABLED,
                     default=current_options.get(
@@ -243,5 +349,4 @@ class JackeryOptionsFlowHandler(config_entries.OptionsFlowWithReload):
                 ): bool,
             }
         )
-
-        return self.async_show_form(step_id="init", data_schema=schema)
+        return schema

@@ -39,22 +39,37 @@
         "step": {
             "init": {
                 "title": "Jackery Options",
-                "description": "Reconfigure connection, optional SmartMeter HTTP polling, and developer diagnostics. Experimental raw MQTT captures may contain sensitive information and should be reviewed before sharing.",
+                "description": "Reconfigure the MQTT connection, optional local SmartMeter polling, Jackery cloud firmware checks, and developer diagnostics. Cloud firmware checks send your Jackery account credentials and device serial numbers to Jackery. Experimental raw MQTT captures may contain sensitive information and should be reviewed before sharing.",
                 "data": {
                     "token": "Token",
                     "topic_prefix": "MQTT Topic Prefix",
                     "smartmeter_http_poll": "Poll SmartMeter via HTTP (voltage, current, reactive power, …)",
                     "smartmeter_poll_interval": "SmartMeter poll interval (seconds)",
+                    "cloud_firmware_enabled": "Check firmware versions through the Jackery cloud",
+                    "cloud_firmware_account": "Jackery account (email or phone)",
+                    "cloud_firmware_password": "Jackery account password",
+                    "cloud_firmware_region": "Jackery account region",
+                    "clear_cloud_firmware_credentials": "Remove saved Jackery cloud credentials",
                     "protocol_discovery_enabled": "Experimental protocol discovery with persistent recording of relevant unknown MQTT messages",
                     "alert_capture_enabled": "Experimental MQTT alert capture",
                     "bmslog_capture_enabled": "Enable experimental BMS log capture"
                 },
                 "data_description": {
+                    "cloud_firmware_enabled": "When enabled, the integration logs in to Jackery and checks the host and each known expansion battery once every 24 hours. This is separate from local MQTT and disabled by default.",
+                    "cloud_firmware_password": "Leave blank to keep the saved password. The password is stored in this Home Assistant config entry and is not included in integration diagnostics.",
+                    "cloud_firmware_region": "Two-letter Jackery account region code, for example DE.",
+                    "clear_cloud_firmware_credentials": "Also disables cloud firmware checks if they are currently enabled.",
                     "protocol_discovery_enabled": "Records bounded structural observations and selected raw MQTT payloads persistently. Raw data may contain sensitive information; review diagnostics carefully before sharing.",
                     "alert_capture_enabled": "Passively records unknown MQTT alert messages locally as bounded raw data. Records may contain sensitive information and should be reviewed before sharing. Recommended for developers and testers only.",
                     "bmslog_capture_enabled": "Passively records the host's exact /bmslog topic as bounded raw data. Payloads may contain sensitive information and should be reviewed before sharing. Disabled by default."
                 }
             }
+        },
+        "error": {
+            "invalid_cloud_account": "Enter the Jackery account used by the app.",
+            "invalid_cloud_password": "Enter the Jackery account password.",
+            "invalid_cloud_region": "Enter a two-letter region code, for example DE.",
+            "cloud_credentials_required": "Disable cloud firmware checks before removing the saved credentials."
         }
     },
     "entity": {
@@ -118,6 +133,9 @@
             }
         },
         "sensor": {
+            "cloud_firmware": {
+                "name": "Firmware"
+            },
             "battery_soc": {
                 "name": "Main battery state of charge"
             },

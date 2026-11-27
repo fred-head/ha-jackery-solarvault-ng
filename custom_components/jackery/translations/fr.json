@@ -39,22 +39,37 @@
         "step": {
             "init": {
                 "title": "Options Jackery",
-                "description": "Reconfigurer la connexion, le sondage HTTP optionnel du SmartMeter et les diagnostics développeur. Les captures MQTT brutes expérimentales peuvent contenir des informations sensibles à vérifier avant tout partage.",
+                "description": "Reconfigurer la connexion MQTT, l'interrogation locale facultative du SmartMeter, les vérifications du micrologiciel via le cloud Jackery et les diagnostics développeur. Les vérifications du micrologiciel envoient les identifiants Jackery et les numéros de série à Jackery. Les captures MQTT brutes expérimentales peuvent contenir des informations sensibles à vérifier avant tout partage.",
                 "data": {
                     "token": "Token",
                     "topic_prefix": "Préfixe de topic MQTT",
                     "smartmeter_http_poll": "Interroger le SmartMeter via HTTP (tension, courant, puissance réactive, …)",
                     "smartmeter_poll_interval": "Intervalle d'interrogation du SmartMeter (secondes)",
+                    "cloud_firmware_enabled": "Vérifier les versions du micrologiciel via le cloud Jackery",
+                    "cloud_firmware_account": "Compte Jackery (e-mail ou téléphone)",
+                    "cloud_firmware_password": "Mot de passe du compte Jackery",
+                    "cloud_firmware_region": "Région du compte Jackery",
+                    "clear_cloud_firmware_credentials": "Supprimer les identifiants Jackery enregistrés",
                     "protocol_discovery_enabled": "Découverte expérimentale du protocole avec enregistrement persistant des messages MQTT inconnus pertinents",
                     "alert_capture_enabled": "Capture expérimentale des alertes MQTT",
                     "bmslog_capture_enabled": "Activer la capture expérimentale des journaux BMS"
                 },
                 "data_description": {
+                    "cloud_firmware_enabled": "Une fois activée, l'intégration se connecte à Jackery et vérifie l'appareil principal ainsi que chaque batterie d'extension connue toutes les 24 heures. Cette fonction est indépendante du MQTT local et désactivée par défaut.",
+                    "cloud_firmware_password": "Laissez vide pour conserver le mot de passe enregistré. Il est stocké dans cette entrée de configuration Home Assistant et n'est pas inclus dans les diagnostics de l'intégration.",
+                    "cloud_firmware_region": "Code de région Jackery à deux lettres, par exemple DE.",
+                    "clear_cloud_firmware_credentials": "Désactive également les vérifications du micrologiciel si elles sont actuellement activées.",
                     "protocol_discovery_enabled": "Enregistre de façon persistante des observations structurelles limitées et certaines charges utiles MQTT brutes. Ces données peuvent contenir des informations sensibles ; vérifiez soigneusement le diagnostic avant de le partager.",
                     "alert_capture_enabled": "Enregistre passivement et localement les messages d’alerte MQTT inconnus sous forme de données brutes limitées. Elles peuvent contenir des informations sensibles et doivent être vérifiées avant tout partage. Recommandé uniquement aux développeurs et testeurs.",
                     "bmslog_capture_enabled": "Enregistre passivement le topic /bmslog exact de l’appareil configuré sous forme de données brutes limitées. Les charges utiles peuvent contenir des informations sensibles à vérifier avant tout partage. Désactivé par défaut."
                 }
             }
+        },
+        "error": {
+            "invalid_cloud_account": "Saisissez le compte utilisé dans l'application Jackery.",
+            "invalid_cloud_password": "Saisissez le mot de passe du compte Jackery.",
+            "invalid_cloud_region": "Saisissez un code de région à deux lettres, par exemple DE.",
+            "cloud_credentials_required": "Désactivez les vérifications du micrologiciel avant de supprimer les identifiants enregistrés."
         }
     },
     "entity": {
@@ -118,6 +133,9 @@
             }
         },
         "sensor": {
+            "cloud_firmware": {
+                "name": "Micrologiciel"
+            },
             "battery_soc": {
                 "name": "Niveau de charge de la batterie principale"
             },
