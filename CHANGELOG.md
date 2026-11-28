@@ -7,6 +7,11 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve expansion-battery Cloud Firmware sensor identities during child
+  registry migration so their presence does not block MQTT battery sensors.
+
 ## [3.1.1] - 2026-11-27
 
 ### Fixed

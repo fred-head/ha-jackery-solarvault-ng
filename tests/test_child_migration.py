@@ -11,7 +11,7 @@ from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers import label_registry as lr
 
 from custom_components.jackery import DOMAIN, _migrate_unique_ids
-from custom_components.jackery.child_migration import migrate_child_identities
+from custom_components.jackery.child_migration import _known_field, migrate_child_identities
 from custom_components.jackery.identity import child_device_identifier, child_unique_id, http_unique_id
 from custom_components.jackery.sensor import SMARTMETER_HTTP_SENSOR_CONFIGS, SUBDEVICE_SENSORS
 
@@ -24,6 +24,16 @@ FAMILIES = {
     "battery": "expansion_battery", "ct": "ct", "smartmeter": "ct_3phase",
     "collector": "collector", "plug": "plug",
 }
+
+
+def test_cloud_firmware_is_known_only_in_battery_sensor_context():
+    keys = {"battery": {"charge_energy", "discharge_energy"}}
+
+    assert _known_field("sensor", "battery", "cloudfirmware", keys, set())
+    assert _known_field("sensor", "battery", "chargeenergy", keys, set())
+    assert not _known_field("sensor", "battery", "newfield", keys, set())
+    assert not _known_field("sensor", "plug", "cloudfirmware", keys, set())
+    assert not _known_field("switch", "battery", "cloudfirmware", keys, set())
 
 
 def snapshot(record, *excluded):
@@ -97,6 +107,29 @@ async def test_all_fields_migrate_in_place_with_all_settings(hass, registry_entr
     after = [snapshot(entities.async_get(e.entity_id)) for e, _ in records], snapshot(after_device)
     assert migrate_child_identities(hass, entry).allows("lower_12:%")
     assert ([snapshot(entities.async_get(e.entity_id)) for e, _ in records], snapshot(devices.async_get(device.id))) == after
+
+
+async def test_battery_cloud_firmware_entity_does_not_block_child_migration(hass, registry_entries):
+    """The diagnostic cloud entity shares the battery device but is not an MQTT field."""
+    entry, _ = registry_entries
+    serial = "BATTERY0001"
+    device, records = seed_child(hass, entry, serial=serial, family="battery")
+    entities = er.async_get(hass)
+    cloud_uid = child_unique_id(HOSTS[0], serial, "battery", "cloudfirmware")
+    cloud_entity = entities.async_get_or_create(
+        "sensor",
+        DOMAIN,
+        cloud_uid,
+        config_entry=entry,
+        device_id=device.id,
+    )
+
+    result = migrate_child_identities(hass, entry)
+
+    assert result.allows(serial)
+    assert entities.async_get(cloud_entity.entity_id).unique_id == cloud_uid
+    for record, target in records:
+        assert entities.async_get(record.entity_id).unique_id == target
 
 
 @pytest.mark.parametrize("stage", ["device_first", "entity_first", "some_entities", "all_entities", "both_identifiers"])
