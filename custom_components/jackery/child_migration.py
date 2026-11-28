@@ -206,6 +206,9 @@ def _known_field(domain: str, family: str, key: str, keys: dict[str, set[str]], 
     """Use the same HA domain and canonical field tokens as entity creation."""
     return (
         (domain == "sensor" and family in keys and key in {k.replace("_", "") for k in keys[family]})
+        # Cloud firmware is a separate diagnostic entity rather than an MQTT
+        # expansion-battery field, but it shares the battery's child device.
+        or (domain == "sensor" and family == "battery" and key == "cloudfirmware")
         or (domain == "switch" and family == "plug" and key == "switch")
         or (domain == "sensor" and family == "http" and key in http_keys)
     )
