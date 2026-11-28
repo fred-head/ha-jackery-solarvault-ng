@@ -7,6 +7,8 @@ Changes in **Unreleased** are planned for a future release.
 
 ## [Unreleased]
 
+## [3.1.2] - 2026-11-28
+
 ### Fixed
 
 - Preserve expansion-battery Cloud Firmware sensor identities during child
